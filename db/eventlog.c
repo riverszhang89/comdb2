@@ -7,7 +7,7 @@
 #include <sys/time.h>
 #include <inttypes.h>
 
-#include <zlib.h>
+#include <lz4frame.h>
 
 #include "reqlog_int.h"
 #include "eventlog.h"
@@ -19,15 +19,23 @@
 
 static char* eventlog_fname(const char *dbname);
 static int eventlog_nkeep = 10;
-static int eventlog_rollat = 1024*1024*1024;
+static int eventlog_rollat = 16*1024*1024;
 static int eventlog_enabled = 1;
 static int eventlog_detailed = 0;
-static int64_t bytes_written = 0;
+static int64_t log_bytes_written = 0;
 static int eventlog_verbose = 0;
 
-static gzFile eventlog = NULL;
+/* lz4 state */
+#define LZ4CHUNKSZ 4096
+static LZ4F_compressionContext_t lz4context;
+static size_t lz4off;
+static size_t lz4bufsz;
+static uint8_t *lz4buf;
+static LZ4F_preferences_t lz4pref = {0};
+
+static FILE *eventlog = NULL;
 static pthread_mutex_t eventlog_lk = PTHREAD_MUTEX_INITIALIZER;
-static gzFile eventlog_open(void);
+static FILE *eventlog_open(void);
 int eventlog_every_n = 1;
 int64_t eventlog_count = 0;
 
@@ -46,27 +54,49 @@ static hash_t *seen_sql;
 void eventlog_init(const char *dbname) {
     seen_sql = hash_init_o(offsetof(struct sqltrack, fingerprint), 16);
     listc_init(&sql_statements, offsetof(struct sqltrack, lnk));
+    lz4off = 0;
+    lz4bufsz = LZ4F_compressBound(LZ4CHUNKSZ, &lz4pref) + LZ4F_HEADER_SIZE_MAX;
+    lz4buf = malloc(lz4bufsz);
+    if (lz4buf == NULL) {
+        logmsg(LOGMSG_ERROR, "Can't allocate buffer (%zd bytes) for logging\n", lz4bufsz);
+        abort();
+    }
+    if (LZ4F_createCompressionContext(&lz4context, LZ4F_VERSION)) {
+        logmsg(LOGMSG_ERROR, "Can't allocate compression context\n", lz4bufsz);
+        abort();
+    }
     if (eventlog_enabled)
         eventlog = eventlog_open();
 }
 
-static gzFile eventlog_open() {
+static FILE *eventlog_open() {
     char *fname = eventlog_fname(thedb->envname);
-    gzFile f = gzopen(fname, "2w");
+    FILE *f = fopen(fname, "w");
     free(fname);
     if (f == NULL) {
         eventlog_enabled = 0;
         return NULL;
     }
+    lz4off = LZ4F_compressBegin(lz4context, lz4buf, lz4bufsz, &lz4pref);
     return f;
 }
 
 static void eventlog_close(void) {
     if (eventlog == NULL)
         return;
-    gzclose(eventlog);
+    int bytes = LZ4F_compressEnd(lz4context, lz4buf, lz4bufsz - lz4off, NULL);
+    if (LZ4F_isError(bytes)) {
+        logmsg(LOGMSG_ERROR, "LZ4F_compressEnd %d %s\n", bytes, LZ4F_getErrorName(bytes));
+        eventlog_enabled = 0;
+        eventlog_close();
+        return;
+    }
+    else if (bytes)
+        fwrite(lz4buf + lz4off, bytes, 1, eventlog);
+    fclose(eventlog);
     eventlog = NULL;
-    bytes_written = 0;
+    log_bytes_written = 0;
+    lz4off = 0;
     struct sqltrack *t = listc_rtl(&sql_statements);
     while (t) {
         hash_del(seen_sql, t);
@@ -175,9 +205,26 @@ void eventlog_perfdata(cson_object *obj, const struct reqlogger *logger) {
 }
 
 int write_json( void * state, const void *src, unsigned int n ) {
-    int rc = gzwrite((gzFile) state, src, n);
-    bytes_written += rc;
-    return rc != n;
+    /* TODO: we can only call lz4 in chunks of up to LZ4CHUNKSZ, so we may need several passes */
+    int bytes_compressed = LZ4F_compressUpdate(lz4context, lz4buf + lz4off, lz4bufsz - lz4off, src, n, NULL);
+    if (LZ4F_isError(bytes_compressed)) {
+        logmsg(LOGMSG_ERROR, "failed to compress logging data, disabling logging: %d %s\n", bytes_compressed, LZ4F_getErrorName(bytes_compressed));
+        abort();
+        eventlog_enabled = 0;
+        return cson_rc.IOError;
+    }
+    lz4off += bytes_compressed;
+    if (bytes_compressed > 0) {
+        int rc = fwrite(lz4buf, 1, lz4off, eventlog);
+        if (rc != bytes_compressed) {
+            fprintf(stderr, "write rc %d expected %d\n", rc, bytes_compressed);
+        }
+        lz4off = 0;
+    }
+
+    log_bytes_written += n;
+
+    return 0;
 }
 
 int write_logmsg(void *state, const void *src, unsigned int n) {
@@ -324,7 +371,7 @@ void eventlog_add(const struct reqlogger *logger) {
         pthread_mutex_unlock(&eventlog_lk);
         return;
     }
-    if (bytes_written > eventlog_rollat) {
+    if (log_bytes_written > eventlog_rollat) {
         eventlog_roll();
     }
     pthread_mutex_unlock(&eventlog_lk);
@@ -357,7 +404,7 @@ static void eventlog_disable(void) {
     eventlog_close();
     eventlog = NULL;
     eventlog_enabled = 0;
-    bytes_written = 0;
+    log_bytes_written = 0;
 }
 
 void eventlog_stop(void) {
@@ -455,7 +502,7 @@ void eventlog_process_message_locked(char *line, int lline, int *toff) {
             return;
         }
     } else if (tokcmp(tok, ltok, "flush") == 0) {
-        gzflush(eventlog, 1);
+        /* HERE: flush */
     } else {
         logmsg(LOGMSG_ERROR, "Unknown eventlog command\n");
         return;
