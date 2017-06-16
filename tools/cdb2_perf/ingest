@@ -1,0 +1,3 @@
+#!/bin/bash
+
+parallel --bar --no-notice -j 5 ../cdb2perf >/dev/null ::: *.events.*

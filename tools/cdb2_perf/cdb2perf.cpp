@@ -12,6 +12,7 @@
 #include <map>
 #include <uuid/uuid.h>
 #include <limits.h>
+#include <libgen.h>
 
 
 // Try to record the streams of logged database queries efficiently. There's too much data to log and 
@@ -357,10 +358,21 @@ int main(int argc, char *argv[]) {
         std::cerr << "Usage: file" << std::endl;
         return 1;
     }
-    char *fname = argv[1];
+    std::string fname = argv[1];
+    std::string dbname;
 
-    dbstream db("mikedb", fname);
-    gzFile ingz = gzopen(fname, "r");
+    dbname = std::string(basename(strdup(fname.c_str())));
+
+    size_t pos = dbname.find_first_of(".");
+    if (pos != fname.npos) {
+        dbname = fname.substr(0, pos);
+    }
+    else
+        dbname = "<unknown>";
+
+    dbstream db(dbname, fname);
+
+    gzFile ingz = gzopen(fname.c_str(), "r");
 
     char buf[1024];
     int bytes = 0;
@@ -372,6 +384,7 @@ int main(int argc, char *argv[]) {
     }
     gzclose(ingz);
 
+    std::cout << "compressed size " << block.str().size() << std::endl;
     int rc = cdb2_open(&db.dbconn, "comdb2perfdb", "local" /* TODO ??? */, 0);
     if (rc) {
         std::cerr << "can't connect to the db" << std::endl;
@@ -392,6 +405,20 @@ int main(int argc, char *argv[]) {
     // record what queries we gathered
     // dump them first 
     dump(db, blockid);
-    store(db, blockid, block.str());
+
+    std::stringstream compressed_block;
+    std::ifstream f;
+    f.open(fname);
+    for (;;) {
+        f.read(buf, sizeof(buf));
+        if (f.gcount() > 0) {
+            compressed_block.write(buf, f.gcount());
+        }
+        else
+            break;
+    }
+    std::cout << "uncompressed size " << compressed_block.str().size() << std::endl;
+    if (db.maxtime != 0)
+        store(db, blockid, compressed_block.str());
     return 0;
 }
