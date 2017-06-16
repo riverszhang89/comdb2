@@ -81,18 +81,22 @@ static FILE *eventlog_open() {
     return f;
 }
 
-static void eventlog_close(void) {
-    if (eventlog == NULL)
-        return;
+static int flush_compression(void) {
     int bytes = LZ4F_compressEnd(lz4context, lz4buf, lz4bufsz - lz4off, NULL);
     if (LZ4F_isError(bytes)) {
         logmsg(LOGMSG_ERROR, "LZ4F_compressEnd %d %s\n", bytes, LZ4F_getErrorName(bytes));
         eventlog_enabled = 0;
-        eventlog_close();
-        return;
+        return 1;
     }
     else if (bytes)
         fwrite(lz4buf + lz4off, bytes, 1, eventlog);
+    return 0;
+}
+
+static void eventlog_close(void) {
+    if (eventlog == NULL)
+        return;
+    flush_compression();
     fclose(eventlog);
     eventlog = NULL;
     log_bytes_written = 0;
@@ -222,7 +226,6 @@ int write_json( void * state, const void *src, unsigned int n ) {
         // printf("pass %d/%d in %d off %d writesz %d compressed %d\n", pass+1, npass, n, inoff, writesz, bytes_compressed);
         if (LZ4F_isError(bytes_compressed)) {
             logmsg(LOGMSG_ERROR, "failed to compress logging data, disabling logging: %d %s\n", bytes_compressed, LZ4F_getErrorName(bytes_compressed));
-            abort();
             eventlog_enabled = 0;
             return cson_rc.IOError;
         }
@@ -516,7 +519,25 @@ void eventlog_process_message_locked(char *line, int lline, int *toff) {
             return;
         }
     } else if (tokcmp(tok, ltok, "flush") == 0) {
-        /* HERE: flush */
+        int bytes_written = LZ4F_flush(lz4context, lz4buf + lz4off, lz4bufsz - lz4off, NULL);
+        if (LZ4F_isError(bytes_written)) {
+            logmsg(LOGMSG_ERROR, "logger flush error: %d %s\n", bytes_written, LZ4F_getErrorName(bytes_written));
+            eventlog_enabled = 0;
+        }
+        if (lz4off + bytes_written) {
+            int rc = fwrite(lz4buf, 1, lz4off + bytes_written, eventlog);
+            if (rc != lz4off + bytes_written) {
+                logmsg(LOGMSG_ERROR, "logger short write on flush, expected %d wrote %d\n", lz4off + bytes_written, rc);
+                eventlog_enabled = 0;
+            }
+            else {
+                lz4off = 0;
+                log_bytes_written += lz4off + bytes_written;
+            }
+        }
+        flush_compression();
+        fflush(eventlog);
+        lz4off = LZ4F_compressBegin(lz4context, lz4buf, lz4bufsz, &lz4pref);
     } else {
         logmsg(LOGMSG_ERROR, "Unknown eventlog command\n");
         return;
