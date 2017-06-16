@@ -205,24 +205,38 @@ void eventlog_perfdata(cson_object *obj, const struct reqlogger *logger) {
 }
 
 int write_json( void * state, const void *src, unsigned int n ) {
-    /* TODO: we can only call lz4 in chunks of up to LZ4CHUNKSZ, so we may need several passes */
-    int bytes_compressed = LZ4F_compressUpdate(lz4context, lz4buf + lz4off, lz4bufsz - lz4off, src, n, NULL);
-    if (LZ4F_isError(bytes_compressed)) {
-        logmsg(LOGMSG_ERROR, "failed to compress logging data, disabling logging: %d %s\n", bytes_compressed, LZ4F_getErrorName(bytes_compressed));
-        abort();
-        eventlog_enabled = 0;
-        return cson_rc.IOError;
-    }
-    lz4off += bytes_compressed;
-    if (bytes_compressed > 0) {
-        int rc = fwrite(lz4buf, 1, lz4off, eventlog);
-        if (rc != bytes_compressed) {
-            fprintf(stderr, "write rc %d expected %d\n", rc, bytes_compressed);
-        }
-        lz4off = 0;
-    }
+    int inoff = 0;
+    int npass = n / LZ4CHUNKSZ;
+    if (n % LZ4CHUNKSZ)
+        npass++;
 
-    log_bytes_written += n;
+    for (int pass = 0; pass < npass; pass++) {
+        int writesz;
+
+        if (pass != npass - 1)
+            writesz = LZ4CHUNKSZ;
+        else
+            writesz = n % LZ4CHUNKSZ;
+
+        int bytes_compressed = LZ4F_compressUpdate(lz4context, lz4buf + lz4off, lz4bufsz - lz4off, (uint8_t*) src + inoff, writesz, NULL);
+        // printf("pass %d/%d in %d off %d writesz %d compressed %d\n", pass+1, npass, n, inoff, writesz, bytes_compressed);
+        if (LZ4F_isError(bytes_compressed)) {
+            logmsg(LOGMSG_ERROR, "failed to compress logging data, disabling logging: %d %s\n", bytes_compressed, LZ4F_getErrorName(bytes_compressed));
+            abort();
+            eventlog_enabled = 0;
+            return cson_rc.IOError;
+        }
+        lz4off += bytes_compressed;
+        if (bytes_compressed > 0) {
+            int rc = fwrite(lz4buf, 1, lz4off, eventlog);
+            if (rc != lz4off) {
+                fprintf(stderr, "write rc %d expected %d\n", rc, bytes_compressed);
+            }
+            lz4off = 0;
+        }
+        inoff += writesz;
+        log_bytes_written += n;
+    }
 
     return 0;
 }
