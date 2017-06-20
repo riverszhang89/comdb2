@@ -1,6 +1,5 @@
 #include <iostream>
 #include <fstream>
-#include <zlib.h>
 #include <cson_amalgamation_core.h>
 #include <cstdio>
 #include <string>
@@ -231,14 +230,7 @@ void handle_sql(dbstream &db, const std::string &blockid, const cson_value *v) {
     }
 }
 
-void process_event(dbstream &db, const std::string &blockid, const std::string &json) {
-    int rc;
-    cson_parse_info info;
-    cson_parse_opt opt = { .maxDepth = 32, .allowComments = 0 };
-    cson_value *v;
-    rc = cson_parse_string(&v, json.c_str(), json.size(), &opt, &info);
-    if (rc)
-        return;
+void process_event(dbstream &db, const std::string &blockid, const cson_value *v) {
 
     const char *s = get_strprop(v, "type");
     if (s == nullptr)
@@ -250,6 +242,36 @@ void process_event(dbstream &db, const std::string &blockid, const std::string &
     }
     else if (type == "sql") {
         handle_sql(db, blockid, v);
+    }
+    else {
+        std::cerr << "Unknown event" << std::endl;
+    }
+}
+
+void process_events(dbstream &db, const std::string &blockid, const std::string &json) {
+    int rc;
+    cson_parse_info info;
+    cson_parse_opt opt = { .maxDepth = 32, .allowComments = 0 };
+    cson_value *v;
+    FILE *f;
+    f = fopen("foo", "w");
+    fprintf(f, "%s", json.c_str());
+    fclose(f);
+    rc = cson_parse_string(&v, json.c_str(), json.size(), &opt, &info);
+    if (rc) {
+        std::cerr << "parse rc " << rc << std::endl;
+        return;
+    }
+    cson_array *ar;
+
+    if (!cson_value_is_array(v))
+        return;
+
+    ar = cson_value_get_array(v);
+    int nent = cson_array_length_get(ar);
+
+    for (int i = 0; i < nent; i++) {
+        process_event(db, blockid, cson_array_get(ar, i));
     }
 }
 
@@ -372,19 +394,12 @@ int main(int argc, char *argv[]) {
 
     dbstream db(dbname, fname);
 
-    gzFile ingz = gzopen(fname.c_str(), "r");
-
-    char buf[1024];
-    int bytes = 0;
-
-    std::stringstream block;
-
-    while ((bytes = gzread(ingz, buf, sizeof(buf))) > 0) {
-        block.write(buf, bytes);
+    std::ifstream in;
+    in.open(fname.c_str());
+    if (!in.is_open()) {
+abort();
     }
-    gzclose(ingz);
 
-    std::cout << "compressed size " << block.str().size() << std::endl;
     int rc = cdb2_open(&db.dbconn, "comdb2perfdb", "local" /* TODO ??? */, 0);
     if (rc) {
         std::cerr << "can't connect to the db" << std::endl;
@@ -397,28 +412,21 @@ int main(int argc, char *argv[]) {
     uuid_generate(blockid_uuid);
     char blockid[37];  // aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
     uuid_unparse(blockid_uuid, blockid);
+
+    std::stringstream block;
     // std::cout << "uuid len " << strlen(blockid) << " " << blockid << std::endl;
     do {
-        getline(block, s);
-        process_event(db, std::string(blockid), s);
-    } while (!block.eof());
+        getline(in, s);
+        block << s;
+    } while (!in.eof());
+
+    process_events(db,blockid, block.str());
+
     // record what queries we gathered
     // dump them first 
     dump(db, blockid);
 
-    std::stringstream compressed_block;
-    std::ifstream f;
-    f.open(fname);
-    for (;;) {
-        f.read(buf, sizeof(buf));
-        if (f.gcount() > 0) {
-            compressed_block.write(buf, f.gcount());
-        }
-        else
-            break;
-    }
-    std::cout << "uncompressed size " << compressed_block.str().size() << std::endl;
     if (db.maxtime != 0)
-        store(db, blockid, compressed_block.str());
+        store(db, blockid, block.str());
     return 0;
 }

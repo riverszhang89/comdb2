@@ -8,7 +8,7 @@ cdb2sql comdb2perfdb 'create table blocks {
         datetimeus start
         datetimeus end
         cstring dbname[33]
-        blob block
+        vutf8 block
     }
 
     keys {
@@ -56,8 +56,8 @@ cdb2sql comdb2perfdb 'create table contexts {
     }
 
     keys {
-        "context" = context + start
-        "contextdb" = context + dbname
+        dup "context" = context + start
+        dup "contextdb" = context + dbname
     }
 }'
 
