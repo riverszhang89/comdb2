@@ -124,6 +124,7 @@ int main(int argc, char *argv[]) {
             query(second);
         }
     }
+    f << "]" << std::endl;
 
     return 0;
 }

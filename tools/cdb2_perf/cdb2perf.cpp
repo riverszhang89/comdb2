@@ -259,7 +259,7 @@ void process_events(dbstream &db, const std::string &blockid, const std::string 
     fclose(f);
     rc = cson_parse_string(&v, json.c_str(), json.size(), &opt, &info);
     if (rc) {
-        std::cerr << "parse rc " << rc << std::endl;
+        std::cerr << db.source << " parse rc " << rc << std::endl;
         return;
     }
     cson_array *ar;
@@ -293,7 +293,7 @@ void dump(dbstream &db, const std::string &blockid) {
 }
 
 bool storeblock(const dbstream &db, const std::string &blockid, std::string block) {
-    const char *sql = "insert into blocks(id, start, end, dbname, block) values(@id, @start, @end, @dbname, @block)";
+    const char *sql = "insert into blocks(id, start, end, dbname, block, granularity) values(@id, @start, @end, @dbname, @block, 0)";
     cdb2_client_datetimeus_t start, end;
     start = totimestamp(db.mintime);
     end = totimestamp(db.maxtime);

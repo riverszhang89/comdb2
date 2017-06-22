@@ -9,6 +9,7 @@ cdb2sql comdb2perfdb 'create table blocks {
         datetimeus end
         cstring dbname[33]
         vutf8 block
+        int granularity      // 0 - all data, otherwise number of seconds sampled
     }
 
     keys {
