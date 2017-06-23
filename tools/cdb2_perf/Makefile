@@ -20,7 +20,7 @@ cdb2perf: $(CDB2PERF_OBJS) $(COMMON_OBJS)
 	g++ -o $@ $(CDB2PERF_OBJS) $(COMMON_OBJS) $(LDFLAGS) $(LIBS)
 
 cdb2rollup: $(CDB2ROLLUP_OBJS) $(COMMON_OBJS)
-	g++ -o $@ $(CDB2PERF_OBJS) $(COMMON_OBJS) $(LDFLAGS) $(LIBS)
+	g++ -o $@ $(CDB2ROLLUP_OBJS) $(COMMON_OBJS) $(LDFLAGS) $(LIBS)
 
 %.o: %.cpp
 	g++ -c $(CXXFLAGS) $< -o $@

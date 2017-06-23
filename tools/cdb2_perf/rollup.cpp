@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "cson_amalgamation_core.h"
+#include "cson_util.h"
 
 typedef int64_t dbtime_t;
 
@@ -138,8 +139,46 @@ struct sql_event {
 typedef std::tuple<std::string /* fingerprint */, std::string /* host */, std::vector<std::string> /* context */> sql_event_key;
 
 sql_event parse_event(cson_value *v) {
+    cson_object *obj;
+    cson_value_fetch_object(v, &obj);
     sql_event ev;
-    return sql_event();
+    get_intprop(v, "time", &ev.time);
+    get_intprop(v, "cost", &ev.cost);
+    get_intprop(v, "rows", &ev.rows);
+    const char *s = get_strprop(v, "fingerprint");
+    if (s) ev.fingerprint = std::string(s);
+    s = get_strprop(v, "host");
+    if (s) ev.host = std::string(s);
+    cson_value *o = cson_object_get_sub2(obj, "perf.runtime");
+    if (o && cson_value_is_integer(o)) ev.runtime = cson_value_get_integer(o);
+    o = cson_object_get_sub2(obj, "perf.lockwaits");
+    if (o && cson_value_is_integer(o)) ev.lockwaits = cson_value_get_integer(o);
+    o = cson_object_get_sub2(obj, "perf.lockwaittime");
+    if (o && cson_value_is_integer(o)) ev.lockwaittime = cson_value_get_integer(o);
+    o = cson_object_get_sub2(obj, "perf.reads");
+    if (o && cson_value_is_integer(o)) ev.reads = cson_value_get_integer(o);
+    o = cson_object_get_sub2(obj, "perf.readtime");
+    if (o && cson_value_is_integer(o)) ev.readtime = cson_value_get_integer(o);
+    o = cson_object_get_sub2(obj, "perf.writes");
+    if (o && cson_value_is_integer(o)) ev.writes = cson_value_get_integer(o);
+    o = cson_object_get_sub2(obj, "perf.writetime");
+    if (o && cson_value_is_integer(o)) ev.writetime = cson_value_get_integer(o);
+    o = cson_object_get(obj, "context");
+    if (o && cson_value_is_array(o)) {
+        cson_array *ar = cson_value_get_array(o);
+        int len = cson_array_length_get(ar);
+        for (int i = 0; i < len; i++) {
+            o = cson_array_get(ar, i);
+            if (cson_value_is_string(o))
+                ev.contexts.push_back(std::string(cson_string_cstr(cson_value_get_string(o))));
+        }
+    }
+
+    return ev;
+}
+std::ostream &operator<<(std::ostream &out, sql_event &e) {
+    out << "[time: " << e.time << " fp: " << e.fingerprint << "]";
+    return out;
 }
 
 void rollup_block_contents(const std::string &olddata, std::string &newdata_out)
@@ -173,12 +212,18 @@ void rollup_block_contents(const std::string &olddata, std::string &newdata_out)
 
         cson_object *obj;
         cson_value_fetch_object(v, &obj);
-        if (cson_object_get(obj, "sql") == nullptr) {
+        if (cson_object_get(obj, "type") == nullptr) {
+            cson_array_append(new_ar, v);
+            continue;
+        }
+        std::string type(get_strprop(v, "type"));
+        if (type != "sql") {
             cson_array_append(new_ar, v);
             continue;
         }
 
         sql_event ev = parse_event(v);
+        std::cout << "    " << ev << std::endl;
     }
 }
 
@@ -242,7 +287,7 @@ void rollup(int rulenum)
 
     int blocknum = 1;
     for (auto i : blocks) {
-        printf("%03d/%03d %s\r", blocknum++, static_cast<int>(blocks.size()),
+        printf("%03d/%03d %s\n", blocknum++, static_cast<int>(blocks.size()),
                i.blockid.c_str());
         fflush(stdout);
         rollup_block(db, i);
