@@ -15,6 +15,7 @@ cdb2sql comdb2perfdb 'create table blocks {
     keys {
         "db" = dbname + start
         "id" = id
+        "gr" = granularity + start + dbname   // this seems like a waste?
     }
 }'
 

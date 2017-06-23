@@ -61,8 +61,9 @@ std::ofstream f;
 
 const char *comma = "";
 void query(int second) {
-    static int64_t start = time(NULL) * 1000000;
-    int64_t querytime = start + second * 1000000 + rand() % 1000000;
+    /* start with a day ago so we can test rolling up stats */
+    static int64_t start = time(NULL) - 86400;
+    int64_t querytime = (start + second) * 1000000 + 1000000 / qps;
     std::stringstream s;
 
     if (!f.is_open()) {
