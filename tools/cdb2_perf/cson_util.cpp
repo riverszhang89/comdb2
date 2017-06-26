@@ -1,4 +1,6 @@
+#include "cson_amalgamation_core.h"
 #include "cson_util.h"
+#include <cstdio>
 
 const char *get_strprop(const cson_value *objval, const char *key) {
     cson_object *obj;
@@ -20,4 +22,3 @@ bool get_intprop(const cson_value *objval, const char *key, int64_t *val) {
     cson_value_fetch_integer(propval, (cson_int_t*) val);
     return true;
 }
-

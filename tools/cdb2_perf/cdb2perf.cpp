@@ -87,8 +87,10 @@ bool db_knows_fingerprint(dbstream &db, std::string &fingerprint)
                     fingerprint.size());
     int rc = cdb2_run_statement(db.dbconn, sql.c_str());
     // Be conservative - if we get an error, assume we don't know about it.
-    if (rc)
+    if (rc) {
+        std::cout << "run rc " << rc << ": " << cdb2_errstr(db.dbconn);
         return false;
+    }
     rc = cdb2_next_record(db.dbconn);
     if (rc == CDB2_OK)
         knows = true;
@@ -157,6 +159,8 @@ void record_new_fingerprint(dbstream &db, int64_t timestamp,
     if (rc)
         std::cerr << "record_new_fingerprint " << fingerprint << " rc " << rc
                   << " " << cdb2_errstr(db.dbconn) << std::endl;
+
+    std::cout << "new sql " << std::endl;
 }
 
 void handle_newsql(dbstream &db, const std::string &blockid,
@@ -166,14 +170,15 @@ void handle_newsql(dbstream &db, const std::string &blockid,
     const char *s;
 
     s = get_strprop(v, "fingerprint");
-    if (s == nullptr)
+    if (s == nullptr) {
         return;
+    }
     std::string fingerprint(s);
     s = get_strprop(v, "sql");
     if (s == NULL)
         return;
     std::string sql(s);
-    if (get_intprop(v, "time", &timestamp))
+    if (!get_intprop(v, "time", &timestamp))
         return;
 
     if (fingerprint_new_to_me(db, fingerprint))
@@ -184,7 +189,7 @@ void handle_newsql(dbstream &db, const std::string &blockid,
 void handle_sql(dbstream &db, const std::string &blockid, const cson_value *v)
 {
     int64_t t;
-    if (get_intprop(v, "time", &t))
+    if (!get_intprop(v, "time", &t))
         return;
     if (t > db.maxtime)
         db.maxtime = t;
@@ -231,8 +236,10 @@ void process_event(dbstream &db, const std::string &blockid,
 {
 
     const char *s = get_strprop(v, "type");
-    if (s == nullptr)
+    if (s == nullptr) {
+        std::cerr << "no specified type" << std::endl;
         return;
+    }
     std::string type(s);
 
     if (type == "newsql") {
@@ -262,8 +269,10 @@ void process_events(dbstream &db, const std::string &blockid,
     }
     cson_array *ar;
 
-    if (!cson_value_is_array(v))
+    if (!cson_value_is_array(v)) {
+        std::cerr << db.source << " unexpected: not an array" << rc << std::endl;
         return;
+    }
 
     ar = cson_value_get_array(v);
     int nent = cson_array_length_get(ar);
