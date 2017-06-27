@@ -294,7 +294,8 @@ void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
         }
     }
     std::cout << nent << " -> " << events.size() << std::endl;
-    exit(1);
+    cson_free_value(newdata);
+    cson_free_value(olddata_value);
 }
 
 void rollup_block(cdb2_hndl_tp *db, const block &b, int rulenum)
@@ -361,7 +362,10 @@ void rollup(int rulenum)
                i.blockid.c_str());
         fflush(stdout);
         rollup_block(db, i, rulenum);
+        break;
     }
+
+    cdb2_close(db);
 }
 
 int main(int argc, char *argv[])
