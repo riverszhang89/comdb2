@@ -24,9 +24,5 @@ cdb2rollup: $(CDB2ROLLUP_OBJS) $(COMMON_OBJS)
 %.o: %.cpp
 	g++ -c $(CXXFLAGS) $< -o $@
 
-%.o: %.c
-	gcc -c $(CFLAGS) $< -o $@
-
-
 clean:  
 	rm -f $(BINARIES) $(OBJS)

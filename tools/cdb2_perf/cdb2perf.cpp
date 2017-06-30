@@ -130,7 +130,17 @@ cdb2_client_datetimeus_t totimestamp(int64_t timestamp)
     out.tm.tm_min = t.tm_min;
     out.tm.tm_sec = t.tm_sec;
     out.usec = timestamp % 1000000;
-    strcpy(out.tzname, "Etc/UTC");
+    strcpy(out.tzname, "America/New_York");
+    return out;
+}
+
+std::ostream &operator<<(std::ostream &out, const cdb2_client_datetimeus_t &t) {
+/* microsecond-precision datetime type definition */
+    char dt[100];
+    sprintf(dt, "%d-%02d-%02dT%02d%02d%02d.%d %s",
+        1900 + t.tm.tm_year, t.tm.tm_mon + 1, t.tm.tm_mday, t.tm.tm_hour, t.tm.tm_min, t.tm.tm_sec, t.usec, t.tzname);
+    out << dt;
+
     return out;
 }
 
@@ -157,10 +167,13 @@ void record_new_fingerprint(dbstream &db, int64_t timestamp,
     if (rc == CDB2ERR_DUPLICATE)
         rc = 0;
     if (rc)
-        std::cerr << "record_new_fingerprint " << fingerprint << " rc " << rc
-                  << " " << cdb2_errstr(db.dbconn) << std::endl;
-
-    std::cout << "new sql " << std::endl;
+        std::cerr << "record_new_fingerprint " << fingerprint << " rc: " << rc
+                  << " err " << cdb2_errstr(db.dbconn) << ": "
+                  << " dbname: " << db.dbname
+                  << " fingerprint: " << fingerprint
+                  << " first_seen: " << t
+                  << " first_seen: " << timestamp
+                  << std::endl;
 }
 
 void handle_newsql(dbstream &db, const std::string &blockid,
@@ -258,10 +271,6 @@ void process_events(dbstream &db, const std::string &blockid,
     cson_parse_info info;
     cson_parse_opt opt = {.maxDepth = 32, .allowComments = 0};
     cson_value *v;
-    FILE *f;
-    f = fopen("foo", "w");
-    fprintf(f, "%s", json.c_str());
-    fclose(f);
     rc = cson_parse_string(&v, json.c_str(), json.size(), &opt, &info);
     if (rc) {
         std::cerr << db.source << " parse rc " << rc << std::endl;

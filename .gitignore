@@ -152,6 +152,9 @@ tags
 dbsize
 callgrind.*
 
+# editor-specific
+.vscode
+
 # Bloomberg-specific
 *.tsk
 *.ibm

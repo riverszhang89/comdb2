@@ -104,7 +104,7 @@ struct rollup_rules {
 
 /* TODO: read from db? */
 rollup_rules rules[] = {
-    {HOUR(8), MINUTE(15)} /* 15 minute intervals after 8 hours */
+    {HOUR(0), MINUTE(15)}
 };
 
 // This is mostly for debugging, since all we really need is a block id.
@@ -138,11 +138,35 @@ struct sql_event {
     int64_t writetime;
 
     int64_t count;
+
+    sql_event() : time(0), cost(0), rows(0), runtime(0), lockwaits(0), lockwaittime(0), reads(0), readtime(0), writes(0), writetime(0), count(1) {}
+
 };
 
 typedef std::tuple<std::string /* fingerprint */, std::string /* host */,
                    std::vector<std::string> /* context */, dbtime_t /* time */>
     sql_event_key;
+
+struct sql_event_key_cmp {
+    int operator()(const sql_event_key &k1, const sql_event_key &k2)
+    {
+        int cmp = std::get<3>(k1) - std::get<3>(k2);
+        if (cmp == 0) return cmp;
+        if (std::get<0>(k1) != std::get<0>(k2))
+            return -1;
+        if (std::get<1>(k1) != std::get<1>(k2))
+            return -1;
+        if (std::get<3>(k1) != std::get<3>(k2))
+            return -1;
+        if (std::get<2>(k1).size() != std::get<2>(k2).size())
+            return -1;
+        for (unsigned i = 0; i < std::get<2>(k1).size(); i++) {
+            if (std::get<2>(k1)[i] != std::get<2>(k2)[i])
+                return -1;
+        }
+        return -1;
+    }
+};
 
 sql_event parse_event(cson_value *v)
 {
@@ -190,7 +214,6 @@ sql_event parse_event(cson_value *v)
                     std::string(cson_string_cstr(cson_value_get_string(o))));
         }
     }
-    ev.count = 0;
 
     return ev;
 }
@@ -228,9 +251,13 @@ sql_event_key evkey(sql_event &e, int rulenum)
     return k;
 }
 
-void tally(std::map<sql_event_key, sql_event>::iterator it) {}
+int cson_to_string( void * state, void const * src, unsigned int n ) {
+    std::stringstream *s = (std::stringstream*) state;
+    (*s) << std::string((char*) src, n);
+    return 0;
+}
 
-void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
+void rollup_block_contents(const std::string &blockid, const std::string &olddata, std::string &newdata_out,
                            int rulenum)
 {
     int rc;
@@ -244,14 +271,13 @@ void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
     if (rc || !cson_value_is_array(olddata_value))
         throw cson_exception(rc);
     cson_array *old_ar = cson_value_get_array(olddata_value);
-    ;
     int nent = cson_array_length_get(old_ar);
 
     newdata = cson_value_new_array();
     cson_array *new_ar = cson_value_get_array(newdata);
     cson_array_reserve(new_ar, nent);
 
-    std::map<sql_event_key, sql_event> events;
+    std::map<sql_event_key, sql_event, sql_event_key_cmp> events;
 
     for (int i = 0; i < nent; i++) {
         cson_value *v;
@@ -278,11 +304,9 @@ void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
         sql_event_key k = evkey(ev, rulenum);
         auto fnd = events.find(k);
         if (fnd == events.end()) {
-            // std::cout << k << " new" << std::endl;
             ev.time = roundtime(ev.time, rules[rulenum].granularity);
             events.insert(std::pair<sql_event_key, sql_event>(k, ev));
         } else {
-            // std::cout << k << " consolidate" << std::endl;
             fnd->second.count++;
             fnd->second.rows += ev.rows;
             fnd->second.runtime += ev.runtime;
@@ -293,8 +317,49 @@ void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
             fnd->second.writes += ev.writetime;
         }
     }
-    std::cout << nent << " -> " << events.size() << std::endl;
+
+#if 0
+    std::vector<sql_event> ev;
+    ev.reserve(events.size());
+    for (auto it : events) {
+        ev.push_back(it.second);
+    }
+    std::sort(ev.begin(), ev.end());
+#endif
+
+    for (auto it : events) {
+        cson_value *v = cson_value_new_object();
+        cson_object *o  = cson_value_get_object(v);
+        const sql_event &ev = it.second;
+
+        cson_object_set(o, "time", cson_new_int(ev.time));
+        cson_object_set(o, "cost", cson_new_double(ev.cost));
+        cson_object_set(o, "fingerprint", cson_value_new_string(ev.fingerprint.c_str(), ev.fingerprint.size()));
+        cson_object_set(o, "host", cson_value_new_string(ev.host.c_str(), ev.host.size()));
+        cson_array *ar;
+        ar = cson_new_array();
+        for (auto c : ev.contexts) {
+            cson_array_append(ar, cson_value_new_string(c.c_str(), c.size()));
+        }
+        cson_object_set(o, "contexts", cson_array_value(ar));
+
+        cson_object_set(o, "rows", cson_value_new_integer(ev.rows / ev.count));
+        cson_object_set(o, "runtime", cson_value_new_integer(ev.runtime / ev.count));
+        cson_object_set(o, "lockwaits", cson_value_new_integer(ev.lockwaits / ev.count));
+        cson_object_set(o, "lockwaittime", cson_value_new_integer(ev.lockwaittime / ev.count));
+        cson_object_set(o, "reads", cson_value_new_integer(ev.reads / ev.count));
+        cson_object_set(o, "readtime", cson_value_new_integer(ev.readtime / ev.count));
+        cson_object_set(o, "writes", cson_value_new_integer(ev.rows / ev.count));
+        cson_object_set(o, "writetime", cson_value_new_integer(ev.rows / ev.count));
+        cson_array_append(new_ar, v);
+    }
+
+    cson_output_opt outopt = { 0, 255, 0, 0, 0, 0 };
+    std::cout << "  " << nent << " -> " << events.size() << std::endl;
+    std::stringstream s;
+    cson_output(newdata, cson_to_string, &s, &outopt);
     cson_free_value(newdata);
+    newdata_out = s.str();
     cson_free_value(olddata_value);
 }
 
@@ -313,20 +378,35 @@ void rollup_block(cdb2_hndl_tp *db, const block &b, int rulenum)
         throw cdb2_exception(rc, db, "retrieve block record");
     std::string blockdata = std::string((char *)cdb2_column_value(db, 0));
     std::string newdata;
-    rollup_block_contents(blockdata, newdata, rulenum);
+    std::cout << b.blockid;
+    rollup_block_contents(b.blockid, blockdata, newdata, rulenum);
     rc = cdb2_next_record(db);
     if (rc != CDB2_OK_DONE)
         throw cdb2_exception(rc, db, "unexpected block record");
+    cdb2_clearbindings(db);
+    cdb2_bind_param(db, "block", CDB2_CSTRING, newdata.c_str(), newdata.size());
+    cdb2_bind_param(db, "granularity", CDB2_INTEGER, &rules[rulenum].granularity, sizeof(int64_t));
+    cdb2_bind_param(db, "id", CDB2_CSTRING, b.blockid.c_str(), b.blockid.size());
+    rc = cdb2_run_statement(db, "update blocks set block = @block, granularity = @granularity where id = @id");
+    if (rc) 
+        throw cdb2_exception(rc, db, "updating section");
 }
 
-void rollup(int rulenum)
+void rollup(int rulenum, const std::string &blockid = "")
 {
     cdb2_hndl_tp *db;
     int rc;
 
     rc = cdb2_open(&db, "comdb2perfdb", "local" /*TODO*/, 0);
-    if (rc)
-        throw cdb2_exception(rc, db, "connect");
+    if (rc) throw cdb2_exception(rc, db, "connect");
+
+    if (!blockid.empty()) {
+        block b{0, 0, blockid};
+        rollup_block(db, b, 0);
+        cdb2_close(db);
+        return;
+    }
+
     // we can get the block contents in one shot, but I want to see progress
     cdb2_bind_param(db, "ago", CDB2_INTEGER, &rules[rulenum].age,
                     sizeof(int64_t));
@@ -335,10 +415,9 @@ void rollup(int rulenum)
     rc = cdb2_run_statement(db,
                             "select id, cast(start as int) from blocks where "
                             "start < now() - cast(@ago as seconds) or end < "
-                            "now() - cast(@ago as seconds) and granularity = "
+                            "now() - cast(@ago as seconds) and granularity < "
                             "@granularity order by start");
-    if (rc)
-        throw cdb2_exception(rc, db, "find blocks");
+    if (rc) throw cdb2_exception(rc, db, "find blocks");
 
     // We are going to assign each block we found older than the policy age to a
     // group of similarly aged blocks
@@ -356,24 +435,23 @@ void rollup(int rulenum)
         throw cdb2_exception(rc, db, "retrieve block ids");
     }
 
-    int blocknum = 1;
-    for (auto i : blocks) {
-        printf("%03d/%03d %s\n", blocknum++, static_cast<int>(blocks.size()),
-               i.blockid.c_str());
-        fflush(stdout);
+    for (auto i : blocks)
         rollup_block(db, i, rulenum);
-        break;
-    }
 
     cdb2_close(db);
 }
 
 int main(int argc, char *argv[])
 {
-    try {
+    if (argc != 1) {
+        for (int i = 1; i < argc; i++)
+          rollup(0, std::string(argv[i]));
+    } else {
+      try {
         rollup(0);
-    } catch (cdb2_exception std) {
+      } catch (cdb2_exception std) {
         std::cerr << "error: " << std.what() << std::endl;
+      }
     }
     return 0;
 }
