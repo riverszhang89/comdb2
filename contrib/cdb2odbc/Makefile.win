@@ -1,0 +1,9 @@
+PREFIX=.\
+CC=cl.exe
+CFLAGS=
+
+AR=lib.exe
+LD=link.exe /DLL
+
+CLEAN:
+	-@ERASE /Q *.obj $(PREFIX)\*.dll $(PREFIX)\*.lib
