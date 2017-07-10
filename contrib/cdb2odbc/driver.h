@@ -20,17 +20,22 @@
 # define inline __inline
 # define WIN32_LEAN_AND_MEAN
 # define _CRT_SECURE_NO_WARNINGS
-# define strcasecmp _stricmp
-# define strncasecmp _strnicmp
-# define strtok_r strtok_s
-# define snprintf sprintf_s
 # include <windows.h>
 #endif
 
 #include <string.h>
 #ifdef __WINDOWS__
 # define strdup _strdup
+# define strcasecmp _stricmp
+# define strncasecmp _strnicmp
+# define strtok_r strtok_s
 #endif
+
+#include <stdio.h>
+#if defined(__WINDOWS__) && !defined(snprintf)
+# define snprintf sprintf_s
+#endif
+
 #include <stdlib.h>
 #include <stdbool.h>
 #include <ctype.h>

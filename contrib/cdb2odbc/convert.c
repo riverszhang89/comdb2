@@ -62,7 +62,7 @@ conv_resp convert_cdb2datetime(const void *value, int size, SQLSMALLINT c_data_t
 
         case SQL_C_WCHAR:
             *str_len = swprintf((wchar_t *)target_ptr, target_len / sizeof(wchar_t),
-                    L"%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%.3d %.*s", datetime->tm.tm_year + 1900,
+                    L"%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%.3d %.*hs", datetime->tm.tm_year + 1900,
                     datetime->tm.tm_mon + 1, datetime->tm.tm_mday, datetime->tm.tm_hour,
                     datetime->tm.tm_min, datetime->tm.tm_sec, datetime->msec, CDB2_MAX_TZNAME, datetime->tzname);
             if(*str_len >= target_len / (SQLLEN)sizeof(wchar_t))
