@@ -227,6 +227,8 @@ static unsigned int column_size(cdb2_hndl_tp *sqlh, int col)
             return MAX_DS_DISPLAY_SIZE;
 
         default:
+            /* XXX - ODBC requires us to return the length of the longest string
+               or blob here. Can't be done in comdb2 unless reading all rows. */
             return cdb2_column_size(sqlh, col);
     }
 }
@@ -258,7 +260,9 @@ static unsigned int display_size(cdb2_hndl_tp *sqlh, int col)
             return MAX_DS_DISPLAY_SIZE;
 
         default:
-            return 16;
+            /* XXX - ODBC requires us to return the length of the longest string
+               or blob here. Can't be done in comdb2 unless reading all rows. */
+            return cdb2_column_size(sqlh, col);
     }
 }
 
@@ -406,10 +410,8 @@ SQLRETURN SQL_API SQLColAttribute(SQLHSTMT      hstmt,
     }
 
 
+    /* http://msdn.microsoft.com/en-us/library/ms713558(v=vs.85).aspx */
     switch(field) {
-
-        /* http://msdn.microsoft.com/en-us/library/ms713558(v=vs.85).aspx */
-
         case SQL_DESC_AUTO_UNIQUE_VALUE:
             break;
         case SQL_DESC_BASE_COLUMN_NAME:

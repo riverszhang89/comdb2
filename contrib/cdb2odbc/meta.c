@@ -164,64 +164,40 @@ SQLRETURN SQL_API SQLTables(
         SQLSMALLINT    tbl_tp_len)
 {
     stmt_t *phstmt = (stmt_t *)hstmt;
-    char query_tables[MAX_INTERNAL_QUERY_LEN], clause[MAX_INTERNAL_QUERY_LEN],
-         *sel_fmt = "SELECT '%s' AS TABLE_CAT, NULL AS TABLE_SCHEM, %s AS TABLE_NAME, "
-             "%s as TABLE_TYPE, NULL AS REMARKS";
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+    size_t pos;
 
     if(!hstmt)
         return SQL_INVALID_HANDLE;
 
-    if(catalog && strcmp((char *)catalog, SQL_ALL_CATALOGS) == 0 ||
-            schema && strcmp((char *)schema, SQL_ALL_SCHEMAS) == 0) {
-        sprintf(query_tables, sel_fmt, phstmt->dbc->ci.database, "NULL", "NULL");
-    } else {
-        sprintf(query_tables, sel_fmt, phstmt->dbc->ci.database, "name", "type");
-        strcat(query_tables, " FROM sqlite_master");
-        clause[0] = '\0';
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
 
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "name as TABLE_NAME, UPPER(type) AS TABLE_TYPE,"
+                   "null AS REMARKS FROM sqlite_master WHERE 1=1",
+                   phstmt->dbc->ci.database,
+                   phstmt->dbc->ci.cluster);
 
-        if(catalog || schema)
-            __warn("Catalog and schema will be ignored.");
-
-        /* Check string length. */
-        if(tbl) {
-            if(tbl_len == SQL_NTS)
-                tbl_len = (SQLSMALLINT)strlen((char *)tbl);
-
-            if(tbl_len < 0)
-                return STMT_ODBC_ERR(ERROR_INVALID_LENGTH);
-
-            if(tbl_len > 0) {
-                strcat(clause, "name LIKE '");
-                strcat(clause, (char *)tbl);
-                strcat(clause, "'");
-            }
-        } 
-
-        if(tbl_tp) {
-            if(tbl_tp_len == SQL_NTS)
-                tbl_tp_len = (SQLSMALLINT)strlen((char *)tbl_tp);
-
-            if(tbl_tp_len < 0)
-                return STMT_ODBC_ERR(ERROR_INVALID_LENGTH);
-
-            if(tbl_tp_len > 0) {
-                if(strlen(clause))
-                    strcat(clause, " AND ");
-
-                strcat(clause, "type LIKE '");
-                strcat(clause, (char *)tbl_tp);
-                strcat(clause, "'");
-            }
-        }
-
-        if(strlen(clause)) {
-            strcat(query_tables, " WHERE ");
-            strcat(query_tables, clause);
-        }
+    if (tbl != NULL) {
+        if (tbl_len == SQL_NTS)
+            tbl_len = (SQLSMALLINT)strlen(tbl);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND TABLE_NAME LIKE '%*s'", tbl_len, tbl);
     }
 
-    return comdb2_SQLExecDirect(phstmt, (SQLCHAR *)query_tables, SQL_NTS);
+    if (tbl_tp != NULL) {
+        if (tbl_tp_len == SQL_NTS)
+            tbl_tp_len = strlen(tbl_tp);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND TABLE_TYPE LIKE '%*s'", tbl_tp_len, tbl_tp);
+    }
+    return comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
 }
 
 SQLRETURN SQL_API SQLColumns(
@@ -235,5 +211,50 @@ SQLRETURN SQL_API SQLColumns(
         SQLCHAR *      column,
         SQLSMALLINT    column_len)
 {
-    NOT_IMPL_STMT((stmt_t *)hstmt);
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+    size_t pos = 0;
+
+    __debug("enters method.");
+    __debug("table name is %s, len is %d", tbl, tbl_len);
+
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "tablename AS TABLE_NAME, columnname AS COLUMN_NAME,"
+                   "0 AS DATA_TYPE," /* <-- We will convert it later */
+                   "type AS TYPE_NAME, (size - 1) AS COLUMN_SIZE, "
+                   "size AS BUFFER_LENGTH, NULL AS DECIMAL_DIGITS,"
+                   "10 AS NUM_PREC_RADIX, "
+                   "(UPPER(isnullable) == 'Y') AS NULLABLE, null AS REMARKS,"
+                   "trim(defaultvalue) AS COLUMN_DEF, 0 AS SQL_DATA_TYPE,"
+                   "0 AS SQL_DATETIME_SUB, size AS CHAR_OCTET_LENGTH,"
+                   "0 AS ORDINAL_POSITION," /* <-- We will convert it later */
+                   "CASE WHEN (UPPER(isnullable) == 'Y') THEN 'YES' ELSE 'NO' END AS IS_NULLABLE,"
+                   "sqltype " /* <-- Convert this to DATA_TYPE */
+                   "FROM comdb2sys_columns WHERE 1=1",
+                   phstmt->dbc->ci.database,
+                   phstmt->dbc->ci.cluster);
+
+    if (tbl != NULL) {
+        if (tbl_len == SQL_NTS)
+            tbl_len = (SQLSMALLINT)strlen(tbl);
+        pos += snprintf(&(metaquery[pos]), MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND TABLE_NAME LIKE '%*s'", tbl_len, tbl);
+    }
+
+    if (column != NULL) {
+        if (column_len == SQL_NTS)
+            column_len = (SQLSMALLINT)strlen(column);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND COLUMN_NAME LIKE '%*s'", column_len, column);
+    }
+
+    return comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
 }

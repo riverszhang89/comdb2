@@ -1,5 +1,5 @@
-#ifndef _LOG_
-#define _LOG_
+#ifndef _LOG_H_
+#define _LOG_H_
 
 /* Windows before 10 does not understand ASCII color codes. */
 #if defined(__WINDOWS__) && defined(__COLORFUL__)
@@ -51,7 +51,7 @@
      if(lvl >= LOG_LVL) {   \
          printf("[COMDB2-ODBC][%s" NRM "][" \
                  MAG "%s" NRM"][" MAG "%s" NRM "] at line " MAG "%d" NRM ": ", flag, __FILE__ , __func__, __LINE__); \
-         printf(fmt, __VA_ARGS__);   \
+         printf(fmt, ##__VA_ARGS__);   \
          printf("\n");  \
      }  \
 } while(0)

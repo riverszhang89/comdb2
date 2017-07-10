@@ -41,6 +41,9 @@
 #include <ctype.h>
 #include <wchar.h>
 
+/* Define it before #include <sql.h> */
+#define ODBCVER         0x0350
+#define DRVODBCVER      "03.50"
 #include <sql.h>
 #include <sqlext.h>
 #ifndef SQL_API
@@ -60,22 +63,19 @@
 #define DRVVER          "1.0.0"
 #define DBNAME          "COMDB2"
 #define DBVER           "R5"
-
-#undef ODBCVER
-#define ODBCVER         0x0350
-#define DRVODBCVER      "03.50"
-
 #define DRV_FILE_NAME   "libcomdb2odbc.so"
 
 /* ================== Limits start ================ */
 
 #define MAX_NUMERIC_LEN 128
 #define MAX_CONN_ATTR_LEN 256
-#define MAX_CONN_INFO_LEN 2048 
-#define MAX_INTERNAL_QUERY_LEN 2048 
+#define MAX_CONN_INFO_LEN 2048
+#define MAX_TABLE_LEN 256
+#define MAX_COLUMN_LEN 256
+#define MAX_INTERNAL_QUERY_LEN 2048
 
-#define MAX_INT64_DIGITS 20
-#define MAX_INT64_DISPLAY_SIZE 20
+#define MAX_INT64_DIGITS 19
+#define MAX_INT64_DISPLAY_SIZE 19
 #define MAX_INT64_STR_LEN MAX_INT64_DISPLAY_SIZE + 1
 #define MAX_DBL_DIGITS 15
 #define MAX_DBL_DISPLAY_SIZE 24

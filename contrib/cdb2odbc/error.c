@@ -48,6 +48,9 @@ SQLRETURN comdb2_set_error(struct err **err, errid_t errid, const char *customiz
     SQLRETURN retcode;
     struct err *deref_err;
 
+    __debug("enters method.");
+    __debug("errid = %d, custom msg = %s", errid, customized_msg);
+
     if(!err)
         return SQL_INVALID_HANDLE;
 
@@ -96,9 +99,15 @@ SQLRETURN SQL_API SQLGetDiagRec(SQLSMALLINT     handle_type,
     err_t *err;
 
     __debug("enters method.");
+    __debug("handle_type is %d, sql_state is %s, native_ptr is %p, recno is %d",
+            handle_type, sql_state, native_ptr, rec_no);
 
     if(!hndl)
         return SQL_INVALID_HANDLE;
+
+    /* We only support 1 error per handle. */
+    if (rec_no > 1)
+        return SQL_NO_DATA;
     
     if(!sql_state || !native_ptr || msg_max < 0 || rec_no > 1)
         return SQL_ERROR;
@@ -117,6 +126,8 @@ SQLRETURN SQL_API SQLGetDiagRec(SQLSMALLINT     handle_type,
         default:
             return SQL_ERROR;
     }
+
+    __debug("sql state %s", err->sql_state);
 
     if(!err->sql_state || !strlen(err->sql_state))
         return SQL_NO_DATA;
@@ -142,5 +153,6 @@ SQLRETURN SQL_API SQLGetDiagField(SQLSMALLINT   handle_type,
                                   SQLSMALLINT   *diag_len)
 {
     /* TODO Not implemented yet. We keep this stub because unixODBC need it. */
+    __debug("enters method.");
     NOT_IMPL;
 }
