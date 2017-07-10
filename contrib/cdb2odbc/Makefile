@@ -44,7 +44,7 @@ $(LIBRARY): $(OBJECTS)
 	$(CC) $(SHARED) $(LDFLAGS) $^ -o $@
 
 install: $(LIBRARY)
-	install -D $^ $(PREFIX)/lib
+	install -m 644 -D $^ $(PREFIX)/lib
 
 .PHONY: clean
 clean:
