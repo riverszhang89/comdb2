@@ -1,7 +1,5 @@
 #include "convert.h"
 
-#include <math.h>
-
 /*
    Converts a real number to a @c_data_type value. 
 

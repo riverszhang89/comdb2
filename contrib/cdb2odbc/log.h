@@ -1,6 +1,7 @@
 #ifndef _LOG_
 #define _LOG_
 
+/* Windows before 10 does not understand ASCII color codes. */
 #if defined(__WINDOWS__) && defined(__COLORFUL__)
 # undef __COLORFUL__
 #endif
@@ -46,19 +47,19 @@
 #  define LOG_LVL LOG_W
 # endif
  
-# define __log(lvl, flag, ...) do {   \
+# define __log(lvl, flag, fmt, ...) do {   \
      if(lvl >= LOG_LVL) {   \
          printf("[COMDB2-ODBC][%s" NRM "][" \
                  MAG "%s" NRM"][" MAG "%s" NRM "] at line " MAG "%d" NRM ": ", flag, __FILE__ , __func__, __LINE__); \
-         printf(__VA_ARGS__);   \
+         printf(fmt, __VA_ARGS__);   \
          printf("\n");  \
      }  \
 } while(0)
 #endif /* __LOG__ */
 
-# define __debug(fmt, ...) __log(LOG_D, LDEBUG "DEBUG", ## __VA_ARGS)
-# define __info(fmt, ...) __log(LOG_I, LINFO "INFO", ## __VA_ARGS__)
-# define __warn(fmt, ...) __log(LOG_W, LWARN "WARN", ## __VA_ARGS__)
-# define __fatal(fmt, ...) __log(LOG_F, LFATAL "FATAL", ## __VA_ARGS__)
+# define __debug(fmt, ...) __log(LOG_D, LDEBUG "DEBUG", fmt, ## __VA_ARGS__)
+# define __info(fmt, ...) __log(LOG_I, LINFO "INFO", fmt, ## __VA_ARGS__)
+# define __warn(fmt, ...) __log(LOG_W, LWARN "WARN", fmt, ## __VA_ARGS__)
+# define __fatal(fmt, ...) __log(LOG_F, LFATAL "FATAL", fmt, ## __VA_ARGS__)
 
 #endif
