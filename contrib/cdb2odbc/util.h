@@ -1,12 +1,3 @@
-/**
- * @file util.h
- * @description Memory utilities. 
- * @author Rivers Zhang <hzhang320@bloomberg.net>
-
- * @history
- * 16-Jun-2014 Created.
- */
-
 #ifndef _UTIL_H_
 #define _UTIL_H_
 
@@ -35,7 +26,7 @@
  * @type    - type to be allocated.
  * @num     - how many?
  */
-#define my_malloc(type, num) (type *) malloc(sizeof(type) * (num))
+#define my_malloc(type, num) malloc(sizeof(type) * (num))
 
 /**
  * fill @ptr with 0.
@@ -58,7 +49,7 @@
  * @type    - type to be allocated.
  * @num     - how many?
  */
-#define my_calloc(type, num) (type*) calloc(num, sizeof(type))
+#define my_calloc(type, num) calloc(num, sizeof(type))
 
 /**
  * strncpy. It appends a '\0' to dst after copy. It should be used when the length of @dst is given.
@@ -83,7 +74,7 @@ extern char *my_strncpy_out_fn(char *, const char *, int);
  * @len_src - STRING length of @src 
  */
 #define my_strncpy_in(dst, len_dst, src, len_src) do {                      \
-    int len_src_in = (len_src == SQL_NTS) ? strlen(src) : len_src,          \
+    int len_src_in = (int)((len_src == SQL_NTS) ? strlen(src) : len_src),   \
         min_len    = MIN(len_dst - 1, len_src_in);                          \
     if(min_len > 0) { strncpy(dst, src, min_len); (dst)[min_len] = '\0';}   \
 }while(0)
@@ -96,7 +87,7 @@ extern char *my_strncpy_in_fn(char *, int, const char *, int);
 /* Convert @src to @type, return the result in the address pointed to by @dst, and set @len */
 #define CAST_FIXED_LENGTH_TYPE(dst, src, type, len) do {    \
     *((type *)(dst)) = (type)(src);                         \
-    len = sizeof(type);                                     \
+    len = (int)sizeof(type);                                \
 } while(0)
 
 #define SET_SQLREAL(dst, src, len)              CAST_FIXED_LENGTH_TYPE(dst, src, SQLREAL, len)
@@ -115,7 +106,7 @@ extern char *my_strncpy_in_fn(char *, int, const char *, int);
 /* Copy @src to @dst, @buflen characters at most, and set @len. */
 #define SET_CSTRING(dst, src, buflen, len) do {     \
     my_strncpy_out_fn((char *)dst, src, buflen);    \
-    len = strlen(src);                              \
+    len = (int)strlen(src);                         \
 } while(0)
 
 /**

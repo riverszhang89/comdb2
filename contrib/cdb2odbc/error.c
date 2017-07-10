@@ -1,13 +1,6 @@
-/**
- * @file error.c
- * @description
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- * @history
- * 19-Jun-2014 Created.
- */
+#include "driver.h"
 
 #include <string.h>
-#include "driver.h"
 
 const static struct err_msg {
     char *state;        /* sql state */
@@ -55,8 +48,6 @@ SQLRETURN comdb2_set_error(struct err **err, errid_t errid, const char *customiz
     SQLRETURN retcode;
     struct err *deref_err;
 
-    int str_len;
-
     if(!err)
         return SQL_INVALID_HANDLE;
 
@@ -103,7 +94,6 @@ SQLRETURN SQL_API SQLGetDiagRec(SQLSMALLINT     handle_type,
                                 SQLSMALLINT     *msg_len)
 {
     err_t *err;
-    int len;
 
     __debug("enters method.");
 
@@ -137,11 +127,10 @@ SQLRETURN SQL_API SQLGetDiagRec(SQLSMALLINT     handle_type,
 
     if(msg) my_strncpy_out_fn((char *)msg, err->msg, msg_max);
 
-    len = strlen(err->msg);
-    *msg_len = len;
+    *msg_len = (SQLSMALLINT)strlen(err->msg);
 
     __debug("leaves method.");
-    return len >= msg_max ? SQL_SUCCESS_WITH_INFO : SQL_SUCCESS;
+    return SQL_SUCCESS;
 }
 
 SQLRETURN SQL_API SQLGetDiagField(SQLSMALLINT   handle_type, 

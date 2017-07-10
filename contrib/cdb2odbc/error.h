@@ -1,14 +1,3 @@
-/**
- * @file error.h
- * @description 
- * definitions needed by ODBC errors.
- *
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- * @history
- * 20-Jun-2014 Created.
- * 06-Aug-2014 Removed `comdb2_' prefix of error reporting functions.
- */
-
 #ifndef _ERROR_H_
 #define _ERROR_H_
 

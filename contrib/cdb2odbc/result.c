@@ -31,7 +31,7 @@ conv_resp retrieve_and_convert(cdb2_hndl_tp     *sqlh,
     if( (cdb2_type = cdb2_column_type(sqlh, col)) == -1 )
         return CONV_UNKNOWN_CDB2_TYPE;
 
-    if( !(value = cdb2_column_value(sqlh, col)) ) {
+    if((value = cdb2_column_value(sqlh, col)) == NULL) {
         *strlen_or_indicator = SQL_NULL_DATA;
         return CONV_NULL;
     }
@@ -150,13 +150,13 @@ SQLRETURN SQL_API SQLFetch(SQLHSTMT hstmt)
 
     if((rc = cdb2_next_record(phstmt->sqlh)) == CDB2_OK) {
         
-        if(phstmt->num_data_buffers > 0 && (data = phstmt->buffers)) {
+        if(phstmt->num_data_buffers > 0 && (data = phstmt->buffers) != NULL) {
             /* SQLBindCol is called before. */
             for(i = 1; data < phstmt->buffers + phstmt->num_data_buffers; ++data, ++i) {
                 if(!data->used) /* Skip unused data buffer. */
                     continue;
                 
-                if(SQL_FAILED(comdb2_SQLGetData(hstmt, i, data->c_type, data->buffer, data->buffer_length, data->required)))
+                if(SQL_FAILED(comdb2_SQLGetData(hstmt, (SQLUSMALLINT)i, data->c_type, data->buffer, data->buffer_length, data->required)))
                     __warn("Failed to return data in bound column %d", i);
             }
         }
@@ -281,7 +281,7 @@ SQLRETURN SQL_API SQLDescribeCol(SQLHSTMT       hstmt,
     SQLRETURN ret;
     cdb2_hndl_tp *sqlh;
     const char * _column_name;
-    int cdb2_type, length;
+    int cdb2_type;
     
     __debug("enters method.");
 
@@ -303,16 +303,16 @@ SQLRETURN SQL_API SQLDescribeCol(SQLHSTMT       hstmt,
     /* Column name */
     _column_name = cdb2_column_name(sqlh, col);
     if(col_name_len)
-        *col_name_len = strlen(_column_name);
+        *col_name_len = (SQLSMALLINT)strlen(_column_name);
     if(col_name)
         my_strncpy_out_fn((char *)col_name, _column_name, col_name_max);
-    if(strlen(_column_name) >= col_name_max)
+    if((SQLSMALLINT)strlen(_column_name) >= col_name_max)
         STMT_ODBC_ERR(ERROR_STR_TRUNCATED);
 
     /* SQL data type */
     cdb2_type = cdb2_column_type(sqlh, col);
     if(sql_data_type)
-        *sql_data_type = cdb2_to_sql(cdb2_type);
+        *sql_data_type = (SQLSMALLINT)cdb2_to_sql(cdb2_type);
 
     /* Column size - number of digits. So column size of 123.45 is 5 */
     if(col_size)
@@ -498,7 +498,7 @@ SQLRETURN SQL_API SQLNumResultCols(SQLHSTMT hstmt, SQLSMALLINT *count)
     else if (phstmt->status & (STMT_ALLOCATED | STMT_EXECUTING))
         ret = STMT_ODBC_ERR_MSG(ERROR_FUNCTION_SEQ_ERR, "No query is attached or the statement is still executing."); 
     else if(!(phstmt->status & STMT_READY) || SQL_SUCCEEDED((ret = comdb2_SQLExecute(hstmt))))
-        *count = cdb2_numcolumns(phstmt->sqlh);
+        *count = (SQLSMALLINT)cdb2_numcolumns(phstmt->sqlh);
 
     __debug("leaves method.");
     return ret;
@@ -531,7 +531,7 @@ SQLRETURN SQL_API SQLRowCount(SQLHSTMT hstmt, SQLLEN *count)
     if((phstmt->status & STMT_READY) && SQL_FAILED(ret = comdb2_SQLExecute(hstmt)))
         return ret;
 
-    if( !phstmt->effects && !(phstmt->effects = my_calloc(effects_tp, 1)) ) 
+    if( !phstmt->effects && (phstmt->effects = my_calloc(effects_tp, 1)) == NULL) 
         return STMT_ODBC_ERR(ERROR_MEM_ALLOC_FAIL);
 
     if(phstmt->sql_type >= STMT_HAS_NO_EFFECT) {
@@ -539,7 +539,7 @@ SQLRETURN SQL_API SQLRowCount(SQLHSTMT hstmt, SQLLEN *count)
         *count = 0;
     } else {
 
-        if(rc = cdb2_get_effects(phstmt->sqlh, phstmt->effects)) {
+        if((rc = cdb2_get_effects(phstmt->sqlh, phstmt->effects)) != 0) {
             __debug("No effects received.");
             *count = 0;
             return set_stmt_error(phstmt, ERROR_WTH, "Effects were not sent by comdb2 server.", rc);
@@ -561,7 +561,7 @@ SQLRETURN SQL_API SQLRowCount(SQLHSTMT hstmt, SQLLEN *count)
     return SQL_SUCCESS;
 }
 
-SQLRETURN SQLMoreResults(SQLHSTMT hstmt)
+SQLRETURN SQL_API SQLMoreResults(SQLHSTMT hstmt)
 {
     return hstmt ? SQL_NO_DATA : SQL_INVALID_HANDLE;
 }

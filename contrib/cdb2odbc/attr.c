@@ -46,7 +46,7 @@ static SQLRETURN comdb2_SQLSetConnectAttr(
             /* @buf is a ptr to a 32bit mask. */
             if((intptr_t)buf & (intptr_t)(SQL_TXN_READ_UNCOMMITTED | SQL_TXN_REPEATABLE_READ))
                 return DBC_ODBC_ERR_MSG(ERROR_WTH, "Unsupported transaction isolation mode.");
-            phdbc->txn_isolation = (intptr_t)buf;
+            phdbc->txn_isolation = (int)(intptr_t)buf;
             phdbc->txn_changed = true;
             break;
 

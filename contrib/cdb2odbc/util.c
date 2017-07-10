@@ -1,11 +1,4 @@
-/**
- * @file mem.c
- * @description
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- * @history
- * 20-Jun-2014 Created.
- */
-
+#include "driver.h"
 #include "util.h"
 
 /**
@@ -46,19 +39,21 @@ char *make_string(const char *s, int len, char *buf)
     char *str;
 
     if(!s) return NULL;
-    if(len < 0 && len != SQL_NTS || len == SQL_NTS && (len = strlen(s)) <= 0) return NULL;
+    if(len < 0 && len != SQL_NTS || len == SQL_NTS && (len = (int)strlen(s)) <= 0)
+		return NULL;
 
     ++len; /* an extra char for \0. */
 
     if(buf) {
-        if(!(str = realloc(buf, strlen(buf) + len + 1))) return NULL;
+        if((str = realloc(buf, strlen(buf) + len + 1)) == NULL)
+			return NULL;
         /* append @s to @buf */
 
         strcat(str, s);
         return str;
     }
 
-    if(!(str = my_malloc(char, len)))
+    if((str = my_malloc(char, len)) == NULL)
         return NULL;
 
     my_strncpy_out(str, s, len);    

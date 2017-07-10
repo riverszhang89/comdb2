@@ -1,13 +1,9 @@
-/**
- * @file log.h
- * @description
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- * @history
- * 08-Aug-2014 Created.
- */
-
 #ifndef _LOG_
 #define _LOG_
+
+#if defined(__WINDOWS__) && defined(__COLORFUL__)
+# undef __COLORFUL__
+#endif
 
 /* ANSI escape code for colors. */
 #ifdef __COLORFUL__
@@ -60,9 +56,9 @@
 } while(0)
 #endif /* __LOG__ */
 
-# define __debug(args...) __log(LOG_D, LDEBUG "DEBUG", ## args)
-# define __info(args...) __log(LOG_I, LINFO "INFO", ## args)
-# define __warn(args...) __log(LOG_W, LWARN "WARN", ## args)
-# define __fatal(args...) __log(LOG_F, LFATAL "FATAL", ## args)
+# define __debug(fmt, ...) __log(LOG_D, LDEBUG "DEBUG", ## __VA_ARGS)
+# define __info(fmt, ...) __log(LOG_I, LINFO "INFO", ## __VA_ARGS__)
+# define __warn(fmt, ...) __log(LOG_W, LWARN "WARN", ## __VA_ARGS__)
+# define __fatal(fmt, ...) __log(LOG_F, LFATAL "FATAL", ## __VA_ARGS__)
 
 #endif

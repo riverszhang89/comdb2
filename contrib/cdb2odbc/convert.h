@@ -1,11 +1,3 @@
-/**
- * @file convert.h
- * @description See convert.c
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- * @history
- * 30-Jun-2014 Created.
- */
-
 #ifndef _CONVERT_H_
 #define _CONVERT_H_
 

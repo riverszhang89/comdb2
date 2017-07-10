@@ -35,6 +35,7 @@ endif
 
 #CFLAGS+= -D__DEBUG__ -D__LOG__
 
+CFLAGS+=-Werror
 CFLAGS+=-I$(PREFIX)/include $(CFLAGS_64) $(CFLAGS_PIC) $(CFLAGS_DEFS)
 LDFLAGS+=-lodbcinst -L$(PREFIX)/lib -lcdb2api -lcdb2protobuf -lprotobuf-c \
          -lssl -lcrypto -lpthread -lrt -lm $(LDFLAGS_OSLIBS) $(LDFLAGS_64)

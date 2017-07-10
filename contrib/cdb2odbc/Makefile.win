@@ -1,9 +1,76 @@
-PREFIX=.\
-CC=cl.exe
-CFLAGS=
+!IF "$(PREFIX)" == ""
+PREFIX="\Windows\System32"
+!ENDIF
 
-AR=lib.exe
+!IF "$(CDB2API_INC)" == ""
+CDB2API_INC="../../cdb2api"
+!ENDIF
+
+!IF "$(CDB2API_LIB)" == ""
+CDB2API_LIB="../../cdb2api"
+!ENDIF
+
+!IF "$(CONFIG)" == ""
+CONFIG="Release"
+CFLAG_CFG=/MD /O2
+!ELSE
+CFLAG_CFG=/MDd /Zi /Od
+!ENDIF
+
+CFLAGS_INC=/I$(CDB2API_INC)
+CFLAGS_DEF=
+
+CC=cl.exe
+CFLAGS=/nologo /W4 /wd4127 /wd4201 $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
+
+#/LIBPATH cdb2.lib
+#/DelayLoad:$(SSL_DLL)
+
+DLL=cdb2odbc.dll
 LD=link.exe /DLL
+LDFLAGS=odbc32.lib odbccp32.lib wsock32.lib ws2_32.lib
+
+LIB=cdb2odbc.lib
+AR=lib.exe
+ARFLAGS=
+
+OBJECTS=attr.obj        \
+	    connect.obj     \
+	    convert.obj     \
+	    error.obj       \
+	    execute.obj     \
+	    handle.obj      \
+	    meta.obj        \
+	    result.obj      \
+	    util.obj
+
+.c.obj::
+	$(CC) @<<
+	$(CFLAGS) $< 
+<<
+
+ALL: "$(DLL)" "$(LIB)"
+
+"$(DLL)": $(OBJECTS)
+	$(LD) @<<
+	$(LDFLAGS) $(OBJECTS) /out:$@
+<<
+	
+"$(LIB)": $(OBJECTS)
+	$(AR) @<<
+	$(ARFLAGS) $(OBJECTS) /out:$@
+<<
 
 CLEAN:
-	-@ERASE /Q *.obj $(PREFIX)\*.dll $(PREFIX)\*.lib
+	-@ERASE /Q *.obj
+	-@ERASE /Q *.pdb
+	-@ERASE /Q *.dll
+	-@ERASE /Q *.lib
+
+INSTALL:
+	-@COPY $(DLL) $(PREFIX)
+	-@COPY $(LIB) $(PREFIX)
+
+UNINSTALL:
+	-@ERASE /Q $(PREFIX)\$(DLL)
+	-@ERASE /Q $(PREFIX)\$(LIB)

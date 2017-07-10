@@ -31,7 +31,7 @@ static SQLRETURN comdb2_SQLAllocEnv(SQLHENV *phenv)
     env_t *env;
     __debug("enters method.");
 
-    if( !(*phenv = my_calloc_typed(env_t, 1, SQLHENV)) ) 
+    if((*phenv = my_calloc_typed(env_t, 1, SQLHENV)) == NULL) 
         ret = SQL_ERROR;
     else {
         env = (env_t *) *phenv;
@@ -60,7 +60,7 @@ static SQLRETURN comdb2_SQLFreeEnv(env_t *phenv)
         return SQL_INVALID_HANDLE;
 
     /* Free all associated connection handles. */   
-    list_iterate_safe(dbc, next, &phenv->conns, list)
+    list_iterate_safe(dbc, next, &phenv->conns, list, dbc_t)
         if(SQL_FAILED(ret = comdb2_SQLFreeConnect(dbc)))
             return ret;
     
@@ -89,8 +89,8 @@ static SQLRETURN comdb2_SQLAllocConnect(SQLHENV henv,
     if(!henv)
         return SQL_INVALID_HANDLE;
 
-    if( !(*phdbc = my_calloc_typed(dbc_t, 1, SQLHDBC)) ) 
-        ret = SQL_ERROR;
+    if((*phdbc = my_calloc_typed(dbc_t, 1, SQLHDBC)) == NULL) 
+        return ENV_ODBC_ERR(ERROR_MEM_ALLOC_FAIL);
     else {
         dbc = (dbc_t *) *phdbc;
         zerofill(*phdbc, dbc_t, 1);
@@ -126,7 +126,7 @@ static SQLRETURN comdb2_SQLFreeConnect(dbc_t *phdbc)
     }
 
     /* Free all associated statement handles. */
-    list_iterate_safe(stmt, next, &phdbc->stmts, list)
+    list_iterate_safe(stmt, next, &phdbc->stmts, list, stmt_t)
         if(SQL_SUCCEEDED(ret = comdb2_SQLFreeStmt(stmt)))
             return ret;
 
@@ -161,9 +161,9 @@ static SQLRETURN SQL_API comdb2_SQLAllocStmt(SQLHDBC hdbc, SQLHSTMT *phstmt)
     if(SQL_NULL_HDBC == hdbc)
         return SQL_INVALID_HANDLE;
 
-    if( !(*phstmt = my_calloc_typed(stmt_t, 1, SQLHSTMT)) ) {
+    if((*phstmt = my_calloc_typed(stmt_t, 1, SQLHSTMT)) == NULL) {
         *phstmt = SQL_NULL_HSTMT;
-        return SQL_ERROR;
+        return DBC_ODBC_ERR(ERROR_MEM_ALLOC_FAIL);
     }
 
     stmt = (stmt_t *) *phstmt;

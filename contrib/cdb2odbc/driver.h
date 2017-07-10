@@ -1,38 +1,46 @@
-/**
- * @file driver.h 
- * @description Definitions needed by the driver
- * @author Rivers Zhang <hzhang320@bloomberg.net>
-
- * @history
- * 16-Jun-2014 Created.
- */
-
 #ifndef _DRIVER_H_
 #define _DRIVER_H_
 
 #if defined(unix) || defined(__unix) || defined(__unix__)
-# define __UNIX__ 1
+# define __UNIX__
+#elif defined(_WIN32) || defined(__WIN64)
+# define __WINDOWS__
+#else
+# error "! Unknown architecture."
 #endif
 
 #ifdef __UNIX__
-# include <sql.h>
-# include <sqlext.h>
-
-# ifndef SQL_API
-#  define SQL_API
-# endif
-
-# include <unistd.h>
 # ifdef __THREADS__
 #  include <pthread.h>
 # endif /* pthread */
+#include <unistd.h>
 #endif /* __UNIX__ */
 
+#ifdef __WINDOWS__
+# define inline __inline
+# define WIN32_LEAN_AND_MEAN
+# define _CRT_SECURE_NO_WARNINGS
+# define strcasecmp _stricmp
+# define strncasecmp _strnicmp
+# define strtok_r strtok_s
+# define snprintf sprintf_s
+# include <windows.h>
+#endif
+
 #include <string.h>
+#ifdef __WINDOWS__
+# define strdup _strdup
+#endif
 #include <stdlib.h>
 #include <stdbool.h>
 #include <ctype.h>
 #include <wchar.h>
+
+#include <sql.h>
+#include <sqlext.h>
+#ifndef SQL_API
+# define SQL_API
+#endif
 
 #include <cdb2api.h>
 
@@ -49,14 +57,14 @@
 #define DBVER           "R5"
 
 #undef ODBCVER
-#define ODBCVER         0x0380
-#define DRVODBCVER      "03.80"
+#define ODBCVER         0x0350
+#define DRVODBCVER      "03.50"
 
 #define DRV_FILE_NAME   "libcomdb2odbc.so"
 
 /* ================== Limits start ================ */
 
-#define MAX_NUMERIC_LEN 128 
+#define MAX_NUMERIC_LEN 128
 #define MAX_CONN_ATTR_LEN 256
 #define MAX_CONN_INFO_LEN 2048 
 #define MAX_INTERNAL_QUERY_LEN 2048 
@@ -169,9 +177,7 @@ typedef enum {
     STMT_FINISHED   = 0x8,      /* okay I'm done */
     STMT_EXECUTING  = 0x10,     /* execution is going on, please be patient */
     STMT_EXTRACTED  = 0x20,     /* All rows are fetched. */
-
     STMT_TYPE_INFO  = 0x40
-    
 } stmt_status;
 
 /* Parameter struct (See SQLBindParameter). */
@@ -186,7 +192,7 @@ typedef struct param {
     SQLLEN *str_len;            /* deferred length of @buf. */
     void *buf;                  /* buffer */
     void *internal_buffer;      /* internal buffer for saving intermediate result. */
-    char name[MAX_INT64_DIGITS + 7];              /* name of parameter (e.g, @uuid). the leading `@' is required. */
+    char name[MAX_INT64_DIGITS + 21];              /* name of parameter (e.g, @uuid). the leading `@' is required. */
 } param_t;
 
 /* Data buffer (see SQLBindCol) */

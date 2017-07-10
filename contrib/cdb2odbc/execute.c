@@ -1,10 +1,5 @@
-/**
- * @file execute.c
- * @description
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- * @history
- * 20-Jun-2014 Created.
- */
+#include "driver.h"
+#include "convert.h"
 
 #ifndef LITTLE_ENDIAN
 #define LITTLE_ENDIAN 1234
@@ -28,13 +23,6 @@
 #elif defined(_AIX) /* IBM */
 # include <sys/machine.h>
 #endif
-
-#ifdef __LIBM__
-#include <math.h>
-#endif
-
-#include "driver.h"
-#include "convert.h"
 
 static struct {
     sql_type_t sql_type;              /* Statement type */  
@@ -154,10 +142,9 @@ static bool analyze_stmt(stmt_t * phstmt)
     return true;
 }
 
+bool recycle_stmt(stmt_t *phstmt);
 SQLRETURN SQL_API comdb2_SQLPrepare(stmt_t *phstmt, SQLCHAR *str, SQLINTEGER str_len)
 {
-    bool recycle_stmt(stmt_t *phstmt);
-
     __debug("enters method.");
     __info("Prepare %s", str);
 
@@ -171,7 +158,7 @@ SQLRETURN SQL_API comdb2_SQLPrepare(stmt_t *phstmt, SQLCHAR *str, SQLINTEGER str
         if(str_len != SQL_NTS)
             return STMT_ODBC_ERR(ERROR_INVALID_LENGTH);
 
-        str_len = strlen((char *)str);  
+        str_len = (int)strlen((char *)str);  
     }
 
     switch(phstmt->status) {
@@ -267,9 +254,9 @@ static char *fast_fill_out_parameters(stmt_t *phstmt)
     char *param_query, *query = phstmt->query;
     param_t *param = phstmt->params;
     int i, len;
-    int param_len = phstmt->params_allocated, stmt_len = strlen(query) - param_len;
+    int param_len = phstmt->params_allocated, stmt_len = (int)strlen(query) - param_len;
     param_t *end_of_params = phstmt->params + param_len;
-    errid_t eid;
+    errid_t eid = ERROR_NA;
     
     if(!phstmt) /* Just in case. */
         return NULL;
@@ -330,23 +317,14 @@ static char *fast_fill_out_parameters(stmt_t *phstmt)
      ****************************/
 
     if(param_len) {
-#ifdef __LIBM__
-        i = log10(param_len);
-        stmt_len += (param_len - (int) pow(10, i)) * ((i + 1) + 6); /* `6' is for "@param". */
-
-        for(; i > 0; --i) 
-            stmt_len += 9 * pow(10, i - 1) * (6 + i);
-#else
         for(i = 0, len = param_len; (len /= 10) > 0; ++i) ; 
         stmt_len += (param_len - (int) pow_int(10, i)) * ((i + 1) + 6); /* `6' is for "@param". */
 
         for(; i > 0; --i) 
             stmt_len += 9 * pow_int(10, i - 1) * (6 + i);
-
-#endif /* __LIBM__ */
     }
 
-    if( !(phstmt->query_with_params = realloc(phstmt->query_with_params, stmt_len + 1)) ) {
+    if((phstmt->query_with_params = realloc(phstmt->query_with_params, stmt_len + 1)) == NULL) {
         STMT_ODBC_ERR(ERROR_MEM_ALLOC_FAIL);
         return NULL;
     }
@@ -484,7 +462,7 @@ SQLRETURN comdb2_SQLExecute(stmt_t *phstmt)
            is not in transaction, the driver sends 'BEGIN' to comdb2 to open a new txn session. */
         if(phstmt->dbc->txn_changed && IS_VALID_TXN_MODE(phstmt)) {
             __info("Sets transaction mode: %s", TXN_MODE(phstmt));
-            if(rc = cdb2_run_statement(sqlh, TXN_MODE(phstmt))) {
+            if((rc = cdb2_run_statement(sqlh, TXN_MODE(phstmt))) != 0) {
                 __fatal("Cannot set txn mode.");
                 return set_stmt_error(phstmt, ERROR_WTH, cdb2_errstr(sqlh), rc);
             }
@@ -494,7 +472,7 @@ SQLRETURN comdb2_SQLExecute(stmt_t *phstmt)
 
         __info("implicitly sending `BEGIN' to comdb2.");
 
-        if(rc = cdb2_run_statement(sqlh, "BEGIN")) {
+        if((rc = cdb2_run_statement(sqlh, "BEGIN")) != 0) {
             __fatal("Cannot open new txn session: %s", cdb2_errstr(sqlh));
             SET_EXTRACTED(phstmt);
             return set_stmt_error(phstmt, ERROR_WTH, cdb2_errstr(sqlh), rc);
@@ -505,21 +483,22 @@ SQLRETURN comdb2_SQLExecute(stmt_t *phstmt)
         while((rc = cdb2_next_record(phstmt->sqlh)) == CDB2_OK);
     }
 
-    if(phstmt->num_data_buffers > 0 && (data = phstmt->buffers)) {
-        int _types[phstmt->num_data_buffers];
+    if(phstmt->num_data_buffers > 0 && (data = phstmt->buffers) != NULL) {
+        types = malloc(phstmt->num_data_buffers);
+		if (types == NULL)
+            return STMT_ODBC_ERR(ERROR_MEM_ALLOC_FAIL);
         for(i = 0; i != phstmt->num_data_buffers; ++i) {
             if(data->used)
-                _types[i] = ctype_to_cdb2type(data->c_type);
+                types[i] = ctype_to_cdb2type(data->c_type);
             else {
                 __warn("Column %d is unused. Its type is set to CDB2_BLOB", i);
-                _types[i] = CDB2_BLOB;
+                types[i] = CDB2_BLOB;
             }
         }
-        types = _types;
     }
 
     /* Copy parameters to query string. */
-    if(!(actual_query = fast_fill_out_parameters(phstmt))) 
+    if((actual_query = fast_fill_out_parameters(phstmt)) == NULL) 
         /* Error message is set in fill_out_parameter(). */
         return SQL_ERROR;
 
@@ -529,6 +508,7 @@ SQLRETURN comdb2_SQLExecute(stmt_t *phstmt)
     SET_EXECUTING(phstmt);
 
     rc = cdb2_run_statement_typed(sqlh, actual_query, phstmt->num_data_buffers, types);
+	free(types);
     if(rc) {
         /* Set status to extracted to prevent applications from calling SQLFetch 
            (may cause CDB2API stuck in an infinite loop). */
@@ -624,6 +604,7 @@ SQLRETURN SQL_API SQLBindParameter(SQLHSTMT         hstmt,
         return STMT_ODBC_ERR_MSG(ERROR_NOT_IMPL, "Data-at-Execution is not supported.");
 
     phstmt->changed = true;
+	params = phstmt->params;
 
     if(param_num > phstmt->params_allocated) {
         /* Realloc an array of new length. */
@@ -650,20 +631,17 @@ SQLRETURN SQL_API SQLBindParameter(SQLHSTMT         hstmt,
     param = &params[param_num];
 
     /* Copy all given information. */
-    *param = (param_t){
-        .used = true,
-        .io_type = io_type,
-        .c_type = c_type,
-        .sql_type = sql_type,
-        .precision = col_size,
-        .scale = dec_digits,
-        .buflen = buf_len,
-        .str_len = str_len,
-        .buf = param_val_ptr,
-        .internal_buffer = NULL,
-        .name = ""
-    };
-    sprintf(param->name, "@param%d", param_num);
+    param->used = true;
+    param->io_type = io_type;
+    param->c_type = c_type;
+    param->sql_type = sql_type;
+    param->precision = (unsigned int)col_size;
+    param->scale = dec_digits;
+    param->buflen = buf_len;
+    param->str_len = str_len;
+    param->buf = param_val_ptr;
+    param->internal_buffer = NULL;
+    sprintf(param->name, "@_odbc_autogen_param%d", param_num);
 
     __debug("leaves method.");
     return SQL_SUCCESS;
@@ -702,6 +680,7 @@ SQLRETURN SQL_API SQLBindCol(SQLHSTMT       hstmt,
     if(!hstmt)
         return SQL_INVALID_HANDLE;
     
+	data_list = phstmt->buffers;
     if(col > phstmt->num_data_buffers) {
         data_list = (data_buffer_t *)realloc(phstmt->buffers, col * sizeof(data_buffer_t));
         if(!data_list)
@@ -716,16 +695,13 @@ SQLRETURN SQL_API SQLBindCol(SQLHSTMT       hstmt,
 
     --col;
     data = &data_list[col];
-    *data = (data_buffer_t){
-        .c_type = c_type,
-        .buffer_length = target_len,
-        .required = strlen_or_ind,
-        .buffer = target_ptr,
-
-        /* @target_ptr serves as a flag to determine if the column needs to be unbinded.
-           See http://msdn.microsoft.com/en-us/library/ms711010(v=vs.85).aspx for details. */
-        .used = target_ptr ? 1 : 0
-    };
+    data->c_type = c_type;
+    data->buffer_length = target_len;
+    data->required = strlen_or_ind;
+    data->buffer = target_ptr;
+	/* @target_ptr serves as a flag to determine if the column needs to be unbinded.
+	   See http://msdn.microsoft.com/en-us/library/ms711010(v=vs.85).aspx for details. */
+	data->used = target_ptr ? 1 : 0;
 
     __debug("leaves method.");
 
@@ -788,7 +764,7 @@ static SQLRETURN comdb2_SQLEndTran(
     switch(type) {
         case SQL_HANDLE_ENV:
             phenv = (env_t *)handle;
-            list_iterate(phdbc, &phenv->conns, list)
+            list_iterate(phdbc, &phenv->conns, list, dbc_t)
                 comdb2_conn_transact(phdbc, commit_or_rollback);
             break;
 

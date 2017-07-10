@@ -1,20 +1,7 @@
-/**
- * @file meta.c
- *
- * @brief Meta information of database.
- *
- * @description
- *
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- *
- * @history
- * 28-Jul-2014 Created.
- */
+#include "driver.h"
 
 #include <string.h>
 #include <stdio.h>
-
-#include "driver.h"
 
 struct type_info {
     char *type_name;
@@ -159,7 +146,7 @@ SQLRETURN SQL_API SQLGetInfo(
     }
 
     if(str_len)
-        *str_len = minimum_length_required;
+        *str_len = (SQLSMALLINT)minimum_length_required;
 
     __debug("leaves method.");
     return ret;
@@ -199,7 +186,7 @@ SQLRETURN SQL_API SQLTables(
         /* Check string length. */
         if(tbl) {
             if(tbl_len == SQL_NTS)
-                tbl_len = strlen((char *)tbl);
+                tbl_len = (SQLSMALLINT)strlen((char *)tbl);
 
             if(tbl_len < 0)
                 return STMT_ODBC_ERR(ERROR_INVALID_LENGTH);
@@ -213,7 +200,7 @@ SQLRETURN SQL_API SQLTables(
 
         if(tbl_tp) {
             if(tbl_tp_len == SQL_NTS)
-                tbl_tp_len = strlen((char *)tbl_tp);
+                tbl_tp_len = (SQLSMALLINT)strlen((char *)tbl_tp);
 
             if(tbl_tp_len < 0)
                 return STMT_ODBC_ERR(ERROR_INVALID_LENGTH);

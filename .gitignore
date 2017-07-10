@@ -280,3 +280,10 @@ contrib/docker/build
 
 # editor files
 .vscode
+
+# Windows
+*.obj
+*.exe
+*.pdb
+*.dll
+*.lib

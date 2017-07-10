@@ -32,10 +32,8 @@ static SQLRETURN comdb2_SQLConnect(dbc_t *phdbc)
     if(ci->database[0] == '\0' || ci->cluster[0] == '\0') 
         return DBC_ODBC_ERR(ERROR_NO_CONF);
 
-    if(rc = cdb2_open(&sqlh, ci->database, ci->cluster, ci->flag)) {
-        cdb2_close(sqlh);
+    if((rc = cdb2_open(&sqlh, ci->database, ci->cluster, ci->flag)) != 0)
         return set_dbc_error(phdbc, ERROR_UNABLE_TO_CONN, NULL, rc);
-    }
 
     phdbc->sqlh = sqlh;
     phdbc->sqlh_status = SQLH_IDLE;
@@ -101,12 +99,12 @@ SQLRETURN SQL_API SQLConnect(
  */
 static void get_conn_attrs(char *str, conn_info_t *ci)
 {
-    char *pch, *equal, *key, *value, *tail_of_value;
+    char *pch, *equal, *key, *value, *tail_of_value, *last;
     char flag[MAX_INT64_STR_LEN];
 
-    pch = strtok(str, ";");
+    pch = strtok_r(str, ";", &last);
     while(pch != NULL) {
-        if(equal = strchr(pch, '=')) {
+        if((equal = strchr(pch, '=')) != NULL) {
 
             *equal = '\0';
             key = pch;
@@ -131,7 +129,7 @@ static void get_conn_attrs(char *str, conn_info_t *ci)
                 ci->flag = atoi(flag);
             }
         }
-        pch=strtok(NULL, ";");
+        pch=strtok_r(NULL, ";", &last);
     }
 
     __info("dsn=%s; driver=%s; database=%s; cluster=%s; flag=%d.", 
@@ -191,11 +189,11 @@ SQLRETURN SQL_API SQLDriverConnect(
     if(out_conn_str)
         my_strncpy_out_fn((char *)out_conn_str, _outstr, out_conn_str_max);
     if(out_conn_strlen)
-        *out_conn_strlen = strlen(_outstr);
+        *out_conn_strlen = (SQLSMALLINT)strlen(_outstr);
 
     __debug("leaves method.");
 
-    return (strlen(_outstr) >= out_conn_str_max) ? DBC_ODBC_ERR(ERROR_STR_TRUNCATED) : SQL_SUCCESS;
+    return ((SQLSMALLINT)strlen(_outstr) >= out_conn_str_max) ? DBC_ODBC_ERR(ERROR_STR_TRUNCATED) : SQL_SUCCESS;
 }
 
 SQLRETURN SQL_API SQLDisconnect(SQLHDBC hdbc)

@@ -1,14 +1,3 @@
-/**
- * @file list.h
- * @description Doubly linked list. 
- * @author Rivers Zhang <hzhang320@bloomberg.net>
-
- * @history
- * 16-Jun-2014 Created.
- * 18-Jun-2014 More list manipulation methods added:
- *              prepend/append a node; romove a node.
- */
-
 #ifndef _LIST_H_
 #define _LIST_H_
 
@@ -92,14 +81,8 @@ static inline void list_rm(list_head_t *entry)
 #define LIST_HEAD(name) \
     list_head_t name = LIST_HEAD_INIT(name)
 
-/* Undefine @offsetof. Sparc has defined it. */
 #undef offsetof
 #define offsetof(type, member) ( (size_t) &( (type *)0 )->member )
-
-#ifdef _AIX
-/* XLC has __typeof__. It does exactly the same thing as typeof in GCC. */
-#define typeof __typeof__
-#endif
 
 /**
  * Cast the variable who contains @ptr to @type.
@@ -107,9 +90,8 @@ static inline void list_rm(list_head_t *entry)
  * @type   - to what @type
  * @member - the name of list_head_t variable defined in @type
  */
-#define cast_to(ptr, type, member) ({                               \
-        const typeof( ( (type *)0 )->member ) *__mptr = (ptr);      \
-        (type *)( (char *)__mptr - offsetof(type, member) );})
+#define cast_to(ptr, type, member) \
+        ((type *)((char *)(const list_t *)(ptr) - offsetof(type, member)))
 
 /**
  * Return the variable who contains @ptr as a @type variable.
@@ -134,26 +116,25 @@ static inline void list_rm(list_head_t *entry)
  * @pos    - where I am in the doubly linked list. 
  * @member - the name of list_head_t variable defined in the type of @pos 
  */
-#define list_next_entry(pos, member)    \
-        list_entry( (pos)->member.next, typeof( *(pos) ), member )
+#define list_next_entry(pos, member, type)    \
+        list_entry( (pos)->member.next, type, member )
 
 /**
  * Iterate over a list.
  * @pos    - @pos will be pointed to the address of next node. 
-             So it should be a pointer. 
- * @head    - where I am in the doubly linked list. 
+ * @head   - where I am in the doubly linked list. 
  * @member - the name of list_head_t variable defined in the type of @pos 
  */
-#define list_iterate(pos, head, member)                                     \
-        for(pos = list_first_entry(head, typeof( *(pos) ), member);         \
+#define list_iterate(pos, head, member, type)                               \
+        for(pos = list_first_entry(head, type, member);                     \
             &pos->member != (head);                                         \
-            pos = list_next_entry(pos, member))
+            pos = list_next_entry(pos, member, type))
 
 /* Iterate over a list of given type safe against removal of list entry. */
-#define list_iterate_safe(pos, n, head, member)                             \
-        for (pos = list_first_entry(head, typeof( *(pos) ), member),        \
-            n = list_next_entry(pos, member);                               \
+#define list_iterate_safe(pos, n, head, member, type)                       \
+        for (pos = list_first_entry(head, type, member),                    \
+            n = list_next_entry(pos, member, type);                         \
             &pos->member != (head);                                         \
-            pos = n, n = list_next_entry(n, member))
+            pos = n, n = list_next_entry(n, member, type))
 
 #endif /* _LIST_H_ */
