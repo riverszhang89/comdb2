@@ -255,6 +255,5 @@ SQLRETURN SQL_API SQLColumns(
         pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
                         " AND COLUMN_NAME LIKE '%*s'", column_len, column);
     }
-
     return comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
 }

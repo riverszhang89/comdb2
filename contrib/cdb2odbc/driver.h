@@ -182,7 +182,7 @@ typedef enum {
     STMT_FINISHED   = 0x8,      /* okay I'm done */
     STMT_EXECUTING  = 0x10,     /* execution is going on, please be patient */
     STMT_EXTRACTED  = 0x20,     /* All rows are fetched. */
-    STMT_TYPE_INFO  = 0x40
+    STMT_SQLCOLUMNS = 0x40      /* Special query type - SQLColumns() */
 } stmt_status;
 
 /* Parameter struct (See SQLBindParameter). */
@@ -311,4 +311,6 @@ typedef struct stmt {
 
 /* ================== Macros end ================ */
 
+/* ================== Functions ================ */
+SQLRETURN comdb2_SQLExecute(stmt_t *phstmt);
 #endif /* _DRIVER_H_ */

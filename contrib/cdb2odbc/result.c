@@ -1,20 +1,3 @@
-/**
- * @file result.c
- *
- * @description
- * Some functions in this file set can be called before calling SQLExecute/SQLExecDirect.
- * A flag is used to label the status of a statement handle. If the statement is ready (meaning prepared),
- * the driver will pre-execute the statement. Next time when an application calls SQLExecute, the prefetched
- * result set will be returned instead of sending the same query again.
- * The behavior shall be transparent to applications.
- *
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- * @history
- * 20-Jun-2014 Created.
- * 11-Jul-2014 Add statement status checks.
- * 14-Jul-2014 Fixed constraint violation error prompt.
- */
-
 #include "driver.h"
 #include "convert.h"
 
@@ -168,8 +151,6 @@ SQLRETURN SQL_API SQLFetch(SQLHSTMT hstmt)
     SET_EXTRACTED(phstmt);
     return rc == CDB2_OK_DONE ? SQL_NO_DATA : set_stmt_error(phstmt, ERROR_WTH, cdb2_errstr(phstmt->sqlh), rc);
 }
-
-SQLRETURN comdb2_SQLExecute(stmt_t *phstmt);
 
 /* Returns corresponding SQL types of cdb2api types. */
 static int cdb2_to_sql(int cdb2_type)

@@ -228,7 +228,6 @@ static conv_resp __bind_param(cdb2_hndl_tp *sqlh, param_t *param)
     return resp;
 }
 
-#ifndef __LIBM__
 /*
    Naive implementation of pow(int, int).
  */
@@ -239,7 +238,6 @@ static inline int pow_int(int base, int exp)
         ret *= base;
     return ret;
 }
-#endif
 
 /*
    Fast version of fill_out_parameters().
