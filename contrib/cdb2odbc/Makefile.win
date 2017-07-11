@@ -28,7 +28,7 @@ CFLAGS=/nologo /W4 /wd4127 /wd4201 $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 
 DLL=cdb2odbc.dll
 LD=link.exe /DLL
-LDFLAGS=odbc32.lib odbccp32.lib wsock32.lib ws2_32.lib
+LDFLAGS=odbc32.lib odbccp32.lib #wsock32.lib ws2_32.lib
 
 LIB=cdb2odbc.lib
 AR=lib.exe

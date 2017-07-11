@@ -186,14 +186,14 @@ SQLRETURN SQL_API SQLTables(
 
     if (tbl != NULL) {
         if (tbl_len == SQL_NTS)
-            tbl_len = (SQLSMALLINT)strlen(tbl);
+            tbl_len = (SQLSMALLINT)strlen((const char *)tbl);
         pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
                         " AND TABLE_NAME LIKE '%*s'", tbl_len, tbl);
     }
 
     if (tbl_tp != NULL) {
         if (tbl_tp_len == SQL_NTS)
-            tbl_tp_len = strlen(tbl_tp);
+            tbl_tp_len = (SQLSMALLINT)strlen((const char *)tbl_tp);
         pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
                         " AND TABLE_TYPE LIKE '%*s'", tbl_tp_len, tbl_tp);
     }
@@ -244,14 +244,14 @@ SQLRETURN SQL_API SQLColumns(
 
     if (tbl != NULL) {
         if (tbl_len == SQL_NTS)
-            tbl_len = (SQLSMALLINT)strlen(tbl);
+            tbl_len = (SQLSMALLINT)strlen((const char *)tbl);
         pos += snprintf(&(metaquery[pos]), MAX_INTERNAL_QUERY_LEN - pos,
                         " AND TABLE_NAME LIKE '%*s'", tbl_len, tbl);
     }
 
     if (column != NULL) {
         if (column_len == SQL_NTS)
-            column_len = (SQLSMALLINT)strlen(column);
+            column_len = (SQLSMALLINT)strlen((const char *)column);
         pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
                         " AND COLUMN_NAME LIKE '%*s'", column_len, column);
     }
