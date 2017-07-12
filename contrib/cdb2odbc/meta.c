@@ -36,8 +36,6 @@ SQLRETURN SQL_API SQLGetTypeInfo(SQLHSTMT hstmt, SQLSMALLINT type)
     if(!hstmt)
         return SQL_INVALID_HANDLE;
 
-    phstmt->status = STMT_TYPE_INFO;
-        
     __debug("leaves method.");
     return SQL_SUCCESS;
 }

@@ -30,6 +30,11 @@ DLL=cdb2odbc.dll
 LD=link.exe /DLL
 LDFLAGS=odbc32.lib odbccp32.lib #wsock32.lib ws2_32.lib
 
+## Quick and dirty
+LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.10.25017\lib\onecore\x64"
+LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\um\x64"
+LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\ucrt\x64"
+
 LIB=cdb2odbc.lib
 AR=lib.exe
 ARFLAGS=

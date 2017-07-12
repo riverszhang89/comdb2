@@ -1,15 +1,3 @@
-/**
- * @file handle.c
- * @description Allocates/Deallocates an enviroment, connection, statement or descriptor handle.
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- * @api
- * SQLAllocHandle, SQLAllocEnv, SQLAllocConnect, SQLAllocStmt
- * @history
- * 16-Jun-2014 Created.
- * 16-Jul-2014 [bugfix] params_allocated now is correctly set to 0 after recycling.
- * 17-Jul-2014 [bugfix] corrected a typo in comdb2_reset_params()
- */
-
 #include "driver.h"
 #include "list.h"
 
@@ -353,9 +341,6 @@ static SQLRETURN comdb2_SQLCloseCursor(stmt_t* phstmt)
     if(!phstmt)
         return SQL_INVALID_HANDLE;
     
-    if(phstmt->status == STMT_TYPE_INFO)
-        return SQL_SUCCESS;
-
     if(phstmt->status == STMT_FINISHED && SQLH_STATUS(phstmt) == SQLH_FINISHED) {
         __info("Clear unextracted rows.");
         while((rc = cdb2_next_record(phstmt->sqlh)) == CDB2_OK);

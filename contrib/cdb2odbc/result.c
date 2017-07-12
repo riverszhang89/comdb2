@@ -122,11 +122,6 @@ SQLRETURN SQL_API SQLFetch(SQLHSTMT hstmt)
     if(!hstmt)
         return SQL_INVALID_HANDLE;
 
-    /* TODO */
-    if(phstmt->status == STMT_TYPE_INFO) {
-        return SQL_NO_DATA;
-    }
-
     if(phstmt->status != STMT_FINISHED)
         return STMT_ODBC_ERR_MSG(ERROR_FUNCTION_SEQ_ERR, "SQLFetch can only be invoked after "
                 "successful execution on a SQL statement.");
@@ -475,9 +470,6 @@ SQLRETURN SQL_API SQLNumResultCols(SQLHSTMT hstmt, SQLSMALLINT *count)
 
     if(!hstmt)
         ret = SQL_INVALID_HANDLE;
-    else if(phstmt->status == STMT_TYPE_INFO)
-        /* If @hstmt is a pseudo statement, no need to call cdb2api. TODO */
-        *count = 0;
     else if (phstmt->status & (STMT_ALLOCATED | STMT_EXECUTING))
         ret = STMT_ODBC_ERR_MSG(ERROR_FUNCTION_SEQ_ERR, "No query is attached or the statement is still executing."); 
     else if(!(phstmt->status & STMT_READY) || SQL_SUCCEEDED((ret = comdb2_SQLExecute(hstmt))))
