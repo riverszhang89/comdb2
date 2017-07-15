@@ -24,11 +24,11 @@ typedef enum {
 
     
       ERROR_NA = -1                         /* Not available */
-    , ERROR_NVM = 0                         /* General error */
+    , ERROR_NVM = 0                         /* General warning */
     , ERROR_MEM_ALLOC_FAIL
     , ERROR_FUNCTION_SEQ_ERR
     , ERROR_OPTION_OUT_OF_RANGE
-    , ERROR_WTH                             /* General warning */
+    , ERROR_WTH                             /* General error */
     , ERROR_UNIMPL_ATTR
     , ERROR_STR_TRUNCATED
     , ERROR_UNABLE_TO_CONN

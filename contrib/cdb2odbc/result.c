@@ -1,8 +1,8 @@
 #include "driver.h"
 #include "convert.h"
 
-conv_resp retrieve_and_convert(cdb2_hndl_tp     *sqlh, 
-                              SQLSMALLINT       col, 
+conv_resp retrieve_and_convert(stmt_t           *phstmt, 
+                              SQLSMALLINT       col,  /* col is 0-based. */
                               SQLSMALLINT       c_data_type, 
                               SQLPOINTER        target_ptr, 
                               SQLLEN            target_len, 
@@ -11,15 +11,15 @@ conv_resp retrieve_and_convert(cdb2_hndl_tp     *sqlh,
     void *value;
     int size, cdb2_type;
 
-    if( (cdb2_type = cdb2_column_type(sqlh, col)) == -1 )
+    if( (cdb2_type = cdb2_column_type(phstmt->sqlh, col)) == -1 )
         return CONV_UNKNOWN_CDB2_TYPE;
 
-    if((value = cdb2_column_value(sqlh, col)) == NULL) {
+    if((value = cdb2_column_value(phstmt->sqlh, col)) == NULL) {
         *strlen_or_indicator = SQL_NULL_DATA;
         return CONV_NULL;
     }
     
-    size = cdb2_column_size(sqlh, col);
+    size = cdb2_column_size(phstmt->sqlh, col);
 
     if(cdb2_type < NUM_CDB2_CONVS) /* Just in case. */
         return (*CDB2_CONVS[cdb2_type])(value, size, c_data_type, target_ptr, target_len, strlen_or_indicator);
@@ -36,6 +36,7 @@ SQLRETURN comdb2_SQLGetData(SQLHSTMT        hstmt,
 {
     stmt_t *phstmt = (stmt_t *)hstmt;
     errid_t eid = ERROR_NA;
+    int conv_ret;
     /* because @strlen_or_indicator could be NULL, a non-NULL value is passed in to conversion functions. */
     SQLLEN len_required;
 
@@ -53,7 +54,68 @@ SQLRETURN comdb2_SQLGetData(SQLHSTMT        hstmt,
     else if(col == 0) /* column 0 => bookmark */
         eid = ERROR_NOT_IMPL;
     else {
-        switch( retrieve_and_convert(phstmt->sqlh, col - 1, c_data_type, target_ptr, target_len, &len_required) ) {
+        if (phstmt->status & STMT_SQLCOLUMNS) {
+            /* We must convert DATA_TYPE (5) and ORDINAL_POSITION (17) in the driver. */
+            if (col == 5) {
+                if (cdb2_column_type(phstmt->sqlh, 18) != CDB2_CSTRING)
+                    return set_stmt_error(phstmt,
+                            ERROR_WTH, "Unexpected data type", ODBC_ERROR_CODE);
+                char *sqltype = cdb2_column_value(phstmt->sqlh, 18);
+                if (sqltype == NULL)
+                    return set_stmt_error(phstmt,
+                            ERROR_WTH, "Error reading data", ODBC_ERROR_CODE);
+                LL datatype;
+                if (strcasecmp(sqltype, "int") == 0)
+                    datatype = SQL_INTEGER;
+                else if (strcasecmp(sqltype, "smallint") == 0)
+                    datatype = SQL_SMALLINT;
+                else if (strcasecmp(sqltype, "largeint") == 0)
+                    datatype = SQL_BIGINT;
+                else if (strcasecmp(sqltype, "smallfloat") == 0)
+                    datatype = SQL_FLOAT;
+                else if (strcasecmp(sqltype, "float") == 0)
+                    datatype = SQL_DOUBLE;
+                else if (strcasecmp(sqltype, "double") == 0)
+                    datatype = SQL_DOUBLE;
+                else if (strcasecmp(sqltype, "real") == 0)
+                    datatype = SQL_REAL;
+                else if (strncasecmp(sqltype, "char", 4) == 0)
+                    datatype = SQL_VARCHAR;
+                else if (strncasecmp(sqltype, "varchar", 8) == 0)
+                    datatype = SQL_WVARCHAR;
+                else if (strcasecmp(sqltype, "blob") == 0)
+                    datatype = SQL_VARBINARY;
+                else if (strncasecmp(sqltype, "blob", 4) == 0)
+                    datatype = SQL_BINARY;
+                else if (strncasecmp(sqltype, "datetime", 8) == 0)
+                    datatype = SQL_TYPE_TIMESTAMP;
+                else if (strncasecmp(sqltype, "decimal", 7) == 0)
+                    datatype = SQL_VARCHAR;
+                else if (strcasecmp(sqltype, "interval month") == 0)
+                    datatype = SQL_INTERVAL_YEAR_TO_MONTH;
+                else if (strcasecmp(sqltype, "interval sec") == 0)
+                    datatype = SQL_INTERVAL_DAY_TO_SECOND;
+                else if (strcasecmp(sqltype, "interval usec") == 0)
+                    datatype = SQL_INTERVAL_DAY_TO_SECOND;
+                else
+                    datatype = SQL_VARBINARY;
+
+                conv_ret = convert_cdb2int(&datatype, sizeof(datatype), c_data_type,
+                        target_ptr, target_len, strlen_or_indicator);
+            } else if (col == 17) {
+                conv_ret = convert_cdb2int(&phstmt->ord_pos,
+                        sizeof(phstmt->ord_pos), c_data_type,
+                        target_ptr, target_len, strlen_or_indicator);
+            } else {
+                conv_ret = retrieve_and_convert(phstmt, col - 1, c_data_type, target_ptr,
+                        target_len, &len_required);
+            }
+        } else {
+            conv_ret = retrieve_and_convert(phstmt, col - 1, c_data_type, target_ptr,
+                    target_len, &len_required);
+        }
+
+        switch(conv_ret) {
             case CONV_YEAH:
                 if(strlen_or_indicator)
                     *strlen_or_indicator = len_required;
@@ -122,12 +184,15 @@ SQLRETURN SQL_API SQLFetch(SQLHSTMT hstmt)
     if(!hstmt)
         return SQL_INVALID_HANDLE;
 
-    if(phstmt->status != STMT_FINISHED)
-        return STMT_ODBC_ERR_MSG(ERROR_FUNCTION_SEQ_ERR, "SQLFetch can only be invoked after "
-                "successful execution on a SQL statement.");
+    if(!(phstmt->status & STMT_FINISHED))
+        return STMT_ODBC_ERR_MSG(ERROR_FUNCTION_SEQ_ERR,
+                "Data not ready yet.");
 
     if((rc = cdb2_next_record(phstmt->sqlh)) == CDB2_OK) {
-        
+
+        if (phstmt->status & STMT_SQLCOLUMNS)
+            ++phstmt->ord_pos;
+
         if(phstmt->num_data_buffers > 0 && (data = phstmt->buffers) != NULL) {
             /* SQLBindCol is called before. */
             for(i = 1; data < phstmt->buffers + phstmt->num_data_buffers; ++data, ++i) {
@@ -148,7 +213,7 @@ SQLRETURN SQL_API SQLFetch(SQLHSTMT hstmt)
 }
 
 /* Returns corresponding SQL types of cdb2api types. */
-static int cdb2_to_sql(int cdb2_type)
+SQLSMALLINT cdb2_to_sql(int cdb2_type)
 {
     switch(cdb2_type) {
         case CDB2_INTEGER:
@@ -165,11 +230,9 @@ static int cdb2_to_sql(int cdb2_type)
             return SQL_INTERVAL_YEAR_TO_MONTH;
         case CDB2_INTERVALDS:
             return SQL_INTERVAL_DAY_TO_SECOND;
-
         default:
             break;
     }
-
     return SQL_UNKNOWN_TYPE;
 }
 
@@ -205,7 +268,7 @@ static unsigned int column_size(cdb2_hndl_tp *sqlh, int col)
         default:
             /* XXX - ODBC requires us to return the length of the longest string
                or blob here. Can't be done in comdb2 unless reading all rows. */
-            return cdb2_column_size(sqlh, col);
+            return 0;
     }
 }
 
@@ -238,7 +301,7 @@ static unsigned int display_size(cdb2_hndl_tp *sqlh, int col)
         default:
             /* XXX - ODBC requires us to return the length of the longest string
                or blob here. Can't be done in comdb2 unless reading all rows. */
-            return cdb2_column_size(sqlh, col);
+            return 0;
     }
 }
 
@@ -311,7 +374,7 @@ SQLRETURN SQL_API SQLDescribeCol(SQLHSTMT       hstmt,
 
     /* Nullable FIXME */
     if(nullable)
-        *nullable = SQL_NULLABLE_UNKNOWN;
+        *nullable = SQL_NULLABLE;
 
     __debug("leaves method.");
 
@@ -471,10 +534,11 @@ SQLRETURN SQL_API SQLNumResultCols(SQLHSTMT hstmt, SQLSMALLINT *count)
     if(!hstmt)
         ret = SQL_INVALID_HANDLE;
     else if (phstmt->status & (STMT_ALLOCATED | STMT_EXECUTING))
-        ret = STMT_ODBC_ERR_MSG(ERROR_FUNCTION_SEQ_ERR, "No query is attached or the statement is still executing."); 
+        ret = STMT_ODBC_ERR_MSG(ERROR_FUNCTION_SEQ_ERR,
+                "No query is attached or the statement is still executing."); 
     else if(!(phstmt->status & STMT_READY) || SQL_SUCCEEDED((ret = comdb2_SQLExecute(hstmt))))
-        *count = (SQLSMALLINT)cdb2_numcolumns(phstmt->sqlh);
-
+        *count = (SQLSMALLINT)((phstmt->status & STMT_SQLCOLUMNS) ?
+                phstmt->col_count - 1 : phstmt->col_count);
     __debug("leaves method.");
     return ret;
 }
@@ -520,15 +584,14 @@ SQLRETURN SQL_API SQLRowCount(SQLHSTMT hstmt, SQLLEN *count)
             return set_stmt_error(phstmt, ERROR_WTH, "Effects were not sent by comdb2 server.", rc);
         }
 
-        if(phstmt->sql_type == STMT_SELECT) 
-
+        if(phstmt->sql_type != STMT_SELECT) {
+            *count = phstmt->effects->num_affected;
+        } else {
             /* SQLRowCount returns the count of AFFECTED rows. For a select statement, the behavior is driver-defined. 
                Most of drivers return the number of tuples for a SELECT statement. So we follow the convention. 
                For more details, see http://msdn.microsoft.com/en-us/library/ms711835(v=vs.85).aspx */
-
             *count = phstmt->effects->num_selected;
-        else 
-            *count = phstmt->effects->num_affected;
+        }
     }
 
     __debug("leaves method.");

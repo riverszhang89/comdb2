@@ -3,41 +3,193 @@
 #include <string.h>
 #include <stdio.h>
 
-struct type_info {
-    char *type_name;
-    SI   data_type;
-    int  column_size;
-    char *literal_prefix;
-    char *literal_suffix;
-    char *create_params;
-    SI   nullable;
-    SI   case_sensitive;
-    SI   searchable;
-    SI   unsigned_attribute;
-    SI   fixed_prec_scale;
-    SI   auto_unique_value;
-    char *local_type_name;
-    SI   minimum_scale;
-    SI   maximum_scale;
-    SI   sql_data_type;
-    SI   sql_datetime_sub;
-    int  num_prec_radix;
-    SI   interval_precision;
-};
-
-SQLRETURN comdb2_SQLExecDirect(stmt_t *phstmt, SQLCHAR *sql, SQLINTEGER len);
-
 SQLRETURN SQL_API SQLGetTypeInfo(SQLHSTMT hstmt, SQLSMALLINT type)
 {
     stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+    size_t pos = 0;
+    int variant = 0;
+    const char *tn = NULL;
 
     __debug("enters method.");
 
     if(!hstmt)
         return SQL_INVALID_HANDLE;
 
+    if (type == SQL_CHAR ||
+        type == SQL_VARCHAR ||
+        type == SQL_LONGVARCHAR ||
+        type == SQL_WCHAR ||
+        type == SQL_WVARCHAR ||
+        type == SQL_WLONGVARCHAR ||
+        type == SQL_BINARY ||
+        type == SQL_VARBINARY ||
+        type == SQL_LONGVARBINARY)
+        variant = 1;
+
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    pos += snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+            "SELECT tn AS TYPE_NAME,"
+            "dt AS DATA_TYPE,"
+            "0 AS COLUMN_SIZE,"
+            "null AS LITERAL_PREFIX,"
+            "null AS LITERAL_SUFFIX,"
+            "'%s' as CREATE_PARAMS,"
+            "%d as NULLABLE,"
+            "%d as CASE_SENSITIVE,"
+            "%d as SEARCHABLE,"
+            "%d as UNSIGNED_ATTRIBUTE,"
+            "%d as FIXED_PREC_SCALE," // <-- true for decimals
+            "%d as AUTO_UNIQUE_VALUE,"
+            "null as LOCAL_TYPE_NAME,"
+            "null as MINIMUM_SCALE,"
+            "dt as SQL_DATA_TYPE,"
+            "null as SQL_DATETIME_SUB,"
+            "10 as NUM_PREC_RADIX,"
+            "null as INTERVAL_PRECISION ",
+            variant ? "length" : "null",
+            SQL_NULLABLE,
+            SQL_TRUE,
+            SQL_SEARCHABLE,
+            SQL_FALSE,
+            (type == SQL_DECIMAL || type == SQL_NUMERIC) ? SQL_TRUE : SQL_FALSE,
+            SQL_FALSE);
+
+    if (type == SQL_ALL_TYPES) {
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "FROM (SELECT '%s' AS TN, %d AS DT union ",
+                "cstring", SQL_CHAR);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "vutf8", SQL_VARCHAR);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "vutf8", SQL_LONGVARCHAR);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "vutf8", SQL_WCHAR);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "vutf8", SQL_WVARCHAR);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "vutf8", SQL_WLONGVARCHAR);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "decimal128", SQL_DECIMAL);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "decimal128", SQL_NUMERIC);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "short", SQL_SMALLINT);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "short", SQL_BIT);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "short", SQL_TINYINT);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "int", SQL_INTEGER);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "longlong", SQL_BIGINT);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "float", SQL_FLOAT);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "double", SQL_REAL);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "double", SQL_DOUBLE);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "byte", SQL_BINARY);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "blob", SQL_VARBINARY);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "blob", SQL_LONGVARBINARY);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "datetime", SQL_TIMESTAMP);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT union ",
+                "intervalym", SQL_INTERVAL_YEAR_TO_MONTH);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                "SELECT '%s' AS TN, %d AS DT) ORDER BY TYPE_NAME",
+                "intervalds", SQL_INTERVAL_DAY_TO_SECOND);
+    } else {
+        switch (type) {
+            case SQL_CHAR:
+                tn = "cstring";
+                break;
+            case SQL_VARCHAR:
+            case SQL_LONGVARCHAR:
+            case SQL_WCHAR:
+            case SQL_WVARCHAR:
+            case SQL_WLONGVARCHAR:
+                tn = "vutf8";
+                break;
+            case SQL_DECIMAL:
+            case SQL_NUMERIC:
+                /* use the highest */
+                tn = "decimal128";
+                break;
+            case SQL_SMALLINT:
+            case SQL_BIT:
+            case SQL_TINYINT:
+                tn = "short";
+                break;
+            case SQL_INTEGER:
+                tn = "int";
+                break;
+            case SQL_BIGINT:
+                tn = "longlong";
+                break;
+            case SQL_FLOAT:
+                tn = "float";
+                break;
+            case SQL_DOUBLE:
+            case SQL_REAL:
+                tn = "double";
+                break;
+            case SQL_BINARY:
+                tn = "byte";
+                break;
+            case SQL_VARBINARY:
+            case SQL_LONGVARBINARY:
+                tn = "blob";
+                break;
+            case SQL_TIMESTAMP:
+                tn = "datetime";
+                break;
+            case SQL_INTERVAL_YEAR_TO_MONTH:
+                tn = "intervalym";
+                break;
+            case SQL_INTERVAL_DAY_TO_SECOND:
+                tn = "intervalds";
+                break;
+            default:
+                tn = NULL;
+                break;
+        }
+        if (tn != NULL) {
+            pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                    "FROM (SELECT '%s' AS TN, %d AS DT)",
+                    tn, type);
+        } else {
+            strncpy(&metaquery[pos],
+                    "LIMIT 0", MAX_INTERNAL_QUERY_LEN - pos);
+        }
+    }
+
+    __debug("metaquery is %s", metaquery);
     __debug("leaves method.");
-    return SQL_SUCCESS;
+    return comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
 }
 
 /**
@@ -57,6 +209,8 @@ SQLRETURN SQL_API SQLGetInfo(
     int minimum_length_required = -1;
     SQLRETURN ret = SQL_SUCCESS;
     bool handled;
+    int t_ret;
+    char *dbver;
 
     __debug("enters method. %d", type);
 
@@ -74,7 +228,17 @@ SQLRETURN SQL_API SQLGetInfo(
             break;
         
         case SQL_DBMS_VER:
-            SET_CSTRING(value_ptr, DBVER, buflen, minimum_length_required);
+            if (!phdbc->connected && (ret = comdb2_SQLConnect(phdbc)) !=
+                    SQL_SUCCESS)
+                return ret;
+            t_ret = cdb2_run_statement(phdbc->sqlh, "SELECT COMDB2_VERSION()");
+            if (t_ret != 0)
+                return set_dbc_error(phdbc, ERROR_WTH, cdb2_errstr(phdbc->sqlh), t_ret);
+            while ((t_ret = cdb2_next_record(phdbc->sqlh)) == CDB2_OK)
+                dbver = cdb2_column_value(phdbc->sqlh, 0);
+            if (t_ret != CDB2_OK_DONE)
+                return set_dbc_error(phdbc, ERROR_WTH, cdb2_errstr(phdbc->sqlh), t_ret);
+            SET_CSTRING(value_ptr, dbver, buflen, minimum_length_required);
             break;
         
         case SQL_DRIVER_NAME:
@@ -209,6 +373,7 @@ SQLRETURN SQL_API SQLColumns(
         SQLCHAR *      column,
         SQLSMALLINT    column_len)
 {
+    SQLRETURN ret;
     stmt_t *phstmt = (stmt_t *)hstmt;
     char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
     size_t pos = 0;
@@ -228,11 +393,11 @@ SQLRETURN SQL_API SQLColumns(
                    "tablename AS TABLE_NAME, columnname AS COLUMN_NAME,"
                    "0 AS DATA_TYPE," /* <-- We will convert it later */
                    "type AS TYPE_NAME, (size - 1) AS COLUMN_SIZE, "
-                   "size AS BUFFER_LENGTH, NULL AS DECIMAL_DIGITS,"
+                   "(size - 1) AS BUFFER_LENGTH, NULL AS DECIMAL_DIGITS,"
                    "10 AS NUM_PREC_RADIX, "
                    "(UPPER(isnullable) == 'Y') AS NULLABLE, null AS REMARKS,"
                    "trim(defaultvalue) AS COLUMN_DEF, 0 AS SQL_DATA_TYPE,"
-                   "0 AS SQL_DATETIME_SUB, size AS CHAR_OCTET_LENGTH,"
+                   "0 AS SQL_DATETIME_SUB, (size - 1) AS CHAR_OCTET_LENGTH,"
                    "0 AS ORDINAL_POSITION," /* <-- We will convert it later */
                    "CASE WHEN (UPPER(isnullable) == 'Y') THEN 'YES' ELSE 'NO' END AS IS_NULLABLE,"
                    "sqltype " /* <-- Convert this to DATA_TYPE */
@@ -253,5 +418,10 @@ SQLRETURN SQL_API SQLColumns(
         pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
                         " AND COLUMN_NAME LIKE '%*s'", column_len, column);
     }
-    return comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    if (ret == SQL_SUCCESS) {
+        phstmt->status |= STMT_SQLCOLUMNS;
+        phstmt->ord_pos = 0;
+    }
+    return ret;
 }

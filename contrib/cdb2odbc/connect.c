@@ -23,7 +23,7 @@
  * Connects to the data source. 
  * @phdbc must have its connection info filled out before being passed in.
  */
-static SQLRETURN comdb2_SQLConnect(dbc_t *phdbc)
+SQLRETURN comdb2_SQLConnect(dbc_t *phdbc)
 {
     cdb2_hndl_tp *sqlh;
     conn_info_t *ci = &phdbc->ci;
@@ -213,10 +213,8 @@ SQLRETURN SQL_API SQLDisconnect(SQLHDBC hdbc)
         if(phdbc->in_txn || phdbc->sqlh_status == SQLH_EXECUTING)
             return DBC_ODBC_ERR(ERROR_INVALID_TRANS_STATE);
 
-        if(phdbc->sqlh_status == SQLH_FINISHED) {
-            while(cdb2_next_record(phdbc->sqlh) == CDB2_OK); 
+        if(phdbc->sqlh_status == SQLH_FINISHED)
             phdbc->sqlh_status = SQLH_IDLE;
-        }
 
         cdb2_close(phdbc->sqlh);
     }

@@ -247,7 +247,7 @@ static SQLRETURN comdb2_SQLFreeStmt(stmt_t *phstmt)
     if(!phstmt)
         return SQL_INVALID_HANDLE;
     
-    if(phstmt->status == STMT_EXECUTING) {
+    if(phstmt->status & STMT_EXECUTING) {
         /* If the statement is still executing (possibly a long query), 
            it cannot be freed until execution is done. */
         __fatal("Statement executing.");
@@ -330,7 +330,7 @@ static SQLRETURN comdb2_reset_params(stmt_t *phstmt)
 /*
    COMDB2-ODBC internal.
 
-   Closes a statement handle. It means all pending results will be discarded.
+   Closes a statement handle.
  */
 static SQLRETURN comdb2_SQLCloseCursor(stmt_t* phstmt)
 {
@@ -341,7 +341,7 @@ static SQLRETURN comdb2_SQLCloseCursor(stmt_t* phstmt)
     if(!phstmt)
         return SQL_INVALID_HANDLE;
     
-    if(phstmt->status == STMT_FINISHED && SQLH_STATUS(phstmt) == SQLH_FINISHED) {
+    if(phstmt->status & STMT_FINISHED && SQLH_STATUS(phstmt) == SQLH_FINISHED) {
         __info("Clear unextracted rows.");
         while((rc = cdb2_next_record(phstmt->sqlh)) == CDB2_OK);
         SET_SQLH_IDLE(phstmt);

@@ -538,7 +538,6 @@ SQLRETURN comdb2_SQLExecDirect(
 
     __debug("enters method.");
 
-    /* I don't understand why we keep doing the stupid null-check. Can't the driver manager make sure handle is non-null? */
     if(!phstmt) 
         return SQL_INVALID_HANDLE;
 

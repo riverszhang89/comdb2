@@ -62,7 +62,6 @@
 #define DRVNAME         "COMDB2-ODBC"
 #define DRVVER          "1.0.0"
 #define DBNAME          "COMDB2"
-#define DBVER           "R5"
 #define DRV_FILE_NAME   "libcomdb2odbc.so"
 
 /* ================== Limits start ================ */
@@ -168,21 +167,19 @@ typedef enum {
     STMT_CREATE,
     STMT_ALTER,
     STMT_DROP,
-    STMT_GRANT,
-    STMT_REVOKE,
 
     STMT_UNDEFINED
 } sql_type_t;
 
 /* Statement status. */
 typedef enum {
-    STMT_ALLOCATED  = 0x1,      /* allocated, but not used so far */
-    STMT_READY      = 0x2,      /* waiting to be executed */
-    STMT_PREMATURE  = 0x4,      /* the statement has been executed before a call to SQLExecute but after SQLPrepare. */
-    STMT_FINISHED   = 0x8,      /* okay I'm done */
-    STMT_EXECUTING  = 0x10,     /* execution is going on, please be patient */
-    STMT_EXTRACTED  = 0x20,     /* All rows are fetched. */
-    STMT_SQLCOLUMNS = 0x40      /* Special query type - SQLColumns() */
+      STMT_ALLOCATED  = 0x1      /* allocated, but not used so far */
+    , STMT_READY      = 0x2      /* waiting to be executed */
+    , STMT_PREMATURE  = 0x4      /* the statement has been executed before a call to SQLExecute but after SQLPrepare. */
+    , STMT_FINISHED   = 0x8      /* okay I'm done */
+    , STMT_EXECUTING  = 0x10     /* execution is going on, please be patient */
+    , STMT_EXTRACTED  = 0x20     /* All rows are fetched. */
+    , STMT_SQLCOLUMNS = 0x40     /* Internal query issued by SQLColumns() */
 } stmt_status;
 
 /* Parameter struct (See SQLBindParameter). */
@@ -197,7 +194,7 @@ typedef struct param {
     SQLLEN *str_len;            /* deferred length of @buf. */
     void *buf;                  /* buffer */
     void *internal_buffer;      /* internal buffer for saving intermediate result. */
-    char name[MAX_INT64_DIGITS + 21];              /* name of parameter (e.g, @uuid). the leading `@' is required. */
+    char name[MAX_INT64_DIGITS + 21]; /* name of parameter (e.g, @uuid). */
 } param_t;
 
 /* Data buffer (see SQLBindCol) */
@@ -230,7 +227,7 @@ typedef struct stmt {
     bool changed;
 
     /* result */
-    unsigned int col_count;     /* Don't tell me your column count is more than 4 billion. */
+    unsigned int col_count;
     effects_tp *effects;        /* Numbers of affected, selected, updated, inserted and deleted rows. */
     err_t *error;
 
@@ -241,6 +238,9 @@ typedef struct stmt {
     data_buffer_t *buffers;     /* Data buffers. */
 
     unsigned int num_params;             /* The number of parameters in this statement. */
+
+    /* meta data */
+    LL ord_pos;
 
 #ifdef __THREADS__
     pthread_mutex_t lock;
@@ -311,6 +311,9 @@ typedef struct stmt {
 
 /* ================== Macros end ================ */
 
-/* ================== Functions ================ */
-SQLRETURN comdb2_SQLExecute(stmt_t *phstmt);
+/* ================== Common Functions start ================ */
+SQLRETURN comdb2_SQLExecute(stmt_t *);
+SQLRETURN comdb2_SQLExecDirect(stmt_t *, SQLCHAR *sql, SQLINTEGER len);
+SQLRETURN comdb2_SQLConnect(dbc_t *phdbc);
+/* ================== Common Functions end ================ */
 #endif /* _DRIVER_H_ */

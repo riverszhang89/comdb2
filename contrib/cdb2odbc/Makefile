@@ -6,7 +6,7 @@ arch:=$(shell uname)
 export $(arch)
 
 ifeq ($(arch),Linux)
-  CC=gcc
+  CC=gcc -g
   CFLAGS_64+=-m64 -std=c99
   CFLAGS_PIC+=-fPIC
   CFLAGS_DEF+=-D_GNU_SOURCE -D_XOPEN_SOURCE=600 -D__UNIXODBC__

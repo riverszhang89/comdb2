@@ -27,6 +27,7 @@ conv_resp convert_cdb2real(const void *value, int size, SQLSMALLINT c_data_type,
             break;
         
         case SQL_C_DOUBLE:
+        case SQL_C_DEFAULT:
             SET_SQLDOUBLE(target_ptr, num, *str_len);
             break;
         
@@ -84,6 +85,7 @@ conv_resp convert_cdb2datetime(const void *value, int size, SQLSMALLINT c_data_t
             break;
 
         case SQL_C_TYPE_TIMESTAMP:
+        case SQL_C_DEFAULT:
             timestamp = (TIMESTAMP_STRUCT *)target_ptr;
             timestamp->year = (SQLSMALLINT)datetime->tm.tm_year + 1900;
             timestamp->month = (SQLUSMALLINT)datetime->tm.tm_mon + 1;
@@ -134,6 +136,7 @@ conv_resp convert_cdb2inds(const void *value, int size, SQLSMALLINT c_data_type,
         case SQL_C_INTERVAL_HOUR_TO_MINUTE:
         case SQL_C_INTERVAL_HOUR_TO_SECOND:
         case SQL_C_INTERVAL_MINUTE_TO_SECOND:
+        case SQL_C_DEFAULT:
             /* I will not do any calculation here (like 2 days and 6 hrs ==> 54 hrs). 
                The flag @interval_type will always set to SQL_IS_DAY_TO_SECOND. */
 			intv_odbc->interval_type = SQL_IS_DAY_TO_SECOND;
@@ -180,6 +183,7 @@ conv_resp convert_cdb2inym(const void *value, int size, SQLSMALLINT c_data_type,
         case SQL_C_INTERVAL_MONTH:
         case SQL_C_INTERVAL_YEAR:
         case SQL_C_INTERVAL_YEAR_TO_MONTH:
+        case SQL_C_DEFAULT:
 			intv_odbc->interval_type = SQL_IS_YEAR_TO_MONTH;
 			intv_odbc->interval_sign = (SQLSMALLINT)intv_cdb2->sign;
             intv_odbc->intval.year_month.year = intv_cdb2->years;
@@ -205,6 +209,7 @@ conv_resp convert_cdb2blob(const void *value, int size, SQLSMALLINT c_data_type,
 
     switch(c_data_type) {
         case SQL_C_BINARY:
+        case SQL_C_DEFAULT:
             *str_len = size;
             if(size > target_len) {
                 size = (int)target_len;
@@ -262,6 +267,7 @@ conv_resp convert_cdb2int(const void *value, int size, SQLSMALLINT c_data_type, 
             break;
 
         case SQL_C_SBIGINT:
+        case SQL_C_DEFAULT:
             SET_SQLBIGINT(target_ptr, num, *str_len);
             break;
 
@@ -287,11 +293,11 @@ conv_resp convert_cdb2int(const void *value, int size, SQLSMALLINT c_data_type, 
             SET_SQLUINT(target_ptr, num, *str_len);
             break;
 
-        case SQL_FLOAT:
+        case SQL_C_FLOAT:
             SET_SQLFLOAT(target_ptr, num, *str_len);
             break;
 
-        case SQL_DOUBLE:
+        case SQL_C_DOUBLE:
             SET_SQLDOUBLE(target_ptr, num, *str_len);
             break;
 
@@ -323,6 +329,7 @@ conv_resp convert_cdb2cstring(const void *value, int size, SQLSMALLINT c_data_ty
 
     switch(c_data_type) {
         case SQL_C_CHAR:
+        case SQL_C_DEFAULT:
             /* size is str_len + 1 */
             my_strncpy_out((char *)target_ptr, value, target_len);
             *str_len = size - 1;
@@ -472,7 +479,6 @@ REAL_TO_INTERVALDS(sec);
 /**
  * Convert an integer from C type to CDB2 type and bind the parameter using CDB2 API.
  * See http://msdn.microsoft.com/en-us/library/ms714147(v=vs.85).aspx for details.
- * FIXME SQL DECIMAL & NUMERIC are not supported.
  *
  * @return
  *  CONV_MEM_FAIL           -   memory allocation failure.
@@ -540,6 +546,10 @@ conv_resp convert_and_bind_int(cdb2_hndl_tp *sqlh, struct param *param)
         case SQL_C_UBIGINT:
             val = *(SQLUBIGINT *)buf;
             is_u = 1;
+            break;
+
+        case SQL_C_DEFAULT:
+            /* Fall back to param->sql_type */
             break;
 
         default:    /* Returns a flag and let other convertors take it over. */
@@ -617,7 +627,6 @@ conv_resp convert_and_bind_int(cdb2_hndl_tp *sqlh, struct param *param)
 /**
  * Convert a real parameter from C type to CDB2 type and bind the parameter using CDB2 API.
  * See http://msdn.microsoft.com/en-us/library/ms714147(v=vs.85).aspx for details.
- * FIXME SQL DECIMAL & NUMERIC are not supported.
  *
  * @return
  *  CONV_MEM_FAIL           -   memory allocation failure.
@@ -648,6 +657,10 @@ conv_resp convert_and_bind_real(cdb2_hndl_tp *sqlh, struct param *param)
 
         case SQL_C_DOUBLE:
             val = *((double *)param->buf);
+            break;
+
+        case SQL_C_DEFAULT:
+            /* Fall back to param->sql_type */
             break;
 
         default:    /* Returns a flag and let other convertors take it over. */
@@ -761,6 +774,10 @@ conv_resp convert_and_bind_cstring(cdb2_hndl_tp *sqlh, struct param *param)
                 return CONV_MEM_FAIL;
 
             wcstombs((char *)param->internal_buffer, wcs, len);
+            break;
+
+        case SQL_C_DEFAULT:
+            /* Fall back to param->sql_type */
             break;
 
         default:    /* Returns a flag and let other convertors take it over. */
@@ -901,7 +918,7 @@ conv_resp convert_and_bind_blob(cdb2_hndl_tp *sqlh, struct param *param)
         return CONV_YEAH;
     }
 
-    if(param->c_type != SQL_C_BINARY) {
+    if(param->c_type != SQL_C_BINARY && param->c_type != SQL_C_DEFAULT) {
         __debug("Not a valid blob type.");
         return CONV_UNSUPPORTED_C_TYPE;
     }
@@ -990,6 +1007,10 @@ conv_resp convert_and_bind_datetime(cdb2_hndl_tp *sqlh, struct param *param)
                See http://msdn.microsoft.com/en-us/library/ms714556(v=vs.85).aspx for details. */
             datetime->msec       = (int)(ts_struct->fraction / 1000000);
         
+        case SQL_C_DEFAULT:
+            /* Fall back to param->sql_type */
+            break;
+
         default:
             __debug("Not a valid datetime type.");
             return CONV_UNSUPPORTED_C_TYPE;
@@ -1051,6 +1072,10 @@ conv_resp convert_and_bind_intv_ym(cdb2_hndl_tp *sqlh, struct param *param)
         case SQL_C_INTERVAL_MONTH:
         case SQL_C_INTERVAL_YEAR_TO_MONTH:
             intv_odbc = (SQL_INTERVAL_STRUCT *)param->buf;
+            break;
+
+        case SQL_C_DEFAULT:
+            /* Fall back to param->sql_type */
             break;
 
         default:
@@ -1176,6 +1201,10 @@ conv_resp convert_and_bind_intv_ds(cdb2_hndl_tp *sqlh, struct param *param)
         case SQL_C_INTERVAL_HOUR_TO_SECOND:
         case SQL_C_INTERVAL_MINUTE_TO_SECOND:
             intv_odbc = (SQL_INTERVAL_STRUCT *)param->buf;
+            break;
+
+        case SQL_C_DEFAULT:
+            /* Fall back to param->sql_type */
             break;
 
         default:
