@@ -3,7 +3,7 @@
 
 #if defined(unix) || defined(__unix) || defined(__unix__)
 # define __UNIX__
-#elif defined(_WIN32) || defined(__WIN64)
+#elif defined(_WIN32) || defined(_WIN64)
 # define __WINDOWS__
 #else
 # error "! Unknown architecture."

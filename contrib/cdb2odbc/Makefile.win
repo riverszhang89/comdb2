@@ -3,11 +3,11 @@ PREFIX="\Windows\System32"
 !ENDIF
 
 !IF "$(CDB2API_INC)" == ""
-CDB2API_INC="../../cdb2api"
+CDB2API_INC=../../cdb2api
 !ENDIF
 
 !IF "$(CDB2API_LIB)" == ""
-CDB2API_LIB="../../cdb2api"
+CDB2API_LIB=../../cdb2api
 !ENDIF
 
 !IF "$(CONFIG)" == ""
@@ -17,7 +17,7 @@ CFLAG_CFG=/MD /O2
 CFLAG_CFG=/MDd /Zi /Od
 !ENDIF
 
-CFLAGS_INC=/I$(CDB2API_INC)
+CFLAGS_INC=/I$"(CDB2API_INC)"
 CFLAGS_DEF=
 
 CC=cl.exe
