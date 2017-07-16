@@ -210,7 +210,7 @@ SQLRETURN SQL_API SQLGetInfo(
     SQLRETURN ret = SQL_SUCCESS;
     bool handled;
     int t_ret;
-    char *dbver;
+    char *dbver = "UNKNOWN";
 
     __debug("enters method. %d", type);
 

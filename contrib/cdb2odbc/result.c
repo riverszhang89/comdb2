@@ -101,11 +101,11 @@ SQLRETURN comdb2_SQLGetData(SQLHSTMT        hstmt,
                     datatype = SQL_VARBINARY;
 
                 conv_ret = convert_cdb2int(&datatype, sizeof(datatype), c_data_type,
-                        target_ptr, target_len, strlen_or_indicator);
+                        target_ptr, target_len, &len_required);
             } else if (col == 17) {
                 conv_ret = convert_cdb2int(&phstmt->ord_pos,
                         sizeof(phstmt->ord_pos), c_data_type,
-                        target_ptr, target_len, strlen_or_indicator);
+                        target_ptr, target_len, &len_required);
             } else {
                 conv_ret = retrieve_and_convert(phstmt, col - 1, c_data_type, target_ptr,
                         target_len, &len_required);

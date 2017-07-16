@@ -523,6 +523,7 @@ conv_resp convert_and_bind_int(cdb2_hndl_tp *sqlh, struct param *param)
             break;
 
         case SQL_C_SBIGINT:
+        case SQL_C_DEFAULT:
             val = *(SQLBIGINT *)buf;
             is_u = 0;
             break;
@@ -546,10 +547,6 @@ conv_resp convert_and_bind_int(cdb2_hndl_tp *sqlh, struct param *param)
         case SQL_C_UBIGINT:
             val = *(SQLUBIGINT *)buf;
             is_u = 1;
-            break;
-
-        case SQL_C_DEFAULT:
-            /* Fall back to param->sql_type */
             break;
 
         default:    /* Returns a flag and let other convertors take it over. */
@@ -656,11 +653,8 @@ conv_resp convert_and_bind_real(cdb2_hndl_tp *sqlh, struct param *param)
             break;
 
         case SQL_C_DOUBLE:
-            val = *((double *)param->buf);
-            break;
-
         case SQL_C_DEFAULT:
-            /* Fall back to param->sql_type */
+            val = *((double *)param->buf);
             break;
 
         default:    /* Returns a flag and let other convertors take it over. */
@@ -762,6 +756,7 @@ conv_resp convert_and_bind_cstring(cdb2_hndl_tp *sqlh, struct param *param)
 
     switch(param->c_type) {
         case SQL_C_CHAR:
+        case SQL_C_DEFAULT:
             len = strlen((char *)param->buf);
             break;
         case SQL_C_WCHAR:
@@ -774,10 +769,6 @@ conv_resp convert_and_bind_cstring(cdb2_hndl_tp *sqlh, struct param *param)
                 return CONV_MEM_FAIL;
 
             wcstombs((char *)param->internal_buffer, wcs, len);
-            break;
-
-        case SQL_C_DEFAULT:
-            /* Fall back to param->sql_type */
             break;
 
         default:    /* Returns a flag and let other convertors take it over. */
@@ -992,6 +983,7 @@ conv_resp convert_and_bind_datetime(cdb2_hndl_tp *sqlh, struct param *param)
             break;
 
         case SQL_C_TYPE_TIMESTAMP:
+        case SQL_C_DEFAULT:
             if((datetime = my_calloc(cdb2_client_datetime_t, 1)) == NULL)
                 return CONV_MEM_FAIL;
 
@@ -1006,11 +998,8 @@ conv_resp convert_and_bind_datetime(cdb2_hndl_tp *sqlh, struct param *param)
             /* @fraction is nanoseconds. 
                See http://msdn.microsoft.com/en-us/library/ms714556(v=vs.85).aspx for details. */
             datetime->msec       = (int)(ts_struct->fraction / 1000000);
+			break;
         
-        case SQL_C_DEFAULT:
-            /* Fall back to param->sql_type */
-            break;
-
         default:
             __debug("Not a valid datetime type.");
             return CONV_UNSUPPORTED_C_TYPE;
@@ -1071,11 +1060,8 @@ conv_resp convert_and_bind_intv_ym(cdb2_hndl_tp *sqlh, struct param *param)
         case SQL_C_INTERVAL_YEAR:
         case SQL_C_INTERVAL_MONTH:
         case SQL_C_INTERVAL_YEAR_TO_MONTH:
-            intv_odbc = (SQL_INTERVAL_STRUCT *)param->buf;
-            break;
-
         case SQL_C_DEFAULT:
-            /* Fall back to param->sql_type */
+            intv_odbc = (SQL_INTERVAL_STRUCT *)param->buf;
             break;
 
         default:
@@ -1200,11 +1186,8 @@ conv_resp convert_and_bind_intv_ds(cdb2_hndl_tp *sqlh, struct param *param)
         case SQL_C_INTERVAL_HOUR_TO_MINUTE:
         case SQL_C_INTERVAL_HOUR_TO_SECOND:
         case SQL_C_INTERVAL_MINUTE_TO_SECOND:
-            intv_odbc = (SQL_INTERVAL_STRUCT *)param->buf;
-            break;
-
         case SQL_C_DEFAULT:
-            /* Fall back to param->sql_type */
+            intv_odbc = (SQL_INTERVAL_STRUCT *)param->buf;
             break;
 
         default:
