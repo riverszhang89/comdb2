@@ -7,6 +7,7 @@ export $(arch)
 
 ifeq ($(arch),Linux)
   CC=gcc -g
+  CFLAGS+=-Werror -Wall
   CFLAGS_64+=-m64 -std=c99
   CFLAGS_PIC+=-fPIC
   CFLAGS_DEF+=-D_GNU_SOURCE -D_XOPEN_SOURCE=600 -D__UNIXODBC__
@@ -35,7 +36,6 @@ endif
 
 CFLAGS_DEF+=-D__LOG__ -D__COLORFUL__ #-D__DEBUG__
 
-CFLAGS+=-Werror
 CFLAGS+=-I$(PREFIX)/include $(CFLAGS_64) $(CFLAGS_PIC) $(CFLAGS_DEF)
 LDFLAGS+=-lodbcinst -L$(PREFIX)/lib -lcdb2api -lcdb2protobuf -lprotobuf-c \
          -lssl -lcrypto -lpthread -lrt -lm $(LDFLAGS_OSLIBS) $(LDFLAGS_64)

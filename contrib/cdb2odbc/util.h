@@ -7,8 +7,8 @@
 #include <sql.h> /* We need this header for SQL_NTS stuff. */
 
 /* Max and min. */
-#define MAX(x, y) x ^ ((x ^ y) & -(x < y))
-#define MIN(x, y) y ^ ((x ^ y) & -(x < y))
+#define MAX(x, y) (x) ^ (((x) ^ (y)) & -((x) < (y)))
+#define MIN(x, y) (y) ^ (((x) ^ (y)) & -((x) < (y)))
 
 /* Return the number of elements in @array. */
 #define ALEN(array) sizeof(array) / sizeof(array[0])

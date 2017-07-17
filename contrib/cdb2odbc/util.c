@@ -39,7 +39,8 @@ char *make_string(const char *s, int len, char *buf)
     char *str;
 
     if(!s) return NULL;
-    if(len < 0 && len != SQL_NTS || len == SQL_NTS && (len = (int)strlen(s)) <= 0)
+    if((len < 0 && len != SQL_NTS) ||
+       (len == SQL_NTS && (len = (int)strlen(s)) <= 0))
 		return NULL;
 
     ++len; /* an extra char for \0. */

@@ -347,13 +347,13 @@ conv_resp convert_cdb2cstring(const void *value, int size, SQLSMALLINT c_data_ty
             return CONV_IMPOSSIBLE;
     }
 
-    return CONV_YEAH;
+    return resp;
 }
 
 /*
    Binds long long int value.
  */
-static conv_resp cdb2_bind_int(const char *name, LL val, void **buf, cdb2_hndl_tp *sqlh)
+conv_resp cdb2_bind_int(const char *name, LL val, void **buf, cdb2_hndl_tp *sqlh)
 {
     if((*buf = malloc(sizeof(LL))) == NULL)
         return CONV_MEM_FAIL;
@@ -369,7 +369,7 @@ static conv_resp cdb2_bind_int(const char *name, LL val, void **buf, cdb2_hndl_t
 /*
    Binds real value.
  */
-static conv_resp cdb2_bind_real(const char *name, double val, void **buf, cdb2_hndl_tp *sqlh)
+conv_resp cdb2_bind_real(const char *name, double val, void **buf, cdb2_hndl_tp *sqlh)
 {
     if((*buf = malloc(sizeof(double))) == NULL)
         return CONV_MEM_FAIL;
@@ -384,7 +384,7 @@ static conv_resp cdb2_bind_real(const char *name, double val, void **buf, cdb2_h
 
 /* Converts an integral value to an interval. */
 #define INT_TO_INTERVALYM(field)                                                                    \
-static conv_resp  int_to_interval_ ## field (                                                       \
+conv_resp  int_to_interval_ ## field (                                                              \
     const char *name, LL val, void **buf,                                                           \
     bool is_u, cdb2_hndl_tp *sqlh)                                                                  \
 {                                                                                                   \
@@ -408,7 +408,7 @@ INT_TO_INTERVALYM(years);
 INT_TO_INTERVALYM(months);
 
 #define INT_TO_INTERVALDS(field)                                                                    \
-static conv_resp  int_to_interval_ ## field (                                                       \
+conv_resp  int_to_interval_ ## field (                                                              \
     const char *name, LL val, void **buf,                                                           \
     bool is_u, cdb2_hndl_tp *sqlh)                                                                  \
 {                                                                                                   \

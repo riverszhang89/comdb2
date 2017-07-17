@@ -510,10 +510,12 @@ SQLRETURN SQL_API SQLColAttribute(SQLHSTMT      hstmt,
             break;
         case SQL_DESC_UPDATABLE:
             break;
-
         default:
             return STMT_ODBC_ERR(ERROR_INVALID_DESC_FIELD_ID);
     }
+
+    if (attr_len != NULL)
+        *attr_len = minimum_length_required;
 
     __debug("enters method.");
 

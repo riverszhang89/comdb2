@@ -346,7 +346,7 @@ static char *fast_fill_out_parameters(stmt_t *phstmt)
 
     /* Once we fill out all markers, mark the statement as unchanged. */
     phstmt->changed = false;
-    __info("%d bytes are used for parameterized statement.", strlen(phstmt->query_with_params) + 1);
+    __info("%zd bytes are used for parameterized statement.", strlen(phstmt->query_with_params) + 1);
 
     return phstmt->query_with_params;
 }
@@ -450,6 +450,8 @@ SQLRETURN comdb2_SQLExecute(stmt_t *phstmt)
             /* Another statement handle completed. */
             __warn("Clear unextracted rows. All pending results will be discarded.");
             while((rc = cdb2_next_record(phstmt->sqlh)) == CDB2_OK);
+            break;
+        default:
             break;
     }
 
