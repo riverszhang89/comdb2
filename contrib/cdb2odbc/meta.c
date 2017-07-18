@@ -179,11 +179,11 @@ SQLRETURN SQL_API SQLGetTypeInfo(SQLHSTMT hstmt, SQLSMALLINT type)
         }
         if (tn != NULL) {
             pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
-                    "FROM (SELECT '%s' AS TN, %d AS DT)",
+                    " FROM (SELECT '%s' AS TN, %d AS DT)",
                     tn, type);
         } else {
             strncpy(&metaquery[pos],
-                    "LIMIT 0", MAX_INTERNAL_QUERY_LEN - pos);
+                    " LIMIT 0", MAX_INTERNAL_QUERY_LEN - pos);
         }
     }
 
@@ -314,6 +314,510 @@ SQLRETURN SQL_API SQLGetInfo(
     return ret;
 }
 
+SQLRETURN SQL_API SQLColumns(
+        SQLHSTMT       hstmt,
+        SQLCHAR *      catalog,
+        SQLSMALLINT    catalog_len,
+        SQLCHAR *      schema,
+        SQLSMALLINT    schema_len,
+        SQLCHAR *      tbl,
+        SQLSMALLINT    tbl_len,
+        SQLCHAR *      column,
+        SQLSMALLINT    column_len)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+    size_t pos = 0;
+
+    __debug("enters method.");
+
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "tablename AS TABLE_NAME, columnname AS COLUMN_NAME,"
+                   "0 AS DATA_TYPE," /* <-- We will convert it later */
+                   "type AS TYPE_NAME, (size - 1) AS COLUMN_SIZE, "
+                   "(size - 1) AS BUFFER_LENGTH, NULL AS DECIMAL_DIGITS,"
+                   "10 AS NUM_PREC_RADIX, "
+                   "(UPPER(isnullable) == 'Y') AS NULLABLE, null AS REMARKS,"
+                   "trim(defaultvalue) AS COLUMN_DEF, 0 AS SQL_DATA_TYPE,"
+                   "0 AS SQL_DATETIME_SUB, (size - 1) AS CHAR_OCTET_LENGTH,"
+                   "0 AS ORDINAL_POSITION," /* <-- We will convert it later */
+                   "CASE WHEN (UPPER(isnullable) == 'Y') THEN 'YES' ELSE 'NO' END AS IS_NULLABLE,"
+                   "sqltype " /* <-- Convert this to DATA_TYPE */
+                   "FROM comdb2sys_columns WHERE 1=1",
+                   phstmt->dbc->ci.database,
+                   phstmt->dbc->ci.cluster);
+
+    if (tbl != NULL) {
+        if (tbl_len == SQL_NTS)
+            tbl_len = (SQLSMALLINT)strlen((const char *)tbl);
+        pos += snprintf(&(metaquery[pos]), MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND TABLE_NAME LIKE '%*s'", tbl_len, tbl);
+    }
+
+    if (column != NULL) {
+        if (column_len == SQL_NTS)
+            column_len = (SQLSMALLINT)strlen((const char *)column);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND COLUMN_NAME LIKE '%*s'", column_len, column);
+    }
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    if (ret == SQL_SUCCESS) {
+        phstmt->status |= STMT_SQLCOLUMNS;
+        phstmt->ord_pos = 0;
+    }
+
+    __debug("leaves method.");
+    return ret;
+}
+
+SQLRETURN SQL_API SQLProcedures(
+    SQLHSTMT       hstmt,
+    SQLCHAR *      catalog,
+    SQLSMALLINT    catalog_len,
+    SQLCHAR *      schema,
+    SQLSMALLINT    schema_len,
+    SQLCHAR *      proc,
+    SQLSMALLINT    proc_len)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+    size_t pos = 0;
+
+    __debug("enters method.");
+
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+                   "SELECT '%s' AS PROCEDURE_CAT,"
+                   "'%s' AS PROCEDURE_SCHEM,"
+                   "name AS PROCEDURE_NAME,"
+                   "null AS NUM_INPUT_PARAMS,"
+                   "null AS NUM_OUTPUT_PARAMS,"
+                   "null AS NUM_RESULT_SETS,"
+                   "'' AS REMARKS,"
+                   "%d AS PROCEDURE_TYPE "
+                   "FROM comdb2sys_procedures WHERE 1=1 ",
+                   phstmt->dbc->ci.database,
+                   phstmt->dbc->ci.cluster,
+                   SQL_PT_UNKNOWN);
+
+    if (proc != NULL) {
+        if (proc_len == SQL_NTS)
+            proc_len = (SQLSMALLINT)strlen((const char *)proc);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND name LIKE '%*s'", proc_len, proc);
+    }
+
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    __debug("leaves method.");
+    return ret;
+}
+
+SQLRETURN SQL_API SQLProcedureColumns(
+    SQLHSTMT       hstmt,
+    SQLCHAR *      catalog,
+    SQLSMALLINT    catalog_len,
+    SQLCHAR *      schema,
+    SQLSMALLINT    schema_len,
+    SQLCHAR *      proc,
+    SQLSMALLINT    proc_len,
+    SQLCHAR *      column,
+    SQLSMALLINT    column_len)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+
+    __debug("enters method.");
+
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+    (void)proc;
+    (void)proc_len;
+    (void)column;
+    (void)column_len;
+
+    /* Returns an empty resultset. */
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+             "SELECT '' AS PROCEDURE_CAT,"
+             "'' AS PROCEDURE_SCHEM,"
+             "'' AS PROCEDURE_NAME,"
+             "'' AS COLUMN_NAME,"
+             "0 AS COLUMN_TYPE,"
+             "0 AS DATA_TYPE,"
+             "'' AS TYPE_NAME,"
+             "0 AS COLUMN_SIZE,"
+             "0 AS BUFFER_LENGTH,"
+             "0 AS DECIMAL_DIGITS,"
+             "0 AS NUM_PREC_RADIX,"
+             "0 AS NULLABLE,"
+             "'' AS REMARKS,"
+             "'' AS COLUMN_DEF,"
+             "0 AS SQL_DATA_TYPE,"
+             "0 AS SQL_DATIME_SUB,"
+             "0 AS CHAR_OCTET_LENGTH,"
+             "0 AS ORDINAL_POSITION,"
+             "'' AS IS_NULLABLE "
+             "LIMIT 0");
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    __debug("leaves method.");
+    return ret;
+}
+
+SQLRETURN SQL_API SQLColumnPrivileges(
+    SQLHSTMT       hstmt,
+    SQLCHAR *      catalog,
+    SQLSMALLINT    catalog_len,
+    SQLCHAR *      schema,
+    SQLSMALLINT    schema_len,
+    SQLCHAR        *tbl,
+    SQLSMALLINT    tbl_len,
+    SQLCHAR *      column,
+    SQLSMALLINT    column_len)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+
+    __debug("enters method.");
+
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+    (void)tbl;
+    (void)tbl_len;
+    (void)column;
+    (void)column_len;
+
+    /* Returns an empty resultset. */
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+             "SELECT null AS TABLE_CAT,"
+             "null AS TABLE_SCHEM,"
+             "'' AS TABLE_NAME,"
+             "'' AS COLUMN_NAME,"
+             "NULL AS GRANTOR,"
+             "'' AS GRANTEE,"
+             "'' AS PRIVILEGE,"
+             "null AS IS_GRANTABLE "
+             "LIMIT 0");
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    __debug("leaves method.");
+    return ret;
+}
+
+SQLRETURN SQL_API SQLTablePrivileges(
+    SQLHSTMT       hstmt,
+    SQLCHAR *      catalog,
+    SQLSMALLINT    catalog_len,
+    SQLCHAR *      schema,
+    SQLSMALLINT    schema_len,
+    SQLCHAR        *tbl,
+    SQLSMALLINT    tbl_len)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+
+    __debug("enters method.");
+
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+    (void)tbl;
+    (void)tbl_len;
+
+    /* Returns an empty resultset. */
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+             "SELECT null AS TABLE_CAT,"
+             "null AS TABLE_SCHEM,"
+             "'' AS TABLE_NAME,"
+             "NULL AS GRANTOR,"
+             "'' AS GRANTEE,"
+             "'' AS PRIVILEGE,"
+             "null AS IS_GRANTABLE "
+             "LIMIT 0");
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    __debug("leaves method.");
+    return ret;
+}
+
+SQLRETURN SQL_API SQLSpecialColumns(
+    SQLHSTMT       hstmt,
+    SQLUSMALLINT   type,
+    SQLCHAR *      catalog,
+    SQLSMALLINT    catalog_len,
+    SQLCHAR *      schema,
+    SQLSMALLINT    schema_len,
+    SQLCHAR        *tbl,
+    SQLSMALLINT    tbl_len,
+    SQLUSMALLINT   scope,
+    SQLUSMALLINT   nullable)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+
+    __debug("enters method.");
+
+    /* Ignore catalog and schema */
+    (void)type;
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+    (void)tbl;
+    (void)tbl_len;
+    (void)scope;
+    (void)nullable;
+
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+             "SELECT %d AS SCOPE,"
+             "'rowid' AS COLUMN_NAME,"
+             "%d AS DATA_TYPE,"
+             "'GENID' AS TYPE_NAME,"
+             "19 AS COLUMN_SIZE,"
+             "8 AS BUFFER_LENGTH,"
+             "0 AS DECIMAL_DEGITS,"
+             "%d AS PSEUDO_COLUMN",
+             SQL_SCOPE_SESSION,
+             SQL_BIGINT,
+             SQL_PC_PSEUDO);
+
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    __debug("leaves method.");
+    return ret;
+}
+
+SQLRETURN SQL_API SQLPrimaryKeys(
+    SQLHSTMT       hstmt,
+    SQLCHAR *      catalog,
+    SQLSMALLINT    catalog_len,
+    SQLCHAR *      schema,
+    SQLSMALLINT    schema_len,
+    SQLCHAR        *tbl,
+    SQLSMALLINT    tbl_len)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+    size_t pos = 0;
+
+    __debug("enters method.");
+
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "a.tablename AS TABLE_NAME,"
+                   "a.columnname AS COLUMN_NAME,"
+                   "(columnnumber + 1) AS KEY_SEQ,"
+                   "a.keyname AS PK_NAME "
+                   "FROM comdb2sys_keycomponents a, comdb2sys_keys b "
+                   "WHERE a.tablename = b.tablename "
+                   "AND a.keyname = b.keyname "
+                   "AND (UPPER(isunique) = 'Y' or UPPER(isunique) = 'YES') "
+                   "AND 1=1 ",
+                   phstmt->dbc->ci.database,
+                   phstmt->dbc->ci.cluster);
+
+    if (tbl != NULL) {
+        if (tbl_len == SQL_NTS)
+            tbl_len = (SQLSMALLINT)strlen((const char *)tbl);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND a.tablename LIKE '%*s'", tbl_len, tbl);
+    }
+
+    strncpy(&metaquery[pos],
+            " ORDER BY a.tablename, columnnumber",
+            MAX_INTERNAL_QUERY_LEN - pos);
+
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    __debug("leaves method.");
+    return ret;
+}
+
+
+SQLRETURN SQL_API SQLForeignKeys(
+    SQLHSTMT           hstmt,
+    SQLCHAR 		   *pkcat,
+    SQLSMALLINT        pkcatlen,
+    SQLCHAR 		   *pkschem,
+    SQLSMALLINT        pkschemlen,
+    SQLCHAR 		   *pktbl,
+    SQLSMALLINT        pktbllen,
+    SQLCHAR 		   *fkcat,
+    SQLSMALLINT        fkcatlen,
+    SQLCHAR 		   *fkschem,
+    SQLSMALLINT        fkschemlen,
+    SQLCHAR 		   *fktbl,
+    SQLSMALLINT        fktbllen)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+    size_t pos = 0;
+
+    __debug("enters method.");
+
+
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+                   "SELECT '%s' AS PKTABLE_CAT,"
+                   "'%s' AS PKTABLE_SCHEM,"
+                   "c.tablename AS PKTABLE_NAME,"
+                   "c.columnname as PKCOLUMN_NAME,"
+                   "'%s' as FKTABLE_CAT,"
+                   "'%s' as FKTABLE_SCHEM,"
+                   "a.tablename as FKTABLE_NAME,"
+                   "a.columnname as FKCOLUMN_NAME,"
+                   "(a.columnnumber + 1) as KEY_SEQ,"
+                   "CASE WHEN (upper(iscascadingupdate)='YES' or upper(iscascadingupdate)='Y') THEN %d ELSE %d END as UPDATE_RULE,"
+                   "CASE WHEN (upper(iscascadingdelete)='YES' or upper(iscascadingdelete)='Y') THEN %d ELSE %d END as DELETE_RULE,"
+                   "a.keyname as FK_NAME, c.keyname as PK_NAME,"
+                   "%d as DEFERRABILITY "
+                   "FROM comdb2sys_keycomponents a,"
+                   "comdb2sys_constraints b,"
+                   "comdb2sys_keycomponents c "
+                   "WHERE a.tablename = b.tablename "
+                   "AND a.keyname = b.keyname "
+                   "AND b.foreigntablename = c.tablename "
+                   "AND b.foreignkeyname = c.keyname",
+                   phstmt->dbc->ci.database,
+                   phstmt->dbc->ci.cluster,
+                   phstmt->dbc->ci.database,
+                   phstmt->dbc->ci.cluster,
+                   SQL_CASCADE,
+                   SQL_NO_ACTION,
+                   SQL_CASCADE,
+                   SQL_NO_ACTION,
+                   SQL_INITIALLY_DEFERRED);
+
+    if (pktbl != NULL) {
+        if (pktbllen == SQL_NTS)
+            pktbllen = (SQLSMALLINT)strlen((const char *)pktbl);
+        pos += snprintf(&(metaquery[pos]), MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND b.foreigntablename LIKE '%*s'", pktbllen, pktbl);
+    }
+
+    if (fktbl != NULL) {
+        if (fktbllen == SQL_NTS)
+            fktbllen = (SQLSMALLINT)strlen((const char *)fktbl);
+        pos += snprintf(&(metaquery[pos]), MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND b.tablename LIKE '%*s'", fktbllen, fktbl);
+    }
+
+    strncpy(&metaquery[pos],
+            " ORDER BY PKTABLE_NAME, KEY_SEQ",
+            MAX_INTERNAL_QUERY_LEN - pos);
+
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    __debug("leaves method.");
+    return ret;
+}
+
+
+SQLRETURN SQL_API SQLStatistics(
+    SQLHSTMT       hstmt,
+    SQLCHAR *      catalog,
+    SQLSMALLINT    catalog_len,
+    SQLCHAR *      schema,
+    SQLSMALLINT    schema_len,
+    SQLCHAR *      tbl,
+    SQLSMALLINT    tbl_len,
+    SQLUSMALLINT   unique,
+    SQLUSMALLINT   reserve)
+{
+    SQLRETURN ret;
+    stmt_t *phstmt = (stmt_t *)hstmt;
+    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
+    size_t pos = 0;
+
+    __debug("enters method.");
+
+    /* Ignore catalog and schema */
+    (void)catalog;
+    (void)catalog_len;
+    (void)schema;
+    (void)schema_len;
+    (void)reserve;
+
+    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
+    pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
+                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "a.tablename AS TABLE_NAME, "
+                   "(UPPER(isunique) = 'NO' or UPPER(isunique) = 'N') AS NON_UNIQUE, "
+                   "'' AS INDEX_QUALIFIER,"
+                   "a.keyname AS INDEX_NAME,"
+                   "%d AS TYPE,"
+                   "(columnnumber + 1) AS ORDINAL_POSITION,"
+                   "a.columnname AS COLUMN_NAME,"
+                   "CASE WHEN (upper(isdescending) = 'NO' or upper(isdescending) = 'N') THEN 'A' ELSE 'D' END as ASC_OR_DESC,"
+                   "0 as CARDINALITY, 0 as PAGES, null as FILTER_CONDITION "
+                   "FROM comdb2sys_keycomponents a, comdb2sys_keys b "
+                   "WHERE a.tablename = b.tablename "
+                   "AND a.keyname = b.keyname",
+                   phstmt->dbc->ci.database,
+                   phstmt->dbc->ci.cluster,
+#ifdef __UNIXODBC__
+                   SQL_INDEX_OTHER
+#else
+                   SQL_INDEX_BTREE
+#endif
+                   );
+
+    if (!!unique) {
+        strncpy(&metaquery[pos],
+                " AND (upper(isunique)='YES' or upper(isunique)='Y')",
+                MAX_INTERNAL_QUERY_LEN - pos);
+    }
+
+    if (tbl != NULL) {
+        if (tbl_len == SQL_NTS)
+            tbl_len = (SQLSMALLINT)strlen((const char *)tbl);
+        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                        " AND a.tablename LIKE '%*s'", tbl_len, tbl);
+    }
+
+    strncpy(&metaquery[pos],
+            " ORDER BY a.tablename, isdescending, a.keyname, columnnumber",
+            MAX_INTERNAL_QUERY_LEN - pos);
+
+    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
+    __debug("leaves method.");
+    return ret;
+}
+
 SQLRETURN SQL_API SQLTables(
         SQLHSTMT       hstmt,
         SQLCHAR        *catalog,
@@ -360,68 +864,4 @@ SQLRETURN SQL_API SQLTables(
                         " AND TABLE_TYPE LIKE '%*s'", tbl_tp_len, tbl_tp);
     }
     return comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
-}
-
-SQLRETURN SQL_API SQLColumns(
-        SQLHSTMT       hstmt,
-        SQLCHAR *      catalog,
-        SQLSMALLINT    catalog_len,
-        SQLCHAR *      schema,
-        SQLSMALLINT    schema_len,
-        SQLCHAR *      tbl,
-        SQLSMALLINT    tbl_len,
-        SQLCHAR *      column,
-        SQLSMALLINT    column_len)
-{
-    SQLRETURN ret;
-    stmt_t *phstmt = (stmt_t *)hstmt;
-    char metaquery[MAX_INTERNAL_QUERY_LEN + 1];
-    size_t pos = 0;
-
-    __debug("enters method.");
-    __debug("table name is %s, len is %d", tbl, tbl_len);
-
-    /* Ignore catalog and schema */
-    (void)catalog;
-    (void)catalog_len;
-    (void)schema;
-    (void)schema_len;
-
-    metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
-    pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
-                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
-                   "tablename AS TABLE_NAME, columnname AS COLUMN_NAME,"
-                   "0 AS DATA_TYPE," /* <-- We will convert it later */
-                   "type AS TYPE_NAME, (size - 1) AS COLUMN_SIZE, "
-                   "(size - 1) AS BUFFER_LENGTH, NULL AS DECIMAL_DIGITS,"
-                   "10 AS NUM_PREC_RADIX, "
-                   "(UPPER(isnullable) == 'Y') AS NULLABLE, null AS REMARKS,"
-                   "trim(defaultvalue) AS COLUMN_DEF, 0 AS SQL_DATA_TYPE,"
-                   "0 AS SQL_DATETIME_SUB, (size - 1) AS CHAR_OCTET_LENGTH,"
-                   "0 AS ORDINAL_POSITION," /* <-- We will convert it later */
-                   "CASE WHEN (UPPER(isnullable) == 'Y') THEN 'YES' ELSE 'NO' END AS IS_NULLABLE,"
-                   "sqltype " /* <-- Convert this to DATA_TYPE */
-                   "FROM comdb2sys_columns WHERE 1=1",
-                   phstmt->dbc->ci.database,
-                   phstmt->dbc->ci.cluster);
-
-    if (tbl != NULL) {
-        if (tbl_len == SQL_NTS)
-            tbl_len = (SQLSMALLINT)strlen((const char *)tbl);
-        pos += snprintf(&(metaquery[pos]), MAX_INTERNAL_QUERY_LEN - pos,
-                        " AND TABLE_NAME LIKE '%*s'", tbl_len, tbl);
-    }
-
-    if (column != NULL) {
-        if (column_len == SQL_NTS)
-            column_len = (SQLSMALLINT)strlen((const char *)column);
-        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
-                        " AND COLUMN_NAME LIKE '%*s'", column_len, column);
-    }
-    ret = comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
-    if (ret == SQL_SUCCESS) {
-        phstmt->status |= STMT_SQLCOLUMNS;
-        phstmt->ord_pos = 0;
-    }
-    return ret;
 }
