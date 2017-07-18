@@ -1,5 +1,11 @@
+!IF "$(OS)" == "Windows_NT"
+NULL=
+!ELSE
+NULL=nul
+!ENDIF
+
 !IF "$(PREFIX)" == ""
-PREFIX="\Windows\System32"
+PREFIX="%ProgramFiles%\\cdb2odbc"
 !ENDIF
 
 !IF "$(CDB2API_INC)" == ""
@@ -10,14 +16,14 @@ CDB2API_INC=../../cdb2api
 CDB2API_LIB=../../cdb2api
 !ENDIF
 
-!IF "$(CONFIG)" == ""
-CONFIG="Release"
+!IF "$(CONFIGURATION)" == ""
+CONFIGURATION="Release"
 CFLAG_CFG=/MD /O2
 !ELSE
 CFLAG_CFG=/MDd /Zi /Od
 !ENDIF
 
-CFLAGS_INC=/I$"(CDB2API_INC)"
+CFLAGS_INC=/I"$(CDB2API_INC)"
 CFLAGS_DEF=
 
 CC=cl.exe
@@ -73,9 +79,11 @@ CLEAN:
 	-@ERASE /Q *.lib
 
 INSTALL:
+	IF NOT EXSIT "$(PREFIX)/$(NULL)" mkdir "$(PREFIX)"
 	-@COPY $(DLL) $(PREFIX)
 	-@COPY $(LIB) $(PREFIX)
 
 UNINSTALL:
 	-@ERASE /Q $(PREFIX)\$(DLL)
 	-@ERASE /Q $(PREFIX)\$(LIB)
+	-@ERASE /Q $(PREFIX)
