@@ -5,8 +5,8 @@ PREFIX="\Windows\System32"
 CFLAGS_DEF=
 CFLAGS_INC=
 
-OPENSSL_INC=C:\Program Files (x86)\GnuWin32\include
-OPENSSL_LIB=C:\Program Files (x86)\GnuWin32\lib
+#OPENSSL_INC=C:\Program Files (x86)\GnuWin32\include
+#OPENSSL_LIB=C:\Program Files (x86)\GnuWin32\lib
 
 !IF "$(OPENSSL_INC)" == ""
 CFLAGS_DEF=/DWITH_SSL=0
@@ -20,9 +20,12 @@ CFLAGS_INC=$(CFLAGS_INC) /I"$(OPENSSL_INC)"
 !ENDIF
 
 
-PROTOC_INC=C:\Program1\include
-PROTOC_LIB=C:\Program1\lib
-PROTOC_BIN=C:\Program1\bin
+#PROTOC_INC=C:\Program1\include
+#PROTOC_LIB=C:\Program1\lib
+#PROTOC_BIN=C:\Program1\bin
+PROTOC_INC=C:\Program Files (x86)\include
+PROTOC_LIB=C:\Program Files (x86)\lib
+PROTOC_BIN=C:\Program Files (x86)\bin
 
 !IF "$(PROTOC_INC)" == ""
 !ERROR MISSING PROTOC INCLUDE DIRECTORY
@@ -39,15 +42,15 @@ CFLAGS_INC=$(CFLAGS_INC) /I"$(PROTOC_INC)"
 
 !IF "$(CONFIG)" == ""
 CONFIG="Release"
-CFLAG_CFG=/MD /O2
+CFLAG_CFG=/MD /O2 /W4 /wd4127 /wd4201
 !ELSE
-CFLAG_CFG=/MDd /Zi /Od
+CFLAG_CFG=/MDd /Zi /Od /W4 /wd4127 /wd4201
 !ENDIF
 
 CFLAGS_INC=/I../bbinc /I../bb $(CFLAGS_INC)
 
 CC=cl.exe
-CFLAGS=/nologo /W4 /wd4127 /wd4201 $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
+CFLAGS=/nologo $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 
 #/LIBPATH cdb2.lib
 #/DelayLoad:$(SSL_DLL)
@@ -77,8 +80,8 @@ OBJECTS=sqlquery.pb-c.obj sqlresponse.pb-c.obj cdb2api.obj
 ALL: "$(DLL)" "$(LIB)"
 
 PROTOC_GEN:
-	$(PROTOC_BIN)\protoc-c -I..\protobuf --c_out=. ..\protobuf\sqlquery.proto
-	$(PROTOC_BIN)\protoc-c -I..\protobuf --c_out=. ..\protobuf\sqlresponse.proto
+	"$(PROTOC_BIN)\protoc-c" -I..\protobuf --c_out=. ..\protobuf\sqlquery.proto
+	"$(PROTOC_BIN)\protoc-c" -I..\protobuf --c_out=. ..\protobuf\sqlresponse.proto
 
 sqlquery.pb-c.obj: PROTOC_GEN
 sqlresponse.pb-c.obj: PROTOC_GEN
