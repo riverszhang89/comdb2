@@ -194,6 +194,9 @@ int SBUF2_FUNC(sbuf2unbufferedwrite)(SBUF2 *sb, const char *cc, int len);
 
 #ifndef WITH_SSL
 #  define WITH_SSL 1
+#endif
+
+#if WITH_SSL
 /* SSL routines. */
 #  include <ssl_support.h>
 #  include <ssl_io.h>

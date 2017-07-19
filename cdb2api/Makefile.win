@@ -2,6 +2,9 @@
 PREFIX="\Windows\System32"
 !ENDIF
 
+CFLAGS_DEF=
+CFLAGS_INC=
+
 OPENSSL_INC=C:\Program Files (x86)\GnuWin32\include
 OPENSSL_LIB=C:\Program Files (x86)\GnuWin32\lib
 
@@ -12,13 +15,14 @@ CFLAGS_DEF=/DWITH_SSL=0
 !ELSE
 !MESSAGE USING OPENSSL INCLUDE DIRECTORY $(OPENSSL_INC)
 !MESSAGE USING OPENSSL LIBRARY DIRECTORY $(OPENSSL_INC)
-CFLAGS_DEF=/DWITH_SSL=1
+CFLAGS_DEF=$(CFLAGS_DEF) /DWITH_SSL=1
+CFLAGS_INC=$(CFLAGS_INC) /I"$(OPENSSL_INC)"
 !ENDIF
 
 
-PROTOC_INC=C:\Program\include
-PROTOC_LIB=C:\Program\lib
-PROTOC_BIN=C:\Program\bin
+PROTOC_INC=C:\Program1\include
+PROTOC_LIB=C:\Program1\lib
+PROTOC_BIN=C:\Program1\bin
 
 !IF "$(PROTOC_INC)" == ""
 !ERROR MISSING PROTOC INCLUDE DIRECTORY
@@ -26,6 +30,11 @@ PROTOC_BIN=C:\Program\bin
 !ERROR MISSING PROTOC LIBRARY DIRECTORY
 !ELSEIF "$(PROTOC_BIN)" == ""
 !ERROR MISSING PROTOC BIN DIRECTORY
+!ELSE
+!MESSAGE USING PROTOC INCLUDE DIRECTORY $(PROTOC_INC)
+!MESSAGE USING PROTOC LIBRARY DIRECTORY $(PROTOC_LIB)
+!MESSAGE USING PROTOC BINARY DIRECTORY $(PROTOC_BIN)
+CFLAGS_INC=$(CFLAGS_INC) /I"$(PROTOC_INC)"
 !ENDIF
 
 !IF "$(CONFIG)" == ""
@@ -35,8 +44,7 @@ CFLAG_CFG=/MD /O2
 CFLAG_CFG=/MDd /Zi /Od
 !ENDIF
 
-CFLAGS_INC=/I../bbinc /I../bb
-CFLAGS_INC=$(CFLAGS_INC) /I"$(OPENSSL_INC)" /I"$(PROTOC_INC)"
+CFLAGS_INC=/I../bbinc /I../bb $(CFLAGS_INC)
 
 CC=cl.exe
 CFLAGS=/nologo /W4 /wd4127 /wd4201 $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
@@ -57,29 +65,30 @@ LIB=cdb2odbc.lib
 AR=lib.exe
 ARFLAGS=
 
-OBJECTS=cdb2api.obj
+OBJECTS=sqlquery.pb-c.obj sqlresponse.pb-c.obj cdb2api.obj
 
 .c.obj::
 	$(CC) @<<
 	$(CFLAGS) $<
 <<
 
-.PHONY: ALL PROTOC_GEN
+.PHONY: ALL CLEAN PROTOC_GEN
 
 ALL: "$(DLL)" "$(LIB)"
 
-PROTOC_GEN:..\protobuf\sqlquery.proto ..\protobuf\sqlresponse.proto
-	@COPY ..\protobuf\sqlquery.proto .
-	@COPY ..\protobuf\sqlresponse.proto .
-	"$(PROTOC_BIN)"\protoc-c --c_out=. sqlquery.proto
-	"$(PROTOC_BIN)"\protoc-c --c_out=. sqlresponse.proto
+PROTOC_GEN:
+	$(PROTOC_BIN)\protoc-c -I..\protobuf --c_out=. ..\protobuf\sqlquery.proto
+	$(PROTOC_BIN)\protoc-c -I..\protobuf --c_out=. ..\protobuf\sqlresponse.proto
 
-"$(DLL)": PROTOC_GEN $(OBJECTS)
+sqlquery.pb-c.obj: PROTOC_GEN
+sqlresponse.pb-c.obj: PROTOC_GEN
+
+"$(DLL)": $(OBJECTS)
 	$(LD) @<<
 	$(LDFLAGS) $(OBJECTS) /out:$@
 <<
 	
-"$(LIB)": PROTOC_GEN $(OBJECTS)
+"$(LIB)": $(OBJECTS)
 	$(AR) @<<
 	$(ARFLAGS) $(OBJECTS) /out:$@
 <<
@@ -89,6 +98,8 @@ CLEAN:
 	-@ERASE /Q *.pdb
 	-@ERASE /Q *.dll
 	-@ERASE /Q *.lib
+	-@ERASE /Q sqlquery.pb-c.*
+	-@ERASE /Q sqlresponse.pb-c.*
 
 INSTALL:
 	-@COPY $(DLL) $(PREFIX)
