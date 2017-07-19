@@ -14,22 +14,38 @@
    limitations under the License.
  */
 
-#include <sbuf2.h>
-#include <limits.h>
+/* Platform-dependent headers */
+#ifdef _WIN32
+#define inline __inline
+#define _CRT_SECURE_NO_WARNINGS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
 #include <unistd.h>
-#include <errno.h>
-#include <ctype.h>
 #include <sys/time.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
-#include <stdio.h>
-#include <string.h>
 #include <strings.h>
 #include <pthread.h>
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
-#include <limits.h>
+#endif /* _WIN32 */
 
+/* Standard headers */
+#include <limits.h>
+#include <errno.h>
+#include <ctype.h>
+#include <time.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+
+/* bbinc headers */
+#include <sbuf2.h>
+
+/* myself */
 #include "cdb2api.h"
 
 #include "sqlquery.pb-c.h"
@@ -52,37 +68,8 @@ static int getLastError() {
 static int wouldBlock() {
     return WSAGetLastError() == WSAEWOULDBLOCK;
 }
-
-static unsigned int random() {
-    unsigned int r;
-    rand_s(&r);
-    return r;
-}
-
-static void srandom(unsigned int seed) {
-    srand(seed);
-}
-
-static int gettimeofday(struct timeval * tp, struct timezone * tzp) {
-    // Note: some broken versions only have 8 trailing zero's, the correct epoch has 9 trailing zero's
-    static const uint64_t EPOCH = ((uint64_t) 116444736000000000ULL);
-
-    SYSTEMTIME  system_time;
-    FILETIME    file_time;
-    uint64_t    time;
-
-    GetSystemTime(&system_time);
-    SystemTimeToFileTime(&system_time, &file_time);
-    time = ((uint64_t) file_time.dwLowDateTime);
-    time += ((uint64_t) file_time.dwHighDateTime) << 32;
-
-    tp->tv_sec = (long) ((time - EPOCH) / 10000000L);
-    tp->tv_usec = (long) (system_time.wMilliseconds * 1000);
-    return 0;
-}
-
-#define BB_BIN "c:/bb/bin/"
-#define OPT_BB_ETC "c:/opt/bb/etc/"
+#define BB_BIN "\\bb\\bin"
+#define OPT_BB_ETC "\\opt\\bb\\etc\\"
 #endif
 
 static char CDB2DBCONFIG_NOBBENV[512] = "/opt/bb/etc/cdb2/config/comdb2db.cfg";
@@ -1720,10 +1707,10 @@ retry_connect:
     }
 
     if ((hndl->flags & CDB2_RANDOM) && (hndl->node_seq == 0)) {
-        hndl->node_seq = random() % hndl->num_hosts;
+        hndl->node_seq = rand() % hndl->num_hosts;
     } else if ((hndl->flags & CDB2_RANDOMROOM) && (hndl->node_seq == 0) &&
                (hndl->num_hosts_sameroom > 0)) {
-        hndl->node_seq = random() % hndl->num_hosts_sameroom;
+        hndl->node_seq = rand() % hndl->num_hosts_sameroom;
         /* First try on same room. */
         for (i = 0; i < hndl->num_hosts_sameroom; i++) {
             int try_node = (hndl->node_seq + i) % hndl->num_hosts_sameroom;
@@ -2055,6 +2042,8 @@ retry_read:
 }
 
 static int cdb2_hostid()
+#ifdef _WIN32
+#else
 {
     static int MACHINE_ID = 0;
     if (MACHINE_ID == 0) {
@@ -2062,6 +2051,7 @@ static int cdb2_hostid()
     }
     return MACHINE_ID;
 }
+#endif
 
 static int cdb2_send_query(cdb2_hndl_tp *hndl, SBUF2 *sb, char *dbname,
                            char *sql, int n_set_commands,
@@ -2565,9 +2555,9 @@ static void make_random_str(char *str, int *len)
     gettimeofday(&tv, NULL);
     if (PID == 0) {
         PID = getpid();
-        srandom(tv.tv_sec);
+        srand(tv.tv_sec);
     }
-    sprintf(str, "%d-%d-%lld-%d", cdb2_hostid(), PID, tv.tv_usec, random());
+    sprintf(str, "%d-%d-%lld-%d", cdb2_hostid(), PID, tv.tv_usec, rand());
     *len = strlen(str);
 #if defined(_WIN32)
     UUID uuid = { 0 };

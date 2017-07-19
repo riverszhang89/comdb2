@@ -1,0 +1,99 @@
+!IF "$(PREFIX)" == ""
+PREFIX="\Windows\System32"
+!ENDIF
+
+OPENSSL_INC=C:\Program Files (x86)\GnuWin32\include
+OPENSSL_LIB=C:\Program Files (x86)\GnuWin32\lib
+
+!IF "$(OPENSSL_INC)" == ""
+CFLAGS_DEF=/DWITH_SSL=0
+!ELSEIF "$(OPENSSL_LIB)" == ""
+CFLAGS_DEF=/DWITH_SSL=0
+!ELSE
+!MESSAGE USING OPENSSL INCLUDE DIRECTORY $(OPENSSL_INC)
+!MESSAGE USING OPENSSL LIBRARY DIRECTORY $(OPENSSL_INC)
+CFLAGS_DEF=/DWITH_SSL=1
+!ENDIF
+
+
+PROTOC_INC=C:\Program\include
+PROTOC_LIB=C:\Program\lib
+PROTOC_BIN=C:\Program\bin
+
+!IF "$(PROTOC_INC)" == ""
+!ERROR MISSING PROTOC INCLUDE DIRECTORY
+!ELSEIF "$(PROTOC_LIB)" == ""
+!ERROR MISSING PROTOC LIBRARY DIRECTORY
+!ELSEIF "$(PROTOC_BIN)" == ""
+!ERROR MISSING PROTOC BIN DIRECTORY
+!ENDIF
+
+!IF "$(CONFIG)" == ""
+CONFIG="Release"
+CFLAG_CFG=/MD /O2
+!ELSE
+CFLAG_CFG=/MDd /Zi /Od
+!ENDIF
+
+CFLAGS_INC=/I../bbinc /I../bb
+CFLAGS_INC=$(CFLAGS_INC) /I"$(OPENSSL_INC)" /I"$(PROTOC_INC)"
+
+CC=cl.exe
+CFLAGS=/nologo /W4 /wd4127 /wd4201 $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
+
+#/LIBPATH cdb2.lib
+#/DelayLoad:$(SSL_DLL)
+
+DLL=cdb2odbc.dll
+LD=link.exe /DLL
+LDFLAGS=wsock32.lib ws2_32.lib protobuf-c.lib
+
+## Quick and dirty
+LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.10.25017\lib\onecore\x64"
+LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\um\x64"
+LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\ucrt\x64"
+
+LIB=cdb2odbc.lib
+AR=lib.exe
+ARFLAGS=
+
+OBJECTS=cdb2api.obj
+
+.c.obj::
+	$(CC) @<<
+	$(CFLAGS) $<
+<<
+
+.PHONY: ALL PROTOC_GEN
+
+ALL: "$(DLL)" "$(LIB)"
+
+PROTOC_GEN:..\protobuf\sqlquery.proto ..\protobuf\sqlresponse.proto
+	@COPY ..\protobuf\sqlquery.proto .
+	@COPY ..\protobuf\sqlresponse.proto .
+	"$(PROTOC_BIN)"\protoc-c --c_out=. sqlquery.proto
+	"$(PROTOC_BIN)"\protoc-c --c_out=. sqlresponse.proto
+
+"$(DLL)": PROTOC_GEN $(OBJECTS)
+	$(LD) @<<
+	$(LDFLAGS) $(OBJECTS) /out:$@
+<<
+	
+"$(LIB)": PROTOC_GEN $(OBJECTS)
+	$(AR) @<<
+	$(ARFLAGS) $(OBJECTS) /out:$@
+<<
+
+CLEAN:
+	-@ERASE /Q *.obj
+	-@ERASE /Q *.pdb
+	-@ERASE /Q *.dll
+	-@ERASE /Q *.lib
+
+INSTALL:
+	-@COPY $(DLL) $(PREFIX)
+	-@COPY $(LIB) $(PREFIX)
+
+UNINSTALL:
+	-@ERASE /Q $(PREFIX)\$(DLL)
+	-@ERASE /Q $(PREFIX)\$(LIB)

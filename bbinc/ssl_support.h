@@ -21,7 +21,12 @@
 #ifndef _INCLUDED_SSL_SUPPORT_H_
 #define _INCLUDED_SSL_SUPPORT_H_
 
+#ifdef _WIN32
+#include <malloc.h>
+#define alloca _alloca
+#else
 #include <alloca.h>
+#endif
 #include <stddef.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
