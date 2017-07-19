@@ -515,7 +515,7 @@ SQLRETURN SQL_API SQLColAttribute(SQLHSTMT      hstmt,
     }
 
     if (attr_len != NULL)
-        *attr_len = minimum_length_required;
+        *attr_len = (SQLSMALLINT)minimum_length_required;
 
     __debug("enters method.");
 

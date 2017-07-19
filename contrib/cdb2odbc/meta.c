@@ -690,6 +690,15 @@ SQLRETURN SQL_API SQLForeignKeys(
 
     __debug("enters method.");
 
+    (void)pkcat;
+    (void)pkcatlen;
+    (void)pkschem;
+    (void)pkschemlen;
+    (void)fkcat;
+    (void)fkcatlen;
+    (void)fkschem;
+    (void)fkschemlen;
+
 
     metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
     pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
@@ -789,11 +798,7 @@ SQLRETURN SQL_API SQLStatistics(
                    "AND a.keyname = b.keyname",
                    phstmt->dbc->ci.database,
                    phstmt->dbc->ci.cluster,
-#ifdef __UNIXODBC__
                    SQL_INDEX_OTHER
-#else
-                   SQL_INDEX_BTREE
-#endif
                    );
 
     if (!!unique) {
