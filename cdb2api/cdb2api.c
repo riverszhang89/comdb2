@@ -14,7 +14,9 @@
    limitations under the License.
  */
 
-/* Platform-dependent headers */
+/* Platform-dependent headers.
+   Do it before standard headers because we'd want to
+   #include Win32 API headers first on Windows. */
 #ifdef _WIN32
 #define inline __inline
 #define WIN32_LEAN_AND_MEAN
@@ -44,16 +46,17 @@
 #include <string.h>
 #include <stdint.h>
 
-/* bbinc headers */
+/* bbinc */
 #include <sbuf2.h>
 
-/* myself */
+/* Myself */
 #include "cdb2api.h"
 
+/* Protobuf-generated headers */
 #include "sqlquery.pb-c.h"
 #include "sqlresponse.pb-c.h"
 
-/* Unifying names */
+/* Unifying function names and data types. */
 #ifdef _WIN32
 #define strdup _strdup
 #define strcasecmp _stricmp
@@ -68,10 +71,13 @@ typedef SSIZE_T ssize_t;
 #define PATH_MAX MAX_PATH
 #endif
 typedef unsigned long in_addr_t;
-#define getpid GetCurrentProcessId
+//#define getpid() GetCurrentProcessId()
+#define getpid() 1
 #endif
 
+/* Common functions */
 #ifdef _WIN32
+/* pthread_xxx */
 static int __mutex_lock(volatile HANDLE *lk)
 {
     if (*lk == NULL) {
@@ -93,6 +99,7 @@ typedef struct __once_t {
 } ONCE_T;
 static int __once(volatile ONCE_T *st, void (*rtn)(void))
 {
+    int rc = 0;
     if (!st->init) {
         if (st->lk == NULL) {
             HANDLE tmp = CreateMutex(NULL, FALSE, NULL);
@@ -101,7 +108,8 @@ static int __once(volatile ONCE_T *st, void (*rtn)(void))
                 CloseHandle(tmp);
         }
 
-        if (WaitForSingleObject(st->lk, INFINITE) != WAIT_FAILED) {
+        rc = (WaitForSingleObject(st->lk, INFINITE) == WAIT_FAILED);
+        if (!rc) {
             if (!st->init) {
                 rtn();
                 st->init = TRUE;
@@ -109,10 +117,14 @@ static int __once(volatile ONCE_T *st, void (*rtn)(void))
             ReleaseMutex(st->lk);
         }
     }
+    return rc;
 }
 #define ONCE_INIT {0}
 #define ONCE(once, rtn) __once(once, rtn)
-#define SELF GetCurrentThreadId
+//#define SELF() GetCurrentThreadId()
+#define SELF() 1
+
+/* gettimeofday() */
 static int gettimeofday(struct timeval *tv, void *unused)
 {
     FILETIME ft;
@@ -127,10 +139,13 @@ static int gettimeofday(struct timeval *tv, void *unused)
     caster.i -= shift;
     tv->tv_sec = (long)(caster.i / 10000000);
     tv->tv_usec = (long)((caster.i / 10) % 1000000);
+    return 0;
 }
+
+/* string functions */
 static char *strndup(const char *s, size_t n)
 {
-    size_t len = __strnlen(s, n);
+    size_t len = strnlen(s, n);
     char *p = malloc(len + 1);
     if (p == NULL)
         return NULL;
@@ -168,28 +183,18 @@ static char *strndup(const char *s, size_t n)
 #define COMDB2DB "comdb2db"
 #define COMDB2DB_NUM 32432
 
+/* Paths */
 #if defined(_WIN32)
-typedef WSAPOLLFD pollfd;
-static int poll(pollfd fds[], size_t nfds, int timeout) {
-    return (int) WSAPoll(fds, (ULONG) nfds, (INT) timeout);
-}
-
-static int getLastError() {
-    return WSAGetLastError();
-}
-
-static int wouldBlock() {
-    return WSAGetLastError() == WSAEWOULDBLOCK;
-}
-#define BB_BIN "\\bb\\bin"
-#define OPT_BB_ETC "\\opt\\bb\\etc\\"
-#endif
-
+static char CDB2DBCONFIG_NOBBENV[512] = "\\opt\\bb\\etc\\cdb2\\config\\comdb2db.cfg";
+/* The real path is COMDB2_ROOT + CDB2DBCONFIG_NOBBENV_PATH */
+static char CDB2DBCONFIG_NOBBENV_PATH[] = "\\etc\\cdb2\\config.d\\";
+static char CDB2DBCONFIG_TEMP_BB_BIN[512] = "\\bb\\bin\\comdb2db.cfg";
+#else
 static char CDB2DBCONFIG_NOBBENV[512] = "/opt/bb/etc/cdb2/config/comdb2db.cfg";
-/* The real path is COMDB2_ROOT + CDB2DBCONFIG_NOBBENV_PATH  */
+/* The real path is COMDB2_ROOT + CDB2DBCONFIG_NOBBENV_PATH */
 static char CDB2DBCONFIG_NOBBENV_PATH[] = "/etc/cdb2/config.d/";
-
 static char CDB2DBCONFIG_TEMP_BB_BIN[512] = "/bb/bin/comdb2db.cfg";
+#endif
 
 static char *CDB2DBCONFIG_BUF = NULL;
 
@@ -552,7 +557,11 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
                    int timeoutms)
 {
     /* connect with timeout */
+#ifdef _WIN32
+    fd_set wfds;
+#else
     struct pollfd pfd;
+#endif
     int rc;
     int err;
 #ifdef _AIX
@@ -562,7 +571,7 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
 #endif
     if (timeoutms <= 0)
         return connect(s, name, namelen); /*no timeout specified*/
-#if defined(_WIN32)
+#ifdef _WIN32
     unsigned long nonblocking = 1;
     if (ioctlsocket(s, FIONBIO, &nonblocking) == SOCKET_ERROR)
         return -1;
@@ -575,11 +584,21 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
     }
 #endif /* _WIN32 */
     rc = connect(s, name, namelen);
-    if (rc == SOCKET_ERROR && inprogress()) {
+    if (rc == SOCKET_ERROR && einprogress()) {
         /*wait for connect event */
+#ifdef _WIN32
+        struct timeval tv;
+        FD_ZERO(&wfds);
+        FD_SET(s, &wfds);
+
+        tv.tv_sec = timeoutms / 1000;
+        tv.tv_usec = (timeoutms % 1000) * 1000;
+        rc = select(1, NULL, &wfds, NULL, &tv);
+#else
         pfd.fd = s;
         pfd.events = POLLOUT;
         rc = poll(&pfd, 1, timeoutms);
+#endif
         if (rc == 0) {
             /*timeout*/
             /*fprintf(stderr,"connect timed out\n");*/
@@ -588,11 +607,17 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
         if (rc != 1) { /*poll failed?*/
             return -1;
         }
+#ifdef _WIN32
+        if (!FD_ISSET(s, &wfds)) { /*wrong event*/
+            return -1;
+        }
+#else
         if ((pfd.revents & POLLOUT) == 0) { /*wrong event*/
             /*fprintf(stderr,"poll event %d\n",pfd.revents);*/
             return -1;
         }
-    } else if (rc == -1) {
+#endif
+    } else if (rc == SOCKET_ERROR) {
         /*connect failed?*/
         return -1;
     }
@@ -1204,9 +1229,7 @@ static int get_comdb2db_hosts(cdb2_hndl_tp *hndl, char comdb2db_hosts[][64],
         } else {
             return 0;
         }
-        return -1;
     }
-    return -1;
 }
 
 #if WITH_SOCK_POOL
@@ -2406,7 +2429,14 @@ retry_next_record:
                 tmsec = (num_retry - hndl->num_hosts) * 100;
                 if (tmsec > 1000)
                     tmsec = 1000;
+#ifdef _WIN32
+                struct timeval tv;
+                tv.tv_sec = tmsec / 1000;
+                tv.tv_usec = (tmsec % 1000) * 1000;
+                select(0, NULL, NULL, NULL, &tv);
+#else
                 poll(NULL, 0, tmsec);
+#endif
             }
             cdb2_connect_sqlhost(hndl);
             if (hndl->sb == NULL) {
@@ -3396,7 +3426,14 @@ retry_queries:
                         SELF(), __func__, __LINE__, tmsec);
             }
 
+#ifdef _WIN32
+            struct timeval tv;
+            tv.tv_sec = tmsec / 1000;
+            tv.tv_usec = (tmsec % 1000) * 1000;
+            select(0, NULL, NULL, NULL, &tv);
+#else
             poll(NULL, 0, tmsec);
+#endif
         }
         cdb2_connect_sqlhost(hndl);
         if (hndl->sb == NULL) {
@@ -4560,7 +4597,14 @@ static int cdb2_get_dbhosts(cdb2_hndl_tp *hndl)
 retry:
     if (rc && num_retry < MAX_RETRIES) {
         num_retry++;
+#ifdef _WIN32
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 250000;
+        select(0, NULL, NULL, NULL, &tv);
+#else
         poll(NULL, 0, 250); // Sleep for 250ms everytime and total of 5 seconds
+#endif
     } else if (rc) {
         return rc;
     }

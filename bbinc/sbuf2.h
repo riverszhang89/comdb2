@@ -47,13 +47,16 @@ extern "C" {
 #endif
 
 #ifdef _WIN32
-#define inprogress() (WSAGetLastError() == WSAEWOULDBLOCK)
+#define einprogress() (WSAGetLastError() == WSAEWOULDBLOCK)
+#define eintr() (WSAGetLastError() == WSAEINPROGRESS)
+#define select(a, b, c, d, e) 1
 #else
 typedef int SOCKET;
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 #define closesocket close
-#define inprogress() (error == EINPROGRESS)
+#define einprogress() (error == EINPROGRESS)
+#define eintr() (error == EINTR)
 #endif
 
 typedef struct sbuf2 SBUF2;
@@ -75,7 +78,7 @@ typedef int (*sbuf2readfn)(SBUF2 *sb, char *buf, int nbytes);
 typedef int (*sbuf2writefn)(SBUF2 *sb, const char *buf, int nbytes);
 
 /* retrieve underlying fd */
-int SBUF2_FUNC(sbuf2fileno)(SBUF2 *sb);
+SOCKET SBUF2_FUNC(sbuf2fileno)(SBUF2 *sb);
 #define sbuf2fileno SBUF2_FUNC(sbuf2fileno)
 
 /* set flags on an SBUF2 after opening */
@@ -83,7 +86,7 @@ void SBUF2_FUNC(sbuf2setflags)(SBUF2 *sb, int flags);
 #define sbuf2setflags SBUF2_FUNC(sbuf2setflags)
 
 /* open SBUF2 for file descriptor.  returns SBUF2 handle or 0 if error.*/
-SBUF2 *SBUF2_FUNC(sbuf2open)(int fd, int flags);
+SBUF2 *SBUF2_FUNC(sbuf2open)(SOCKET fd, int flags);
 #define sbuf2open SBUF2_FUNC(sbuf2open)
 
 /* flush output, close fd, and free SBUF2. 0==success */

@@ -1,5 +1,11 @@
+!IF "$(OS)" == "Windows_NT"
+NULL=
+!ELSE
+NULL=nul
+!ENDIF
+
 !IF "$(PREFIX)" == ""
-PREFIX="\Windows\System32"
+PREFIX="%ProgramFiles%\\cdb2api"
 !ENDIF
 
 CFLAGS_DEF=
@@ -21,13 +27,13 @@ CFLAGS_INC=$(CFLAGS_INC) /I"$(OPENSSL_INC)"
 
 
 # HOME
-PROTOC_INC=C:\Program1\include
-PROTOC_LIB=C:\Program1\lib
-PROTOC_BIN=C:\Program1\bin
+#PROTOC_INC=C:\Program1\include
+#PROTOC_LIB=C:\Program1\lib
+#PROTOC_BIN=C:\Program1\bin
 # OFFICE
-#PROTOC_INC=C:\Program Files (x86)\include
-#PROTOC_LIB=C:\Program Files (x86)\lib
-#PROTOC_BIN=C:\Program Files (x86)\bin
+PROTOC_INC=C:\Program Files (x86)\include
+PROTOC_LIB=C:\Program Files (x86)\lib
+PROTOC_BIN=C:\Program Files (x86)\bin
 
 !IF "$(PROTOC_INC)" == ""
 !ERROR MISSING PROTOC INCLUDE DIRECTORY
@@ -50,6 +56,7 @@ CFLAG_CFG=/MDd /Zi /Od /W4 /wd4127 /wd4201
 !ENDIF
 
 CFLAGS_INC=/I../bbinc /I../bb $(CFLAGS_INC)
+CFLAGS_DEF=$(CFLAGS_DEF) -DSBUF2_SERVER=0
 
 CC=cl.exe
 CFLAGS=/nologo $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
@@ -57,16 +64,20 @@ CFLAGS=/nologo $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 #/LIBPATH cdb2.lib
 #/DelayLoad:$(SSL_DLL)
 
-DLL=cdb2odbc.dll
+DLL=cdb2api.dll
 LD=link.exe /DLL
-LDFLAGS=wsock32.lib ws2_32.lib protobuf-c.lib
+LDLIBS=kernel32.lib uuid.lib wsock32.lib ws2_32.lib msvcrt.lib protobuf-c.lib /nodefaultlib:libcmt.lib
 
 ## Quick and dirty
-LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.10.25017\lib\onecore\x64"
-LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\um\x64"
-LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\ucrt\x64"
+LDLIBPATH=
+LDLIBPATH=/LIBPATH:"$(PROTOC_LIB)"
+LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.10.25017\lib\onecore\x64"
+LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\um\x64"
+LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\ucrt\x64"
 
-LIB=cdb2odbc.lib
+LDFLAGS=$(LDFLAGS) $(LDLIBS) $(LDLIBPATH)
+
+LIB=cdb2api.lib
 AR=lib.exe
 ARFLAGS=
 
@@ -77,9 +88,9 @@ OBJECTS=sqlquery.pb-c.obj sqlresponse.pb-c.obj cdb2api.obj
 	$(CFLAGS) $<
 <<
 
-.PHONY: ALL CLEAN PROTOC_GEN
+ALL: "$(LIB)" "$(DLL)"
 
-ALL: "$(DLL)" "$(LIB)"
+.PHONY: ALL CLEAN PROTOC_GEN
 
 PROTOC_GEN:
 	"$(PROTOC_BIN)\protoc-c" -I..\protobuf --c_out=. ..\protobuf\sqlquery.proto
@@ -90,7 +101,7 @@ sqlresponse.pb-c.obj: PROTOC_GEN
 
 "$(DLL)": $(OBJECTS)
 	$(LD) @<<
-	$(LDFLAGS) $(OBJECTS) /out:$@
+	$(LDFLAGS) $(OBJECTS) /pdb:$*.pdb /implib:$*.lib /out:$@
 <<
 	
 "$(LIB)": $(OBJECTS)
@@ -98,18 +109,22 @@ sqlresponse.pb-c.obj: PROTOC_GEN
 	$(ARFLAGS) $(OBJECTS) /out:$@
 <<
 
+TEST:
+	$(CC) t.c cdb2api.lib /link $(LDLIBPATH) $(LDLIBS)
+
 CLEAN:
 	-@ERASE /Q *.obj
-	-@ERASE /Q *.pdb
 	-@ERASE /Q *.dll
 	-@ERASE /Q *.lib
 	-@ERASE /Q sqlquery.pb-c.*
 	-@ERASE /Q sqlresponse.pb-c.*
 
 INSTALL:
+	IF NOT EXSIT "$(PREFIX)/$(NULL)" mkdir "$(PREFIX)"
 	-@COPY $(DLL) $(PREFIX)
 	-@COPY $(LIB) $(PREFIX)
 
 UNINSTALL:
 	-@ERASE /Q $(PREFIX)\$(DLL)
 	-@ERASE /Q $(PREFIX)\$(LIB)
+	-@RD /Q $(PREFIX)
