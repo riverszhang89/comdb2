@@ -5,7 +5,7 @@ PREFIX="\Windows\System32"
 CFLAGS_DEF=
 CFLAGS_INC=
 
-#OPENSSL_INC=C:\Program Files (x86)\GnuWin32\include
+#OPENSSL_INC=R:\include
 #OPENSSL_LIB=C:\Program Files (x86)\GnuWin32\lib
 
 !IF "$(OPENSSL_INC)" == ""
@@ -20,12 +20,14 @@ CFLAGS_INC=$(CFLAGS_INC) /I"$(OPENSSL_INC)"
 !ENDIF
 
 
-#PROTOC_INC=C:\Program1\include
-#PROTOC_LIB=C:\Program1\lib
-#PROTOC_BIN=C:\Program1\bin
-PROTOC_INC=C:\Program Files (x86)\include
-PROTOC_LIB=C:\Program Files (x86)\lib
-PROTOC_BIN=C:\Program Files (x86)\bin
+# HOME
+PROTOC_INC=C:\Program1\include
+PROTOC_LIB=C:\Program1\lib
+PROTOC_BIN=C:\Program1\bin
+# OFFICE
+#PROTOC_INC=C:\Program Files (x86)\include
+#PROTOC_LIB=C:\Program Files (x86)\lib
+#PROTOC_BIN=C:\Program Files (x86)\bin
 
 !IF "$(PROTOC_INC)" == ""
 !ERROR MISSING PROTOC INCLUDE DIRECTORY
@@ -42,7 +44,7 @@ CFLAGS_INC=$(CFLAGS_INC) /I"$(PROTOC_INC)"
 
 !IF "$(CONFIG)" == ""
 CONFIG="Release"
-CFLAG_CFG=/MD /O2 /W4 /wd4127 /wd4201
+CFLAG_CFG=/MD /O2 /W4 /wd4127 /wd4201 /wd4100 /wd4057
 !ELSE
 CFLAG_CFG=/MDd /Zi /Od /W4 /wd4127 /wd4201
 !ENDIF

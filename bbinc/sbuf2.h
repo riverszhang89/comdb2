@@ -46,6 +46,16 @@
 extern "C" {
 #endif
 
+#ifdef _WIN32
+#define inprogress() (WSAGetLastError() == WSAEWOULDBLOCK)
+#else
+typedef int SOCKET;
+#define INVALID_SOCKET -1
+#define SOCKET_ERROR -1
+#define closesocket close
+#define inprogress() (error == EINPROGRESS)
+#endif
+
 typedef struct sbuf2 SBUF2;
 
 enum SBUF2_FLAGS {
