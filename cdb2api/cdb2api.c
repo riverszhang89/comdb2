@@ -177,11 +177,13 @@ char *STRERROR(int err) {
 #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
 #define MUTEX_LOCK(lk) pthread_mutex_lock(lk)
 #define MUTEX_UNLOCK(lk) pthread_mutex_unlock(lk)
+#define ONCE_T pthread_once_t
 #define ONCE_INIT PTHREAD_ONCE_INIT
 #define ONCE(once, rtn) pthread_once(once, rtn)
 #define SELF pthread_self
 #define ERRNO errno
-#define SETERRNO(err) strerror(err) 
+#define STRERROR(err) strerror(err)
+#define SETERRNO(err) do { errno = err; } while (0)
 #define FREEERRORSTR(s)
 #endif /* _WIN32 */
 
