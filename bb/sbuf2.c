@@ -34,8 +34,6 @@
 #include <strings.h>
 #include <sys/uio.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
 #endif /* !_WIN32 */
 
 /* On Windows, a socket is not a file. */
@@ -201,7 +199,7 @@ ssl_downgrade:
             return -1 + rc;
         cnt += rc;
         sb->wtl += rc;
-        if (sb->wtl >= (int)sb->lbuf)
+        if ((unsigned int)sb->wtl >= sb->lbuf)
             sb->wtl = 0;
     }
 
@@ -215,7 +213,7 @@ int SBUF2_FUNC(sbuf2putc)(SBUF2 *sb, char c)
     int rc;
     if (sb == 0)
         return -1;
-    if ((sb->whd == (int)(sb->lbuf - 1) && sb->wtl == 0) ||
+    if (((unsigned int)sb->whd == sb->lbuf - 1 && sb->wtl == 0) ||
         (sb->whd == sb->wtl - 1)) {
         rc = sbuf2flush(sb);
         if (rc < 0)
@@ -223,7 +221,7 @@ int SBUF2_FUNC(sbuf2putc)(SBUF2 *sb, char c)
     }
     sb->wbuf[sb->whd] = c;
     sb->whd++;
-    if (sb->whd >= (int)sb->lbuf)
+    if ((unsigned int)sb->whd >= sb->lbuf)
         sb->whd = 0;
     if ((sb->flags & SBUF2_WRITE_LINE) && c == '\n') {
         rc = sbuf2flush(sb);
@@ -262,7 +260,7 @@ int SBUF2_FUNC(sbuf2write)(char *ptr, int nbytes, SBUF2 *sb)
     while (left > 0) {
         int towrite = 0;
 
-        if ((sb->whd == (int)(sb->lbuf - 1) && sb->wtl == 0) ||
+        if (((unsigned int)sb->whd == sb->lbuf - 1 && sb->wtl == 0) ||
             (sb->whd == sb->wtl - 1)) {
             rc = sbuf2flush(sb);
             if (rc < 0)
@@ -287,9 +285,9 @@ int SBUF2_FUNC(sbuf2write)(char *ptr, int nbytes, SBUF2 *sb)
         off += towrite;
         left -= towrite;
         written += towrite;
-        if (sb->wtl == 0 && sb->whd >= (int)(sb->lbuf - 1)) {
+        if (sb->wtl == 0 && (unsigned int)sb->whd >= sb->lbuf - 1) {
             continue;
-        } else if (sb->whd >= (int)sb->lbuf)
+        } else if ((unsigned int)sb->whd >= sb->lbuf)
             sb->whd = 0;
     }
 
@@ -350,7 +348,7 @@ ssl_downgrade:
     }
     cc = sb->rbuf[sb->rtl];
     sb->rtl++;
-    if (sb->rtl >= (int)sb->lbuf)
+    if ((unsigned int)sb->rtl >= sb->lbuf)
         sb->rtl = 0;
     return cc;
 }
@@ -571,7 +569,7 @@ int SBUF2_FUNC(sbuf2unbufferedwrite)(SBUF2 *sb, const char *cc, int len)
     int ioerr;
 ssl_downgrade:
     if (sb->ssl == NULL)
-        xpwrite(sb, cc, len);
+        n = xpwrite(sb, cc, len);
     else {
         ERR_clear_error();
         n = SSL_write(sb->ssl, cc, len);

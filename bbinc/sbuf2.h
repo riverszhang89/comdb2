@@ -49,7 +49,6 @@ extern "C" {
 #ifdef _WIN32
 #define einprogress() (WSAGetLastError() == WSAEWOULDBLOCK)
 #define eintr() (WSAGetLastError() == WSAEINPROGRESS)
-#define select(a, b, c, d, e) 1
 #else
 typedef int SOCKET;
 #define INVALID_SOCKET -1
@@ -74,8 +73,6 @@ enum SBUF2_FLAGS {
     SBUF2_NO_BLOCK = 16
 #ifdef _WIN32
     , SBUF2_IS_FILE = 32
-#else
-    , SBUF2_IS_FILE = 0
 #endif
 };
 
