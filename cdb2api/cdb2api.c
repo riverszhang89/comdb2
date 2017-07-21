@@ -71,8 +71,7 @@ typedef SSIZE_T ssize_t;
 #define PATH_MAX MAX_PATH
 #endif
 typedef unsigned long in_addr_t;
-//#define getpid() GetCurrentProcessId()
-#define getpid() 1
+#define getpid() GetCurrentProcessId()
 #endif
 
 /* Common functions */
@@ -121,8 +120,7 @@ static int __once(volatile ONCE_T *st, void (*rtn)(void))
 }
 #define ONCE_INIT {0}
 #define ONCE(once, rtn) __once(once, rtn)
-//#define SELF() GetCurrentThreadId()
-#define SELF() 1
+#define SELF() GetCurrentThreadId()
 
 /* gettimeofday() */
 static int gettimeofday(struct timeval *tv, void *unused)
@@ -152,6 +150,28 @@ static char *strndup(const char *s, size_t n)
     p[len] = '\0';
     return (char *)memcpy(p, s, len);
 }
+
+/* errno and strerror() */
+/* Error codes set by Windows Sockets are
+   not made available through the errno variable.
+   Use our own. */
+#define ERRNO WSAGetLastError()
+#define SETERRNO(err) WSASetLastError(err)
+char *STRERROR(int err) {
+	void *errbuf;
+	FormatMessage(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+        FORMAT_MESSAGE_FROM_SYSTEM |
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        err,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPTSTR) &errbuf,
+        0, NULL);
+	return errbuf;
+}
+/* Windows precious. No-op on nix */
+#define FREEERRORSTR(s) LocalFree(s)
 #else
 #define MUTEX_T pthread_mutex_t
 #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
@@ -160,6 +180,9 @@ static char *strndup(const char *s, size_t n)
 #define ONCE_INIT PTHREAD_ONCE_INIT
 #define ONCE(once, rtn) pthread_once(once, rtn)
 #define SELF pthread_self
+#define ERRNO errno
+#define SETERRNO(err) strerror(err) 
+#define FREEERRORSTR(s)
 #endif /* _WIN32 */
 
 /* Disabling sockpool on Windows */
@@ -543,8 +566,10 @@ static int cdb2_tcpresolve(const char *host, struct in_addr *in, int *port)
         hp = gethostbyname(tok);
 #endif
         if (hp == NULL) {
+			char *errs = STRERROR(ERRNO);
             fprintf(stderr, "%s:gethostbyname(%s): errno=%d err=%s\n", __func__,
-                    tok, errno, strerror(errno));
+                    tok, errno, errs);
+			FREEERRORSTR(errs);
             return -1;
         }
         memcpy(&in->s_addr, hp->h_addr, hp->h_length);
@@ -631,11 +656,11 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
     }
 #endif
     len = sizeof(err);
-    if (getsockopt(s, SOL_SOCKET, SO_ERROR, (void *)&err, &len)) {
+    if (getsockopt(s, SOL_SOCKET, SO_ERROR, (void *)&err, &len) == SOCKET_ERROR) {
         return -1;
     }
-    errno = err;
-    if (errno != 0)
+	SETERRNO(err);
+    if (ERRNO != 0)
         return -1;
     return 0;
 }
@@ -655,8 +680,11 @@ static SOCKET cdb2_do_tcpconnect(struct in_addr in, int port, int myport,
     }
     tcp_srv_addr.sin_port = htons((uint16_t)port);
     memcpy(&tcp_srv_addr.sin_addr, &in.s_addr, sizeof(in.s_addr));
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        fprintf(stderr, "tcpconnect_to: can't create TCP socket\n");
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
+		char *errs = STRERROR(ERRNO);
+        fprintf(stderr, "tcpconnect_to: can't create TCP socket: %s\n",
+				errs);
+		FREEERRORSTR(errs);
         return INVALID_SOCKET;
     }
 #if 0
@@ -672,18 +700,23 @@ static SOCKET cdb2_do_tcpconnect(struct in_addr in, int port, int myport,
 #endif
     sendbuff = 1; /* enable option */
     if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (char *)&sendbuff,
-                   sizeof sendbuff) < 0) {
-        fprintf(stderr, "tcpconnect_to: setsockopt failure\n");
+                   sizeof sendbuff) == SOCKET_ERROR) {
+		char *errs = STRERROR(ERRNO);
+        fprintf(stderr, "tcpconnect_to: setsockopt failure: %s\n",
+				errs);
+		FREEERRORSTR(errs);
         closesocket(sockfd);
         return INVALID_SOCKET;
     }
     struct linger ling;
     ling.l_onoff = 1;
     ling.l_linger = 0;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling)) <
-        0) {
-        fprintf(stderr, "tcpconnect_to: setsockopt failure:%s",
-                strerror(errno));
+    if (setsockopt(sockfd, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling))
+			== SOCKET_ERROR ) {
+		char *errs = STRERROR(ERRNO);
+        fprintf(stderr, "tcpconnect_to: setsockopt failure: %s\n",
+                errs);
+		FREEERRORSTR(errs);
         closesocket(sockfd);
         return INVALID_SOCKET;
     }
@@ -691,9 +724,11 @@ static SOCKET cdb2_do_tcpconnect(struct in_addr in, int port, int myport,
     if (cdb2_tcpbufsz) {
         int tcpbufsz = cdb2_tcpbufsz;
         if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (char *)&tcpbufsz,
-                       sizeof(tcpbufsz)) < 0) {
-            fprintf(stderr, "tcpconnect_to: setsockopt failure:%s",
-                    strerror(errno));
+                       sizeof(tcpbufsz)) == SOCKET_ERROR) {
+			char *errs = STRERROR(ERRNO);
+            fprintf(stderr, "tcpconnect_to: setsockopt failure: %s\n",
+                    errs);
+			FREEERRORSTR(errs);
             closesocket(sockfd);
             return INVALID_SOCKET;
         }
@@ -704,10 +739,12 @@ static SOCKET cdb2_do_tcpconnect(struct in_addr in, int port, int myport,
         my_addr.sin_family = AF_INET;
         my_addr.sin_addr.s_addr = INADDR_ANY;
         my_addr.sin_port = htons((u_short)myport);
-        if (bind(sockfd, (struct sockaddr *)&my_addr, sizeof my_addr) < 0) {
-            fprintf(stderr, "tcpconnect_to: bind failed on local port %d: %s",
-                    myport, strerror(errno));
+        if (bind(sockfd, (struct sockaddr *)&my_addr, sizeof my_addr) == SOCKET_ERROR) {
+			char *errs = STRERROR(ERRNO);
+            fprintf(stderr, "tcpconnect_to: bind failed on local port %d: %s\n",
+                    myport, errs);
             closesocket(sockfd);
+			FREEERRORSTR(errs);
             return INVALID_SOCKET;
         }
     }
@@ -1223,8 +1260,10 @@ static int get_comdb2db_hosts(cdb2_hndl_tp *hndl, char comdb2db_hosts[][64],
                 }
                 return rc;
             }
+			char *errs = STRERROR(ERRNO);
             fprintf(stderr, "%s:gethostbyname(%s): errno=%d err=%s\n", __func__,
-                    dns_name, errno, strerror(errno));
+                    dns_name, errno, errs);
+			FREEERRORSTR(errs);
             return -1;
         } else {
             return 0;
@@ -1648,7 +1687,7 @@ static SOCKET cdb2portmux_route(const char *remote_host, char *app, char *servic
         return INVALID_SOCKET;
     fd = cdb2_tcpconnecth_to(remote_host, CDB2_PORTMUXPORT, 0,
                              CDB2_CONNECT_TIMEOUT);
-    if (fd < 0)
+    if (fd == INVALID_SOCKET)
         return INVALID_SOCKET;
     ss = sbuf2open(fd, 0);
     if (ss == 0) {
@@ -1689,11 +1728,11 @@ retry_newsql_connect:
     if (fd == INVALID_SOCKET) {
         if (!allow_pmux_route) {
             fd = cdb2_tcpconnecth_to(host, port, 0, CDB2_CONNECT_TIMEOUT);
-            if (fd < 0)
+            if (fd == INVALID_SOCKET)
                 return -1;
         } else {
             fd = cdb2portmux_route(host, "comdb2", "replication", hndl->dbname);
-            if (fd < 0)
+            if (fd == INVALID_SOCKET)
                 return -1;
         }
         sb = sbuf2open(fd, 0);
@@ -2674,6 +2713,10 @@ int cdb2_close(cdb2_hndl_tp *hndl)
 #endif
 
     free(hndl);
+
+#ifdef _WIN32
+	WSACleanup();
+#endif
 
 done:
     if (log_calls)
@@ -4315,7 +4358,7 @@ static int comdb2db_get_dbhosts(cdb2_hndl_tp *hndl, char *comdb2db_name,
         is_sockfd = 0;
     }
 
-    if (fd < 0) {
+    if (fd == INVALID_SOCKET) {
         int i = 0;
         for (i = 0; i < 3; i++) {
             free(bindvars[i]);
@@ -4424,7 +4467,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, char *type, char *dbname,
     SOCKET fd = cdb2_socket_pool_get(newsql_typestr, dbnum, NULL);
     if (hndl->debug_trace)
         fprintf(stderr, "dbinfo fd %lld\n", fd);
-    if (fd < 0) {
+    if (fd == INVALID_SOCKET) {
         if (host == NULL)
             return -1;
 
@@ -4438,7 +4481,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, char *type, char *dbname,
         } else {
             fd = cdb2portmux_route(host, "comdb2", "replication", dbname);
         }
-        if (fd < 0)
+        if (fd == INVALID_SOCKET)
             return -1;
         sb = sbuf2open(fd, 0);
         if (sb == 0) {
@@ -5130,6 +5173,17 @@ done:
     if (rc == 0)
         rc = set_up_ssl_params(hndl);
 #endif
+	/* Initialize WinSock library. */
+	if (rc == 0) {
+#ifdef _WIN32
+		WSADATA wsaData;
+		if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0) {
+			fprintf(stderr, "WSAStartup() failed with error %d: %s\n",
+					ERRNO, STRERROR(ERRNO));
+			return ERRNO;
+		}
+#endif
+	}
 
     if (log_calls) {
         fprintf(stderr, "%p> cdb2_open(dbname: \"%s\", type: \"%s\", flags: "

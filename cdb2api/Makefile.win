@@ -27,13 +27,13 @@ CFLAGS_INC=$(CFLAGS_INC) /I"$(OPENSSL_INC)"
 
 
 # HOME
-#PROTOC_INC=C:\Program1\include
-#PROTOC_LIB=C:\Program1\lib
-#PROTOC_BIN=C:\Program1\bin
+PROTOC_INC=C:\Program1\include
+PROTOC_LIB=C:\Program1\lib
+PROTOC_BIN=C:\Program1\bin
 # OFFICE
-PROTOC_INC=C:\Program Files (x86)\include
-PROTOC_LIB=C:\Program Files (x86)\lib
-PROTOC_BIN=C:\Program Files (x86)\bin
+#PROTOC_INC=C:\Program Files (x86)\include
+#PROTOC_LIB=C:\Program Files (x86)\lib
+#PROTOC_BIN=C:\Program Files (x86)\bin
 
 !IF "$(PROTOC_INC)" == ""
 !ERROR MISSING PROTOC INCLUDE DIRECTORY
@@ -90,7 +90,7 @@ OBJECTS=sqlquery.pb-c.obj sqlresponse.pb-c.obj cdb2api.obj
 
 ALL: "$(LIB)" "$(DLL)"
 
-.PHONY: ALL CLEAN PROTOC_GEN
+.PHONY: ALL CLEAN PROTOC_GEN INSTALL UNINSTALL
 
 PROTOC_GEN:
 	"$(PROTOC_BIN)\protoc-c" -I..\protobuf --c_out=. ..\protobuf\sqlquery.proto
