@@ -27,7 +27,9 @@
 #include <string.h>
 
 /* Platform-dependent headers */
-#ifndef _WIN32
+#ifdef _WIN32
+#include <io.h>
+#else
 #include <poll.h>
 #include <strings.h>
 #include <sys/uio.h>
@@ -35,6 +37,17 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #endif /* !_WIN32 */
+
+/* On Windows, a socket is not a file. */
+#ifdef _WIN32
+#define xpwrite(sb, b, l) \
+    (sb->flags & SBUF2_IS_FILE) ? _write(sb->fd, b, l) : send(sb->fd, b, l, 0)
+#define xpread(sb, b, l) \
+    (sb->flags & SBUF2_IS_FILE) ? _read(sb->fd, b, l) : recv(sb->fd, b, l, 0)
+#else
+#define xpwrite(sb, b, l) write(sb->fd, b, l)
+#define xpread(sb, b, l) read(sb->fd, b, l)
+#endif
 
 #if SBUF2_SERVER
 #  ifndef SBUF2_DFL_SIZE
@@ -532,7 +545,7 @@ static int swrite_unsecure(SBUF2 *sb, const char *cc, int len)
 #endif
         /*can write*/
     }
-    return send(sb->fd, cc, len, 0);
+    return xpwrite(sb, cc, len);
 }
 
 static int swrite(SBUF2 *sb, const char *cc, int len)
@@ -553,12 +566,12 @@ int SBUF2_FUNC(sbuf2unbufferedwrite)(SBUF2 *sb, const char *cc, int len)
 {
     int n;
 #if !WITH_SSL
-    n = send(sb->fd, cc, len, 0);
+    n = xpwrite(sb, cc, len);
 #else
     int ioerr;
 ssl_downgrade:
     if (sb->ssl == NULL)
-        n = send(sb->fd, cc, len, 0);
+        xpwrite(sb, cc, len);
     else {
         ERR_clear_error();
         n = SSL_write(sb->ssl, cc, len);
@@ -632,7 +645,7 @@ static int sread_unsecure(SBUF2 *sb, char *cc, int len)
 #endif
         /*something to read*/
     }
-    return recv(sb->fd, cc, len, 0);
+    return xpread(sb, cc, len);
 }
 
 static int sread(SBUF2 *sb, char *cc, int len)
@@ -653,12 +666,12 @@ int SBUF2_FUNC(sbuf2unbufferedread)(SBUF2 *sb, char *cc, int len)
 {
     int n;
 #if !WITH_SSL
-    n = recv(sb->fd, cc, len, 0);
+    n = xpread(sb, cc, len);
 #else
     int ioerr;
 ssl_downgrade:
     if (sb->ssl == NULL)
-        n = recv(sb->fd, cc, len, 0);
+        n = xpread(sb, cc, len);
     else {
         ERR_clear_error();
         n = SSL_read(sb->ssl, cc, len);

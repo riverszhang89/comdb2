@@ -72,6 +72,11 @@ enum SBUF2_FLAGS {
     SBUF2_NO_FLUSH = 8,
     /* adjust read/write calls to write on non-blocking socket */
     SBUF2_NO_BLOCK = 16
+#ifdef _WIN32
+    , SBUF2_IS_FILE = 32
+#else
+    , SBUF2_IS_FILE = 0
+#endif
 };
 
 typedef int (*sbuf2readfn)(SBUF2 *sb, char *buf, int nbytes);
