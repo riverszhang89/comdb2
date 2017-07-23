@@ -513,7 +513,6 @@ SQLRETURN comdb2_SQLExecute(stmt_t *phstmt)
 
     /* TODO It makes more sense in multithreaded code. */
     SET_EXECUTING(phstmt);
-
     rc = cdb2_run_statement_typed(sqlh, actual_query, phstmt->num_data_buffers, types);
 	free(types);
     if(rc) {

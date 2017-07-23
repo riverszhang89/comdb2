@@ -340,7 +340,7 @@ SQLRETURN SQL_API SQLColumns(
 
     metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
     pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
-                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "SELECT '%s' AS TABLE_CAT, NULL AS TABLE_SCHEM,"
                    "tablename AS TABLE_NAME, columnname AS COLUMN_NAME,"
                    "0 AS DATA_TYPE," /* <-- We will convert it later */
                    "type AS TYPE_NAME, (size - 1) AS COLUMN_SIZE, "
@@ -353,8 +353,7 @@ SQLRETURN SQL_API SQLColumns(
                    "CASE WHEN (UPPER(isnullable) == 'Y') THEN 'YES' ELSE 'NO' END AS IS_NULLABLE,"
                    "sqltype " /* <-- Convert this to DATA_TYPE */
                    "FROM comdb2sys_columns WHERE 1=1",
-                   phstmt->dbc->ci.database,
-                   phstmt->dbc->ci.cluster);
+                   phstmt->dbc->ci.database);
 
     if (tbl != NULL) {
         if (tbl_len == SQL_NTS)
@@ -404,7 +403,7 @@ SQLRETURN SQL_API SQLProcedures(
     metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
     pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
                    "SELECT '%s' AS PROCEDURE_CAT,"
-                   "'%s' AS PROCEDURE_SCHEM,"
+                   "NULL AS PROCEDURE_SCHEM,"
                    "name AS PROCEDURE_NAME,"
                    "null AS NUM_INPUT_PARAMS,"
                    "null AS NUM_OUTPUT_PARAMS,"
@@ -413,7 +412,6 @@ SQLRETURN SQL_API SQLProcedures(
                    "%d AS PROCEDURE_TYPE "
                    "FROM comdb2sys_procedures WHERE 1=1 ",
                    phstmt->dbc->ci.database,
-                   phstmt->dbc->ci.cluster,
                    SQL_PT_UNKNOWN);
 
     if (proc != NULL) {
@@ -638,7 +636,7 @@ SQLRETURN SQL_API SQLPrimaryKeys(
 
     metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
     pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
-                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "SELECT '%s' AS TABLE_CAT, NULL AS TABLE_SCHEM,"
                    "a.tablename AS TABLE_NAME,"
                    "a.columnname AS COLUMN_NAME,"
                    "(columnnumber + 1) AS KEY_SEQ,"
@@ -648,8 +646,7 @@ SQLRETURN SQL_API SQLPrimaryKeys(
                    "AND a.keyname = b.keyname "
                    "AND (UPPER(isunique) = 'Y' or UPPER(isunique) = 'YES') "
                    "AND 1=1 ",
-                   phstmt->dbc->ci.database,
-                   phstmt->dbc->ci.cluster);
+                   phstmt->dbc->ci.database);
 
     if (tbl != NULL) {
         if (tbl_len == SQL_NTS)
@@ -703,11 +700,11 @@ SQLRETURN SQL_API SQLForeignKeys(
     metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
     pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
                    "SELECT '%s' AS PKTABLE_CAT,"
-                   "'%s' AS PKTABLE_SCHEM,"
+                   "NULL AS PKTABLE_SCHEM,"
                    "c.tablename AS PKTABLE_NAME,"
                    "c.columnname as PKCOLUMN_NAME,"
                    "'%s' as FKTABLE_CAT,"
-                   "'%s' as FKTABLE_SCHEM,"
+                   "NULL as FKTABLE_SCHEM,"
                    "a.tablename as FKTABLE_NAME,"
                    "a.columnname as FKCOLUMN_NAME,"
                    "(a.columnnumber + 1) as KEY_SEQ,"
@@ -723,9 +720,7 @@ SQLRETURN SQL_API SQLForeignKeys(
                    "AND b.foreigntablename = c.tablename "
                    "AND b.foreignkeyname = c.keyname",
                    phstmt->dbc->ci.database,
-                   phstmt->dbc->ci.cluster,
                    phstmt->dbc->ci.database,
-                   phstmt->dbc->ci.cluster,
                    SQL_CASCADE,
                    SQL_NO_ACTION,
                    SQL_CASCADE,
@@ -783,7 +778,7 @@ SQLRETURN SQL_API SQLStatistics(
 
     metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
     pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
-                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "SELECT '%s' AS TABLE_CAT, NULL AS TABLE_SCHEM,"
                    "a.tablename AS TABLE_NAME, "
                    "(UPPER(isunique) = 'NO' or UPPER(isunique) = 'N') AS NON_UNIQUE, "
                    "'' AS INDEX_QUALIFIER,"
@@ -797,9 +792,7 @@ SQLRETURN SQL_API SQLStatistics(
                    "WHERE a.tablename = b.tablename "
                    "AND a.keyname = b.keyname",
                    phstmt->dbc->ci.database,
-                   phstmt->dbc->ci.cluster,
-                   SQL_INDEX_OTHER
-                   );
+                   SQL_INDEX_OTHER);
 
     if (!!unique) {
         strncpy(&metaquery[pos],
@@ -849,24 +842,39 @@ SQLRETURN SQL_API SQLTables(
 
     metaquery[MAX_INTERNAL_QUERY_LEN] = 0;
     pos = snprintf(metaquery, MAX_INTERNAL_QUERY_LEN,
-                   "SELECT '%s' AS TABLE_CAT, '%s' AS TABLE_SCHEM,"
+                   "SELECT '%s' AS TABLE_CAT, NULL AS TABLE_SCHEM,"
                    "name as TABLE_NAME, UPPER(type) AS TABLE_TYPE,"
                    "null AS REMARKS FROM sqlite_master WHERE 1=1",
-                   phstmt->dbc->ci.database,
-                   phstmt->dbc->ci.cluster);
+                   phstmt->dbc->ci.database);
 
     if (tbl != NULL) {
         if (tbl_len == SQL_NTS)
             tbl_len = (SQLSMALLINT)strlen((const char *)tbl);
-        pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
-                        " AND TABLE_NAME LIKE '%*s'", tbl_len, tbl);
+        if (tbl_len > 0) {
+            pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                    " AND TABLE_NAME LIKE '%*s'", tbl_len, tbl);
+        }
     }
 
     if (tbl_tp != NULL) {
         if (tbl_tp_len == SQL_NTS)
             tbl_tp_len = (SQLSMALLINT)strlen((const char *)tbl_tp);
+        if (tbl_tp_len > 0) {
+            pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                    " AND (0=1 ");
+            SQLCHAR *tok, *last;
+            tok = strtok_r(tbl_tp, ",", &last);
+            while (tok != NULL) {
+                pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                        " OR TABLE_TYPE LIKE '%s'", tok);
+                tok = strtok_r (NULL, ",", &last);
+            }
+            pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
+                    ")");
+        }
+    } else {
         pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
-                        " AND TABLE_TYPE LIKE '%*s'", tbl_tp_len, tbl_tp);
+                        " AND TABLE_TYPE IN('TABLE','VIEW')");
     }
     return comdb2_SQLExecDirect(phstmt, (SQLCHAR *)metaquery, SQL_NTS);
 }

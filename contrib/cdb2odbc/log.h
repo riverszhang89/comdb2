@@ -62,4 +62,21 @@
 # define __warn(fmt, ...) __log(LOG_W, LWARN "WARN", fmt, ## __VA_ARGS__)
 # define __fatal(fmt, ...) __log(LOG_F, LFATAL "FATAL", fmt, ## __VA_ARGS__)
 
+#ifdef _WIN32
+static inline void win32msgbox(char *fmt, ...)
+{
+    char msg[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, 1024, fmt, args);
+    va_end(args);
+
+	MessageBox(
+        NULL,
+		msg,
+        "Log",
+        MB_OK
+    );
+}
+#endif
 #endif

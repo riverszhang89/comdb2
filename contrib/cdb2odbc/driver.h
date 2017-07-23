@@ -94,6 +94,9 @@
 #define MAX_DS_DISPLAY_SIZE 24
 #define MAX_DS_STR_LEN MAX_DS_DISPLAY_SIZE + 1
 
+/* Sometimes we have to lie to driver managers about our features.
+   Use the magic number to differentiate between fake and real features. */
+#define MAGIK 0xCDB2CDB2
 /* ================== Limits end ================ */
 
 /* ================== Data Structures start ================ */

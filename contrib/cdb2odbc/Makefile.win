@@ -37,7 +37,7 @@ CFLAGS=/nologo $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 
 DLL=cdb2odbc.dll
 LD=link.exe /DLL
-LDLIBS=kernel32.lib uuid.lib msvcrt.lib user32.lib gdi32.lib odbc32.lib odbccp32.lib libcdb2api.a protobuf-c.lib /nodefaultlib:libcmt.lib
+LDLIBS=kernel32.lib user32.lib gdi32.lib uuid.lib msvcrt.lib odbc32.lib odbccp32.lib libcdb2api.a protobuf-c.lib /nodefaultlib:libcmt.lib
 
 !IFNDEF MSVC_VER
 MSVC_VER=1900
