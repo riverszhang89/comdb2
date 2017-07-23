@@ -862,8 +862,8 @@ SQLRETURN SQL_API SQLTables(
         if (tbl_tp_len > 0) {
             pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
                     " AND (0=1 ");
-            SQLCHAR *tok, *last;
-            tok = strtok_r(tbl_tp, ",", &last);
+            char *tok, *last;
+            tok = strtok_r((char *)tbl_tp, ",", &last);
             while (tok != NULL) {
                 pos += snprintf(&metaquery[pos], MAX_INTERNAL_QUERY_LEN - pos,
                         " OR TABLE_TYPE LIKE '%s'", tok);
