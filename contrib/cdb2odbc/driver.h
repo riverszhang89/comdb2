@@ -50,6 +50,14 @@
 # define SQL_API
 #endif
 
+#ifdef __WINDOWS__
+#define ODBC_INI "ODBC.INI"
+#define ODBCINST_INI "ODBCINST.INI"
+#else
+#define ODBC_INI ".odbc.ini"
+#define ODBCINST_INI "odbcinst.ini"
+#endif
+
 #include <cdb2api.h>
 
 #include "log.h"
@@ -60,7 +68,7 @@
 /* ================== Who am I? ================== */
 
 #define DRVNAME         "COMDB2-ODBC"
-#define DRVVER          "1.0.0"
+#define DRVVER          "0.9.0"
 #define DBNAME          "COMDB2"
 #define DRV_FILE_NAME   "libcomdb2odbc.so"
 

@@ -26,6 +26,8 @@ static SQLRETURN comdb2_SQLSetConnectAttr(
 
     __debug("enters method. attr = %d", attr);
 
+	(void)str_len;
+
     if(!hdbc)
         return SQL_INVALID_HANDLE;
 
@@ -139,6 +141,7 @@ static SQLRETURN comdb2_SQLSetStmtAttr(
     stmt_t *phstmt = (stmt_t *)hstmt;
 
     __debug("enters method. attr = %d", attr);
+	(void)str_len;
 
     if(!hstmt)
         return SQL_INVALID_HANDLE;
@@ -192,6 +195,8 @@ static SQLRETURN comdb2_SQLGetStmtAttr(
     stmt_t *phstmt = (stmt_t *)stmt;
 
     __debug("enters method. attr = %d", attr);
+	(void)buflen;
+	(void)str_len;
 
     if(!stmt)
         return SQL_INVALID_HANDLE;

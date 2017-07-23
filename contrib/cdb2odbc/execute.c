@@ -10,7 +10,7 @@
 
 #if defined(__linux__) || defined(__linux) || defined(linux) /* Linux */
 # include <endian.h>
-#elif defined(sparc) || defined(sun) /* Sundev */
+#elif defined(sparc) || defined(sun) /* sparc */
 # include <sys/isa_defs.h>
 # ifdef _LITTLE_ENDIAN
 #  define BYTE_ORDER LITTLE_ENDIAN
@@ -22,6 +22,12 @@
 
 #elif defined(_AIX) /* IBM */
 # include <sys/machine.h>
+#elif defined(_WIN32) /* _WIN32 */
+# define BYTE_ORDER LITTLE_ENDIAN
+#endif
+
+#ifndef BYTE_ORDER
+#error "Could not determine endianness."
 #endif
 
 static struct {
@@ -37,6 +43,7 @@ static struct {
     0x5443454c4553ULL
 #elif BYTE_ORDER == BIG_ENDIAN
     0x53454c4543540000ULL
+		fdas
 #endif  
     },
     {STMT_INSERT, "INSERT", 
@@ -143,7 +150,7 @@ static bool analyze_stmt(stmt_t * phstmt)
 }
 
 bool recycle_stmt(stmt_t *phstmt);
-SQLRETURN SQL_API comdb2_SQLPrepare(stmt_t *phstmt, SQLCHAR *str, SQLINTEGER str_len)
+SQLRETURN comdb2_SQLPrepare(stmt_t *phstmt, SQLCHAR *str, SQLINTEGER str_len)
 {
     __debug("enters method.");
     __info("Prepare %s", str);

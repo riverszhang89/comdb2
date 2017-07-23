@@ -140,7 +140,7 @@ static SQLRETURN comdb2_SQLFreeConnect(dbc_t *phdbc)
 
    Allocates a statement handle.
  */
-static SQLRETURN SQL_API comdb2_SQLAllocStmt(SQLHDBC hdbc, SQLHSTMT *phstmt)
+static SQLRETURN comdb2_SQLAllocStmt(SQLHDBC hdbc, SQLHSTMT *phstmt)
 {
     stmt_t *stmt;
     dbc_t *phdbc = (dbc_t *)hdbc;

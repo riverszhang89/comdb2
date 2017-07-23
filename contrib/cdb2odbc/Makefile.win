@@ -1,12 +1,18 @@
-!IF "$(OS)" == "Windows_NT"
-NULL=
-!ELSE
-NULL=nul
-!ENDIF
+# HOME
+PROTOC_INC=C:\Program1\include
+PROTOC_LIB=C:\Program1\lib
+PROTOC_BIN=C:\Program1\bin
+# OFFICE
+#PROTOC_INC=C:\Program Files (x86)\include
+#PROTOC_LIB=C:\Program Files (x86)\lib
+#PROTOC_BIN=C:\Program Files (x86)\bin
 
-!IF "$(PREFIX)" == ""
-PREFIX="%ProgramFiles%\\cdb2odbc"
-!ENDIF
+## Quick and dirty
+LDLIBPATH=/LIBPATH:"$(PROTOC_LIB)"
+LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Users\Hechuan\Documents\GitHub\comdb2\cdb2api"
+LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.10.25017\lib\onecore\x64"
+LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\um\x64"
+LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\ucrt\x64"
 
 !IF "$(CDB2API_INC)" == ""
 CDB2API_INC=../../cdb2api
@@ -18,30 +24,31 @@ CDB2API_LIB=../../cdb2api
 
 !IF "$(CONFIGURATION)" == ""
 CONFIGURATION="Release"
-CFLAG_CFG=/MD /O2
+CFLAG_CFG=/MD /O2 /W4 /wd4127 /wd4201
 !ELSE
-CFLAG_CFG=/MDd /Zi /Od
+CFLAG_CFG=/MDd /Zi /Od /W4 /wd4127 /wd4201
 !ENDIF
 
 CFLAGS_INC=/I"$(CDB2API_INC)"
 CFLAGS_DEF=
 
 CC=cl.exe
-CFLAGS=/nologo /W4 /wd4127 /wd4201 $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
-
-#/LIBPATH cdb2.lib
-#/DelayLoad:$(SSL_DLL)
+CFLAGS=/nologo $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 
 DLL=cdb2odbc.dll
 LD=link.exe /DLL
-LDFLAGS=odbc32.lib odbccp32.lib #wsock32.lib ws2_32.lib
+LDLIBS=kernel32.lib uuid.lib msvcrt.lib user32.lib gdi32.lib odbc32.lib odbccp32.lib libcdb2api.a protobuf-c.lib /nodefaultlib:libcmt.lib
 
-## Quick and dirty
-LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.10.25017\lib\onecore\x64"
-LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\um\x64"
-LDFLAGS=$(LDFLAGS) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\ucrt\x64"
+!IFNDEF MSVC_VER
+MSVC_VER=1900
+!ENDIF
+!IF $(MSVC_VER) >= 1900
+LDLIBS=$(LDLIBS) legacy_stdio_definitions.lib
+!ENDIF
 
-LIB=cdb2odbc.lib
+LDFLAGS=$(LDFLAGS) $(LDLIBS) $(LDLIBPATH)
+
+LIB=cdb2odbc.a
 AR=lib.exe
 ARFLAGS=
 
@@ -53,6 +60,7 @@ OBJECTS=attr.obj        \
 	    handle.obj      \
 	    meta.obj        \
 	    result.obj      \
+	    setup.obj       \
 	    util.obj
 
 .c.obj::
@@ -62,9 +70,11 @@ OBJECTS=attr.obj        \
 
 ALL: "$(DLL)" "$(LIB)"
 
+.PHONY: ALL CLEAN
+
 "$(DLL)": $(OBJECTS)
 	$(LD) @<<
-	$(LDFLAGS) $(OBJECTS) /out:$@
+	$(LDFLAGS) $(OBJECTS) /def:$*.def /implib:$*.lib /out:$@
 <<
 	
 "$(LIB)": $(OBJECTS)
@@ -74,16 +84,6 @@ ALL: "$(DLL)" "$(LIB)"
 
 CLEAN:
 	-@ERASE /Q *.obj
-	-@ERASE /Q *.pdb
+	-@ERASE /Q *.exp
 	-@ERASE /Q *.dll
 	-@ERASE /Q *.lib
-
-INSTALL:
-	IF NOT EXSIT "$(PREFIX)/$(NULL)" mkdir "$(PREFIX)"
-	-@COPY $(DLL) $(PREFIX)
-	-@COPY $(LIB) $(PREFIX)
-
-UNINSTALL:
-	-@ERASE /Q $(PREFIX)\$(DLL)
-	-@ERASE /Q $(PREFIX)\$(LIB)
-	-@RD /Q $(PREFIX)

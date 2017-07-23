@@ -1,21 +1,8 @@
-/**
- * @file sqlconnect.c
- * @description
- * @author Rivers Zhang <hzhang320@bloomberg.net>
- *
- * @navigator
- * SQLConnect, SQLDisconnect
- *
- * @history
- * 23-Jun-2014 Created.
- * 25-Jun-2014 SQLDisconnect added.
- */
-
 #include "driver.h"
 
 #if defined(__IODBC__)
 # include <iodbcinst.h>
-#elif defined(__UNIXODBC__)
+#else
 # include <odbcinst.h>
 #endif
 
@@ -42,8 +29,6 @@ SQLRETURN comdb2_SQLConnect(dbc_t *phdbc)
     return SQL_SUCCESS;
 }
 
-#if defined(__UNIXODBC__) || defined(__IODBC__)
-
 /**
  * Reads connection information from odbc.ini.
  * SQLGetPrivateProfileString, which is a builtin in the driver manager, is used to read configuration.
@@ -54,11 +39,11 @@ static void complete_conn_info_by_dm(conn_info_t *ci)
     flag_in_ini[0] = '\0';
 
     if(ci->database[0] == '\0')
-        SQLGetPrivateProfileString(ci->dsn, "DATABASE", "", ci->database, MAX_CONN_ATTR_LEN, "odbc.ini");
+        SQLGetPrivateProfileString(ci->dsn, "DATABASE", "", ci->database, MAX_CONN_ATTR_LEN, ODBC_INI);
     if(ci->cluster[0] == '\0')
-        SQLGetPrivateProfileString(ci->dsn, "CLUSTER", "", ci->cluster, MAX_CONN_ATTR_LEN, "odbc.ini");
+        SQLGetPrivateProfileString(ci->dsn, "CLUSTER", "", ci->cluster, MAX_CONN_ATTR_LEN, ODBC_INI);
     if(ci->flag == 0) {
-        SQLGetPrivateProfileString(ci->dsn, "FLAG", "0", flag_in_ini, MAX_CONN_ATTR_LEN, "odbc.ini");
+        SQLGetPrivateProfileString(ci->dsn, "FLAG", "0", flag_in_ini, MAX_CONN_ATTR_LEN, ODBC_INI);
         ci->flag = atoi(flag_in_ini);
     }
 }
@@ -91,8 +76,6 @@ SQLRETURN SQL_API SQLConnect(
     __debug("leaves method.");
     return comdb2_SQLConnect(phdbc);
 }
-
-#endif
 
 /**
  * Parses values from the connection string.
@@ -153,6 +136,8 @@ SQLRETURN SQL_API SQLDriverConnect(
 
     __debug("enters method.");
 
+	(void)hwnd;
+
     if(!hdbc)
         return SQL_INVALID_HANDLE;
 
@@ -165,20 +150,16 @@ SQLRETURN SQL_API SQLDriverConnect(
     get_conn_attrs(_instr, ci);
 
     switch(drv_completion) {
-#ifdef __UNIX__
         case SQL_DRIVER_PROMPT:
         case SQL_DRIVER_COMPLETE:
         case SQL_DRIVER_COMPLETE_REQUIRED:
-#endif      
         case SQL_DRIVER_NOPROMPT:
         break;
     }
 
-#if defined(__UNIXODBC__) || defined(__IODBC__)
     if(ci->database[0] == '\0' || ci->cluster[0] == '\0')
         /* Partial information provided, use .odbc.ini to complete connection info. */
         complete_conn_info_by_dm(ci);
-#endif
 
     if(SQL_FAILED(comdb2_SQLConnect(phdbc)))
         return SQL_ERROR;
