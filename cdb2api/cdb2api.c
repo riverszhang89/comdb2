@@ -18,7 +18,6 @@
    Do it before standard headers because we'd want to
    #include Win32 API headers first on Windows. */
 #ifdef _WIN32
-#define inline __inline
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
@@ -59,11 +58,15 @@
 
 /* Unifying function names and data types. */
 #ifdef _WIN32
+#define inline __inline
+#ifndef __func__
+#define __func__ __FUNCTION__
+#endif
 #define strdup _strdup
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 #define strtok_r strtok_s
-#ifdef snprintf
+#ifndef snprintf
 #define snprintf sprintf_s
 #endif
 #include <BaseTsd.h>
@@ -1146,9 +1149,9 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, char *type, char *dbname,
 static int get_config_file(const char *dbname, char *f, size_t s)
 {
     char *root = getenv("COMDB2_ROOT");
+    size_t n;
     if (root == NULL)
         root = QUOTE(COMDB2_ROOT);
-    size_t n;
     n = snprintf(f, s, "%s%s%s.cfg", root, CDB2DBCONFIG_NOBBENV_PATH, dbname);
     if (n >= s)
         return -1;

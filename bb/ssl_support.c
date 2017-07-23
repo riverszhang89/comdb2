@@ -17,14 +17,19 @@
 /* myself */
 #include <ssl_support.h>
 
-/* sys */
+/* Common */
 #include <errno.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+
+/* Platform-dependent */
+#ifdef _WIN32
+#else
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#endif
 
 /* openssl */
 #define OPENSSL_THREAD_DEFINES
