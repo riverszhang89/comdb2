@@ -39,9 +39,9 @@
 /* On Windows, a socket is not a file. */
 #ifdef _WIN32
 #define xpwrite(sb, b, l) \
-    (sb->flags & SBUF2_IS_FILE) ? _write(sb->fd, b, l) : send(sb->fd, b, l, 0)
+    (sb->flags & SBUF2_IS_FILE) ? _write((int)sb->fd, b, l) : send(sb->fd, b, l, 0)
 #define xpread(sb, b, l) \
-    (sb->flags & SBUF2_IS_FILE) ? _read(sb->fd, b, l) : recv(sb->fd, b, l, 0)
+    (sb->flags & SBUF2_IS_FILE) ? _read((int)sb->fd, b, l) : recv(sb->fd, b, l, 0)
 #else
 #define xpwrite(sb, b, l) write(sb->fd, b, l)
 #define xpread(sb, b, l) read(sb->fd, b, l)

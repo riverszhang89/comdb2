@@ -43,6 +43,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 
@@ -5146,6 +5147,18 @@ int cdb2_open(cdb2_hndl_tp **handle, const char *dbname, const char *type,
         strcpy(hndl->policy, "random_room");
     }
 
+#ifdef _WIN32
+	/* Initialize WinSock library. */
+	WSADATA wsaData;
+	if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0) {
+		fprintf(stderr, "WSAStartup() failed with error %d: %s\n",
+				ERRNO, STRERROR(ERRNO));
+		free(hndl);
+		*handle = NULL;
+		return ERRNO;
+	}
+#endif
+
     if (hndl->flags & CDB2_DIRECT_CPU) {
         hndl->num_hosts = 1;
         /* Get defaults from comdb2db.cfg */
@@ -5175,17 +5188,6 @@ done:
     if (rc == 0)
         rc = set_up_ssl_params(hndl);
 #endif
-	/* Initialize WinSock library. */
-	if (rc == 0) {
-#ifdef _WIN32
-		WSADATA wsaData;
-		if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0) {
-			fprintf(stderr, "WSAStartup() failed with error %d: %s\n",
-					ERRNO, STRERROR(ERRNO));
-			return ERRNO;
-		}
-#endif
-	}
 
     if (log_calls) {
         fprintf(stderr, "%p> cdb2_open(dbname: \"%s\", type: \"%s\", flags: "

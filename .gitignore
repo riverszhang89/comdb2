@@ -281,3 +281,11 @@ contrib/docker/build
 
 # editor files
 .vscode
+
+# windows files
+*.obj
+*.exe
+*.pdb
+*.dll
+*.lib
+*.exp
