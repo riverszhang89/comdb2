@@ -721,7 +721,7 @@ static SQLRETURN comdb2_conn_transact(
     int rc = 0;
     __debug("Enters method.");
 
-    if(phdbc && !phdbc->auto_commit && phdbc->in_txn) {
+    if (phdbc && !phdbc->auto_commit && phdbc->in_txn && phdbc->sqlh) {
         
         if(phdbc->sqlh_status == SQLH_EXECUTING)
             return SQL_STILL_EXECUTING;

@@ -174,7 +174,7 @@ SQLRETURN SQL_API SQLDriverConnect(
 
     __debug("leaves method.");
 
-    return ((SQLSMALLINT)strlen(_outstr) >= out_conn_str_max) ? DBC_ODBC_ERR(ERROR_STR_TRUNCATED) : SQL_SUCCESS;
+	return SQL_SUCCESS;
 }
 
 SQLRETURN SQL_API SQLDisconnect(SQLHDBC hdbc)

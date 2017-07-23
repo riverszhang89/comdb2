@@ -10,8 +10,8 @@
  * 07-Jul-2014 Created.
  */
 
-#include <stdint.h>
 #include "driver.h"
+#include <stdint.h>
 
 /**
  * FIXME Currently we can only use this function to set transation-related settings.
@@ -197,6 +197,7 @@ static SQLRETURN comdb2_SQLGetStmtAttr(
     __debug("enters method. attr = %d", attr);
 	(void)buflen;
 	(void)str_len;
+	size_t len = 0;
 
     if(!stmt)
         return SQL_INVALID_HANDLE;
@@ -204,22 +205,28 @@ static SQLRETURN comdb2_SQLGetStmtAttr(
     switch(attr) {
         case SQL_ATTR_USE_BOOKMARKS:
             *((SQLULEN *)buf) = SQL_UB_OFF;
+			len = sizeof(SQLULEN);
             break;
         
         case SQL_ATTR_CONCURRENCY:
-            *((SQLULEN *)buf) = SQL_CONCUR_READ_ONLY;
+            *((SQLULEN *)buf) = SQL_CONCUR_ROWVER;
+			len = sizeof(SQLULEN);
             break;
 
         case SQL_ATTR_APP_ROW_DESC:
         case SQL_ATTR_APP_PARAM_DESC:
         case SQL_ATTR_IMP_ROW_DESC:
         case SQL_ATTR_IMP_PARAM_DESC:
-            /* Jdbc-Odbc bridge needs these 4 attributes. leave stubs here but report nothing. */
+			*(stmt_t**)buf = NULL;
+			len = sizeof(SQLPOINTER);
             break;
 
         default:
             return STMT_ODBC_ERR(ERROR_UNIMPL_ATTR);
     }
+
+	if (str_len != NULL)
+		*str_len = (SQLINTEGER)len;
 
     __debug("leaves method.");
     return SQL_SUCCESS;
@@ -241,4 +248,151 @@ SQLRETURN SQL_API SQLGetStmtOption(
         SQLPOINTER      value_ptr)
 {
     return comdb2_SQLGetStmtAttr(stmt, option, value_ptr, 0, NULL);
+}
+
+#define SQL_FUNC_SET(arr, id) \
+	(*(((SQLSMALLINT*)(arr)) + ((id) >> 4)) |= (1 << ((id) & 0x000F)))
+SQLRETURN SQL_API SQLGetFunctions(
+		HDBC hdbc,
+		SQLUSMALLINT func,
+	   	SQLUSMALLINT *supported)
+{
+    (void)hdbc;
+
+    __debug("enters method. attr = %d", attr);
+
+	if (func == SQL_API_ODBC3_ALL_FUNCTIONS) {
+		memset(supported, 0, sizeof(SQLSMALLINT) * SQL_API_ODBC3_ALL_FUNCTIONS_SIZE);
+		SQL_FUNC_SET(supported, SQL_API_SQLBINDCOL);
+		SQL_FUNC_SET(supported, SQL_API_SQLCOLATTRIBUTE);
+		SQL_FUNC_SET(supported, SQL_API_SQLCONNECT);
+		SQL_FUNC_SET(supported, SQL_API_SQLDESCRIBECOL);
+		SQL_FUNC_SET(supported, SQL_API_SQLDISCONNECT);
+		SQL_FUNC_SET(supported, SQL_API_SQLEXECDIRECT);
+		SQL_FUNC_SET(supported, SQL_API_SQLEXECUTE);
+		SQL_FUNC_SET(supported, SQL_API_SQLFETCH);
+		SQL_FUNC_SET(supported, SQL_API_SQLFREECONNECT);
+		SQL_FUNC_SET(supported, SQL_API_SQLFREEENV);
+		SQL_FUNC_SET(supported, SQL_API_SQLFREESTMT);
+		SQL_FUNC_SET(supported, SQL_API_SQLNUMRESULTCOLS);
+		SQL_FUNC_SET(supported, SQL_API_SQLPREPARE);
+		SQL_FUNC_SET(supported, SQL_API_SQLROWCOUNT);
+		SQL_FUNC_SET(supported, SQL_API_SQLTRANSACT);
+		SQL_FUNC_SET(supported, SQL_API_SQLCOLUMNS);
+		SQL_FUNC_SET(supported, SQL_API_SQLDRIVERCONNECT);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETDATA);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETFUNCTIONS);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETINFO);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETSTMTOPTION);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETTYPEINFO);
+		SQL_FUNC_SET(supported, SQL_API_SQLSETSTMTOPTION);
+		SQL_FUNC_SET(supported, SQL_API_SQLSPECIALCOLUMNS);
+		SQL_FUNC_SET(supported, SQL_API_SQLSTATISTICS);
+		SQL_FUNC_SET(supported, SQL_API_SQLTABLES);
+		SQL_FUNC_SET(supported, SQL_API_SQLCOLUMNPRIVILEGES);
+		SQL_FUNC_SET(supported, SQL_API_SQLFOREIGNKEYS);
+		SQL_FUNC_SET(supported, SQL_API_SQLMORERESULTS);
+		SQL_FUNC_SET(supported, SQL_API_SQLNUMPARAMS);
+		SQL_FUNC_SET(supported, SQL_API_SQLPRIMARYKEYS);
+		SQL_FUNC_SET(supported, SQL_API_SQLPROCEDURECOLUMNS);
+		SQL_FUNC_SET(supported, SQL_API_SQLPROCEDURES);
+		SQL_FUNC_SET(supported, SQL_API_SQLBINDPARAMETER);
+		SQL_FUNC_SET(supported, SQL_API_SQLALLOCHANDLE);
+		SQL_FUNC_SET(supported, SQL_API_SQLENDTRAN);
+		SQL_FUNC_SET(supported, SQL_API_SQLFREEHANDLE);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETCONNECTATTR);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETDIAGFIELD);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETDIAGREC);
+		SQL_FUNC_SET(supported, SQL_API_SQLGETSTMTATTR);
+		SQL_FUNC_SET(supported, SQL_API_SQLSETCONNECTATTR);
+		SQL_FUNC_SET(supported, SQL_API_SQLSETDESCFIELD);
+		SQL_FUNC_SET(supported, SQL_API_SQLSETSTMTATTR);
+	} else if (func == SQL_API_ALL_FUNCTIONS) {
+		memset(supported, 0, sizeof(SQLSMALLINT) * 100);
+		supported[SQL_API_SQLALLOCCONNECT] = TRUE;
+		supported[SQL_API_SQLALLOCENV] = TRUE;
+		supported[SQL_API_SQLALLOCSTMT] = TRUE;
+		supported[SQL_API_SQLBINDCOL] = TRUE;
+		supported[SQL_API_SQLCOLATTRIBUTES] = TRUE;
+		supported[SQL_API_SQLCONNECT] = TRUE;
+		supported[SQL_API_SQLDESCRIBECOL] = TRUE;
+		supported[SQL_API_SQLDISCONNECT] = TRUE;
+		supported[SQL_API_SQLEXECDIRECT] = TRUE;
+		supported[SQL_API_SQLEXECUTE] = TRUE;
+		supported[SQL_API_SQLFETCH] = TRUE;
+		supported[SQL_API_SQLFREECONNECT] = TRUE;
+		supported[SQL_API_SQLFREEENV] = TRUE;
+		supported[SQL_API_SQLFREESTMT] = TRUE;
+		supported[SQL_API_SQLNUMRESULTCOLS] = TRUE;
+		supported[SQL_API_SQLPREPARE] = TRUE;
+		supported[SQL_API_SQLROWCOUNT] = TRUE;
+		supported[SQL_API_SQLTRANSACT] = TRUE;
+		supported[SQL_API_SQLBINDPARAMETER] = TRUE;
+		supported[SQL_API_SQLCOLUMNS] = TRUE;
+		supported[SQL_API_SQLDRIVERCONNECT] = TRUE;
+		supported[SQL_API_SQLGETDATA] = TRUE;
+		supported[SQL_API_SQLGETFUNCTIONS] = TRUE;
+		supported[SQL_API_SQLGETINFO] = TRUE;
+		supported[SQL_API_SQLGETSTMTOPTION] = TRUE;
+		supported[SQL_API_SQLGETTYPEINFO] = TRUE;
+		supported[SQL_API_SQLSETCONNECTOPTION] = TRUE;
+		supported[SQL_API_SQLSETSTMTOPTION] = TRUE;
+		supported[SQL_API_SQLSPECIALCOLUMNS] = TRUE;
+		supported[SQL_API_SQLSTATISTICS] = TRUE;
+		supported[SQL_API_SQLTABLES] = TRUE;
+		supported[SQL_API_SQLCOLUMNPRIVILEGES] = FALSE;
+		supported[SQL_API_SQLFOREIGNKEYS] = TRUE;
+		supported[SQL_API_SQLMORERESULTS] = TRUE;
+		supported[SQL_API_SQLNUMPARAMS] = TRUE;
+		supported[SQL_API_SQLPRIMARYKEYS] = TRUE;
+		supported[SQL_API_SQLPROCEDURECOLUMNS] = TRUE;
+		supported[SQL_API_SQLPROCEDURES] = TRUE;
+		supported[SQL_API_SQLTABLEPRIVILEGES] = TRUE;
+	} else {
+		*supported = FALSE;
+		switch (func) {
+			case SQL_API_SQLALLOCCONNECT:
+			case SQL_API_SQLALLOCENV:
+			case SQL_API_SQLALLOCSTMT:
+			case SQL_API_SQLBINDCOL:
+			case SQL_API_SQLCOLATTRIBUTES:
+			case SQL_API_SQLCONNECT:
+			case SQL_API_SQLDESCRIBECOL:
+			case SQL_API_SQLDISCONNECT:
+			case SQL_API_SQLEXECDIRECT:
+			case SQL_API_SQLEXECUTE:
+			case SQL_API_SQLFETCH:
+			case SQL_API_SQLFREECONNECT:
+			case SQL_API_SQLFREEENV:
+			case SQL_API_SQLFREESTMT:
+			case SQL_API_SQLNUMRESULTCOLS:
+			case SQL_API_SQLPREPARE:
+			case SQL_API_SQLROWCOUNT:
+			case SQL_API_SQLTRANSACT:
+			case SQL_API_SQLBINDPARAMETER:
+			case SQL_API_SQLCOLUMNS:
+			case SQL_API_SQLDRIVERCONNECT:
+			case SQL_API_SQLGETDATA:
+			case SQL_API_SQLGETFUNCTIONS:
+			case SQL_API_SQLGETINFO:
+			case SQL_API_SQLGETSTMTOPTION:
+			case SQL_API_SQLGETTYPEINFO:
+			case SQL_API_SQLSETCONNECTOPTION:
+			case SQL_API_SQLSETSTMTOPTION:
+			case SQL_API_SQLSPECIALCOLUMNS:
+			case SQL_API_SQLSTATISTICS:
+			case SQL_API_SQLTABLES:
+			case SQL_API_SQLCOLUMNPRIVILEGES:
+			case SQL_API_SQLFOREIGNKEYS:
+			case SQL_API_SQLMORERESULTS:
+			case SQL_API_SQLNUMPARAMS:
+			case SQL_API_SQLPRIMARYKEYS:
+			case SQL_API_SQLPROCEDURECOLUMNS:
+			case SQL_API_SQLPROCEDURES:
+			case SQL_API_SQLTABLEPRIVILEGES:
+				*supported = TRUE;
+		}
+	}
+
+	return SQL_SUCCESS;
 }
