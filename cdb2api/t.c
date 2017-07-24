@@ -4,7 +4,7 @@
 int main()
 {
 	cdb2_hndl_tp *hndl;
-	int rc = cdb2_open(&hndl, "mydb", "localhost", 4);
+	int rc = cdb2_open(&hndl, "riversdb", "@nylxdev2.dev.bloomberg.com", 0);
 	if (rc) goto err;
 	rc = cdb2_run_statement(hndl, "SELECT cast(now(6) as TEXT)");
 	if (rc) goto err;

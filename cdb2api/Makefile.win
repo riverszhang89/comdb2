@@ -2,13 +2,13 @@
 #OPENSSL_LIB=C:\Program Files (x86)\GnuWin32\lib
 
 # HOME
-PROTOC_INC=C:\Program1\include
-PROTOC_LIB=C:\Program1\lib
-PROTOC_BIN=C:\Program1\bin
-# OFFICE
-#PROTOC_INC=C:\Program Files (x86)\include
-#PROTOC_LIB=C:\Program Files (x86)\lib
-#PROTOC_BIN=C:\Program Files (x86)\bin
+#PROTOC_INC=C:\Program1\include
+#PROTOC_LIB=C:\Program1\lib
+#PROTOC_BIN=C:\Program1\bin
+# OFFICE x64
+PROTOC_INC=C:\Program Files (x86)\include
+PROTOC_LIB=C:\Program Files (x86)\lib
+PROTOC_BIN=C:\Program Files (x86)\bin
 
 ## Quick and dirty
 LDLIBPATH=/LIBPATH:"$(PROTOC_LIB)"
@@ -16,12 +16,10 @@ LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio\
 LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\um\x64"
 LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\ucrt\x64"
 
-CFLAGS_DEF=
-
 !IF "$(COMDB2_ROOT)" == ""
 COMDB2_ROOT=\\opt\\bb
 !ENDIF
-CFLAGS_DEF=$(CFLAGS_DEF) /DCOMDB2_ROOT=$(COMDB2_ROOT)
+CFLAGS_DEF=/DCOMDB2_ROOT=$(COMDB2_ROOT)
 
 !IF "$(OPENSSL_INC)" == ""
 CFLAGS_DEF=$(CFLAGS_DEF) /DWITH_SSL=0
@@ -43,23 +41,28 @@ CFLAGS_INC=$(CFLAGS_INC) /I"$(PROTOC_INC)"
 !ENDIF
 
 !IF "$(CONFIG)" == ""
-CONFIG="Release"
-CFLAG_CFG=/MD /O2 /W4 /wd4127 /wd4201 /wd4100 /wd4057
+CONFIG=Release
+CFLAGS_CFG=/MT /O2 /W4 /wd4100 /wd4127 /wd4201
 !ELSE
-CFLAG_CFG=/MDd /Zi /Od /W4 /wd4127 /wd4201
+CFLAGS_CFG=/MTd /Zi /Od /W4 /wd4127 /wd4201 /Fd"libcdb2api_src" /FD
+LDFLAGS_CFG=/debug
 !ENDIF
 
 CFLAGS_INC=/I../bbinc /I../bb $(CFLAGS_INC)
-CFLAGS_DEF=$(CFLAGS_DEF) -DBUILD_DLL -DSBUF2_SERVER=0
+CFLAGS_DEF=$(CFLAGS_DEF) -DSBUF2_SERVER=0
+!IF "$(CDB2API_STATIC_LIBRARY)" != "1"
+CFLAGS_DEF=$(CFLAGS_DEF) -DBUILD_DLL
+!ENDIF
 
 CC=cl.exe
-CFLAGS=/nologo $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
-
-!MESSAGE $(CFLAGS)
+CFLAGS=/nologo $(CFLAGS_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 
 DLL=libcdb2api.dll
 LD=link.exe /DLL
-LDLIBS=kernel32.lib uuid.lib wsock32.lib ws2_32.lib msvcrt.lib protobuf-c.lib /nodefaultlib:libcmt.lib
+LDLIBS=protobuf-c.lib kernel32.lib user32.lib uuid.lib wsock32.lib ws2_32.lib libcmt.lib /nodefaultlib:msvcrt.lib
+# Uncomment the line below for backward compatibility
+DOWNLEVEL=WindowsApp_downlevel.lib OneCore_downlevel.lib mincore_downlevel.lib
+LDLIBS=$(LDLIBS) $(DOWNLEVEL)
 
 !IFNDEF MSVC_VER
 MSVC_VER=1900
@@ -68,7 +71,7 @@ MSVC_VER=1900
 LDLIBS=$(LDLIBS) legacy_stdio_definitions.lib
 !ENDIF
 
-LDFLAGS=$(LDFLAGS) $(LDLIBS) $(LDLIBPATH)
+LDFLAGS=$(LDFLAGS) $(LDLIBS) $(LDLIBPATH) $(LDFLAGS_CFG)
 
 LIB=libcdb2api.a
 AR=lib.exe
@@ -96,7 +99,7 @@ sqlresponse.pb-c.obj: sqlresponse.pb-c.c
 
 "$(DLL)": $(OBJECTS)
 	$(LD) @<<
-	$(LDFLAGS) $(OBJECTS) /implib:$*.lib /out:$@
+	$(LDFLAGS) $(OBJECTS) /pdb:$*.pdb /implib:$*.lib /out:$@
 <<
 	
 "$(LIB)": $(OBJECTS)
@@ -114,5 +117,8 @@ CLEAN:
 	-@ERASE /Q *.lib
 	-@ERASE /Q *.exp
 	-@ERASE /Q *.exe
+	-@ERASE /Q *.idb
+	-@ERASE /Q *.pdb
+	-@ERASE /Q *.a
 	-@ERASE /Q sqlquery.pb-c.*
 	-@ERASE /Q sqlresponse.pb-c.*

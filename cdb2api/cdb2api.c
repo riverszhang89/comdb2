@@ -2046,7 +2046,9 @@ retry:
                 (uint32_t)SELF(), __func__, __LINE__, *type);
     }
     if (hdr.type == RESPONSE_HEADER__SQL_RESPONSE_TRACE) {
-        CDB2SQLRESPONSE *response =  cdb2__sqlresponse__unpack(NULL, hdr.length, *buf);
+        CDB2SQLRESPONSE *response;
+       	response = cdb2__sqlresponse__unpack(NULL, hdr.length,
+			                     (unsigned char *)*buf);
         if (response->response_type == RESPONSE_TYPE__SP_TRACE) {
             fprintf(stderr,"%s\n",response->info_string);
             cdb2__sqlresponse__free_unpacked(response, NULL);
@@ -2203,7 +2205,7 @@ static int cdb2_hostid()
     if (MACHINE_ID == 0) {
 #ifdef _WIN32
         struct hostent *hp = NULL;
-        int sz = MAX_COMPUTERNAME_LENGTH;
+        DWORD sz = MAX_COMPUTERNAME_LENGTH;
         char nm[MAX_COMPUTERNAME_LENGTH + 1];
         if (GetComputerName(nm, &sz) == 0) {
             /* Return an arbitrary value */
@@ -2319,7 +2321,7 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, SBUF2 *sb, char *dbname,
     if (hndl && hndl->cnonce_len > 0) {
         /* Have a query id associated with each transaction/query */
         sqlquery.has_cnonce = 1;
-        sqlquery.cnonce.data = hndl->cnonce;
+        sqlquery.cnonce.data = (unsigned char *)hndl->cnonce;
         sqlquery.cnonce.len = hndl->cnonce_len;
     }
 
@@ -5100,11 +5102,14 @@ static void cdb2_free_ssl_sessions(cdb2_ssl_sess_list *p)
 #else /* WITH_SSL */
 int cdb2_init_ssl(int init_libssl, int init_libcrypto)
 {
+    (void)init_libssl;
+    (void)init_libcrypto;
     return 0;
 }
 
 int cdb2_is_ssl_encrypted(cdb2_hndl_tp *hndl)
 {
+    (void)hndl;
     return 0;
 }
 #endif /* !WITH_SSL */
@@ -5245,11 +5250,8 @@ int cdb2_push_context(cdb2_hndl_tp *hndl, const char *msg)
         return 1;
     }
 
-#ifdef _WIN32
-#else
     hndl->context_msgs.message[hndl->context_msgs.count] =
         strndup(msg, MAX_CONTEXT_LEN);
-#endif
     hndl->context_msgs.count++;
     hndl->context_msgs.has_changed = 1;
     return 0;
