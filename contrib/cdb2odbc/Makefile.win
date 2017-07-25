@@ -22,11 +22,13 @@ CDB2API_INC=../../cdb2api
 CDB2API_LIB=../../cdb2api
 !ENDIF
 
-!IF "$(CONFIGURATION)" == ""
-CONFIGURATION="Release"
-CFLAG_CFG=/MD /O2 /W4 /wd4127 /wd4201
+!IF "$(CONFIG)" == ""
+CONFIG=Release
+CFLAGS_CFG=/MT /O2 /W4 /wd4100 /wd4127 /wd4201
 !ELSE
-CFLAG_CFG=/MDd /Zi /Od /W4 /wd4127 /wd4201
+CFLAG_CFG=/MTd /Zi /Od /W4 /wd4127 /wd4201
+CFLAGS_CFG=/MTd /Zi /Od /W4 /wd4127 /wd4201 /Fd"cdb2odbc_src" /FD
+LDFLAGS_CFG=/debug
 !ENDIF
 
 CFLAGS_INC=/I"$(CDB2API_INC)"
@@ -37,7 +39,10 @@ CFLAGS=/nologo $(CFLAG_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 
 DLL=cdb2odbc.dll
 LD=link.exe /DLL
-LDLIBS=kernel32.lib user32.lib gdi32.lib uuid.lib msvcrt.lib odbc32.lib odbccp32.lib libcdb2api.a protobuf-c.lib /nodefaultlib:libcmt.lib
+LDLIBS=kernel32.lib user32.lib gdi32.lib uuid.lib odbc32.lib odbccp32.lib libcdb2api.a protobuf-c.lib wsock32.lib ws2_32.lib libcmt.lib /nodefaultlib:msvcrt.lib
+# Uncomment the line below for backward compatibility
+DOWNLEVEL=WindowsApp_downlevel.lib OneCore_downlevel.lib mincore_downlevel.lib
+LDLIBS=$(LDLIBS) $(DOWNLEVEL)
 
 !IFNDEF MSVC_VER
 MSVC_VER=1900
@@ -46,7 +51,7 @@ MSVC_VER=1900
 LDLIBS=$(LDLIBS) legacy_stdio_definitions.lib
 !ENDIF
 
-LDFLAGS=$(LDFLAGS) $(LDLIBS) $(LDLIBPATH)
+LDFLAGS=$(LDFLAGS) $(LDLIBS) $(LDLIBPATH) $(LDFLAGS_CFG)
 
 LIB=cdb2odbc.a
 AR=lib.exe
@@ -84,6 +89,10 @@ ALL: "$(DLL)" "$(LIB)"
 
 CLEAN:
 	-@ERASE /Q *.obj
-	-@ERASE /Q *.exp
 	-@ERASE /Q *.dll
 	-@ERASE /Q *.lib
+	-@ERASE /Q *.exp
+	-@ERASE /Q *.exe
+	-@ERASE /Q *.idb
+	-@ERASE /Q *.pdb
+	-@ERASE /Q *.a

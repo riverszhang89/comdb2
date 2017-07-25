@@ -217,7 +217,7 @@ static SQLRETURN comdb2_SQLGetStmtAttr(
         case SQL_ATTR_APP_PARAM_DESC:
         case SQL_ATTR_IMP_ROW_DESC:
         case SQL_ATTR_IMP_PARAM_DESC:
-			*(SQLHDESC *)buf = (SQLHDESC)MAGIK;
+			*(SQLHDESC *)buf = (SQLHDESC)(intptr_t)MAGIK;
 			len = sizeof(SQLHDESC);
             break;
 

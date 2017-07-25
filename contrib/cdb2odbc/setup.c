@@ -43,7 +43,8 @@ BOOL INSTAPI ConfigDSN(
      LPCSTR   lpszDriver,
      LPCSTR   lpszAttributes)
 {
-	LPCSTR dsn, db, cluster, kv, pos, *dst;
+	char *dsn, *db, *cluster, **dst;
+	const char *pos, *kv;
 	dsn = db = cluster = NULL;
     dst = NULL;
 
