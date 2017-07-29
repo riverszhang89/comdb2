@@ -13,9 +13,11 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
- 
-#ifndef _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#define _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#include <winsock2.h> /* struct timeval */
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+
+#ifndef _INCLUDED_PORT_MSVC_NETDB_H_
+#define _INCLUDED_PORT_MSVC_NETDB_H_
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+typedef unsigned long in_addr_t;
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #endif

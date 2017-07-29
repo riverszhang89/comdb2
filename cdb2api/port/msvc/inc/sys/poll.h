@@ -14,8 +14,25 @@
    limitations under the License.
  */
  
-#ifndef _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#define _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#include <winsock2.h> /* struct timeval */
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+#ifndef _INCLUDED_PORT_MSVC_SYS_TYPES_H_
+#define _INCLUDED_PORT_MSVC_SYS_TYPES_H_
+#include <netdb.h>
+
+#define POLLIN 0x0001
+#define POLLPRI 0x0002
+#define POLLOUT 0x0004
+#define POLLERR 0x0008
+#define POLLHUP 0x0010
+#define POLLRDNORM 0x0020
+#define POLLRDBAND 0x0040
+#define POLLWRNORM 0x0080
+#define POLLWRBAND 0x0100
+
+struct pollfd {
+    int fd;           /* file descriptor */
+    short events;     /* requested events */
+    short revents;    /* returned events */
+};
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout);
 #endif

@@ -14,146 +14,26 @@
    limitations under the License.
  */
 
-/* Platform-dependent headers.
-   Do it before standard headers because we'd want to
-   #include Win32 API headers first on Windows. */
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define _CRT_SECURE_NO_WARNINGS
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <windows.h>
-#else
+#include <sbuf2.h>
+#include <limits.h>
 #include <unistd.h>
+#include <errno.h>
+#include <ctype.h>
 #include <sys/time.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
+#include <stdio.h>
+#include <string.h>
 #include <strings.h>
 #include <pthread.h>
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
-#include <netdb.h>
-#endif /* _WIN32 */
-
-/* Standard headers */
 #include <limits.h>
-#include <errno.h>
-#include <ctype.h>
-#include <time.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
 
-/* bbinc */
-#include <sbuf2.h>
-
-/* Myself */
 #include "cdb2api.h"
 
-/* Protobuf-generated headers */
 #include "sqlquery.pb-c.h"
 #include "sqlresponse.pb-c.h"
-
-/* Unifying function names and data types. */
-#ifdef _WIN32
-#define inline __inline
-#ifndef __func__
-#define __func__ __FUNCTION__
-#endif
-#define strdup _strdup
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
-#define strtok_r strtok_s
-#ifndef snprintf
-#define snprintf sprintf_s
-#endif
-#include <BaseTsd.h>
-typedef SSIZE_T ssize_t;
-#ifndef PATH_MAX
-#define PATH_MAX MAX_PATH
-#endif
-typedef unsigned long in_addr_t;
-#define getpid() GetCurrentProcessId()
-#endif
-
-/* Common functions */
-#ifdef _WIN32
-/* pthread_xxx */
-static int __mutex_lock(volatile HANDLE *lk)
-{
-    if (*lk == NULL) {
-        HANDLE tmp = CreateMutex(NULL, FALSE, NULL);
-        if (InterlockedCompareExchangePointer((PVOID*)lk,
-                                              (PVOID)tmp, NULL) != NULL)
-            CloseHandle(tmp);
-    }
-    return (WaitForSingleObject(*lk, INFINITE) == WAIT_FAILED);
-}
-#define MUTEX_T HANDLE
-#define MUTEX_INITIALIZER NULL
-#define MUTEX_LOCK(lk) __mutex_lock(lk)
-#define MUTEX_UNLOCK(lk) (ReleaseMutex(lk) == 0)
-
-typedef struct __once_t {
-    HANDLE lk;
-    BOOL init;
-} ONCE_T;
-static int __once(volatile ONCE_T *st, void (*rtn)(void))
-{
-    int rc = 0;
-    if (!st->init) {
-        if (st->lk == NULL) {
-            HANDLE tmp = CreateMutex(NULL, FALSE, NULL);
-            if (InterlockedCompareExchangePointer((PVOID*)&st->lk,
-                                                  (PVOID)tmp, NULL) != NULL)
-                CloseHandle(tmp);
-        }
-
-        rc = (WaitForSingleObject(st->lk, INFINITE) == WAIT_FAILED);
-        if (!rc) {
-            if (!st->init) {
-                rtn();
-                st->init = TRUE;
-            }
-            ReleaseMutex(st->lk);
-        }
-    }
-    return rc;
-}
-#define ONCE_INIT {0}
-#define ONCE(once, rtn) __once(once, rtn)
-#define SELF() GetCurrentThreadId()
-
-/* gettimeofday() */
-static int gettimeofday(struct timeval *tv, void *unused)
-{
-    FILETIME ft;
-    const uint64_t shift = 116444736000000000ULL;
-    (void)unused;
-    GetSystemTimeAsFileTime(&ft);
-    union {
-        FILETIME f;
-        uint64_t i;
-    } caster;
-    caster.f = ft;
-    caster.i -= shift;
-    tv->tv_sec = (long)(caster.i / 10000000);
-    tv->tv_usec = (long)((caster.i / 10) % 1000000);
-    return 0;
-}
-
-/* string functions */
-static char *strndup(const char *s, size_t n)
-{
-    size_t len = strnlen(s, n);
-    char *p = malloc(len + 1);
-    if (p == NULL)
-        return NULL;
-    p[len] = '\0';
-    return (char *)memcpy(p, s, len);
-}
 
 /* errno and strerror() */
 /* Error codes set by Windows Sockets are

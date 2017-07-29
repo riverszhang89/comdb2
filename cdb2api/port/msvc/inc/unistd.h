@@ -13,9 +13,9 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
- 
-#ifndef _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#define _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#include <winsock2.h> /* struct timeval */
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+
+#ifndef _INCLUDED_PORT_MSVC_UNISTD_H_
+#define _INCLUDED_PORT_MSVC_UNISTD_H_
+#include <sys/types.h> /* pid_t */
+#define getpid() GetCurrentProcessId()
 #endif

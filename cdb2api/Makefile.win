@@ -1,8 +1,8 @@
 #OPENSSL_INC=R:\include
 #OPENSSL_LIB=C:\Program Files (x86)\GnuWin32\lib
 
-OPENSSL_INC=C:\OpenSSL-Win64\include
-OPENSSL_LIB=C:\OpenSSL-Win64\lib
+#OPENSSL_INC=C:\OpenSSL-Win64\include
+#OPENSSL_LIB=C:\OpenSSL-Win64\lib
 
 # HOME
 PROTOC_INC=C:\Program1\include

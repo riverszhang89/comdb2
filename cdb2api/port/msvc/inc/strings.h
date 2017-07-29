@@ -13,9 +13,11 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
- 
-#ifndef _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#define _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#include <winsock2.h> /* struct timeval */
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+
+#ifndef _INCLUDED_PORT_MSVC_STRINGS_H_
+#define _INCLUDED_PORT_MSVC_STRINGS_H_
+#include <win32.h>
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#define bzero(s, n) memset(s, 0, n)
 #endif

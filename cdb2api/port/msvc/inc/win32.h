@@ -13,9 +13,28 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
- 
-#ifndef _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#define _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#include <winsock2.h> /* struct timeval */
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+
+#ifndef _INCLUDED_PORT_MSVC_WIN32_H_
+#define _INCLUDED_PORT_MSVC_WIN32_H_
+#define WIN32_LEAN_AND_MEAN
+#define _CRT_SECURE_NO_WARNINGS
+#include <windows.h>
+
+/* MSVC does not like C99.
+   MSVC does not like POSIX. */
+#define inline __inline
+#ifndef __func__
+#define __func__ __FUNCTION__
+#endif
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+
+#include <string.h>
+#define strdup _strdup
+#define strtok_r strtok_s
+#define snprintf sprintf_s
+
+/* MSVC does not have strndup(). Define our own. */
+char *strndup(const char *s, size_t n);
 #endif
