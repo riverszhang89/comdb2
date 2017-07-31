@@ -14,10 +14,33 @@
    limitations under the License.
  */
 
-#ifndef _INCLUDED_PORT_MSVC_NETDB_H_
-#define _INCLUDED_PORT_MSVC_NETDB_H_
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
-typedef unsigned long in_addr_t;
 #include <winsock2.h>
-#include <ws2tcpip.h>
-#endif
+#include <windows.h>
+#include <unistd.h>
+
+long gethostid(void)
+{
+
+	long ret;
+	struct hostent *hp;
+	DWORD sz;
+	char nm[MAX_COMPUTERNAME_LENGTH + 1];
+
+	hp = NULL;
+	sz = MAX_COMPUTERNAME_LENGTH;
+
+	if (GetComputerName(nm, &sz) == 0) {
+		/* Return an arbitrary value */
+		return 1;
+	}
+
+	hp = gethostbyname(nm);
+	if (hp == NULL) {
+		/* If this fails, return an different value */
+		return 2;
+	}
+
+	ret = *(int *)hp->h_addr;
+	ret = (ret << 16 | ret >> 16);
+	return ret;
+}

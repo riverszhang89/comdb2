@@ -13,5 +13,21 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
- 
-#include <netdb.h>
+
+#ifndef _INCLUDED_PORT_OS_H_
+#define _INCLUDED_PORT_OS_H_
+
+#if defined(__linux__) || defined(__linux) || defined(linux) /* Linux */
+#include <linux.h>
+#elif defined(sun) || defined(__sun) /* Solaris */
+#include <solaris.h>
+#elif defined(_AIX) /* AIX */
+#include <aix.h>
+#elif defined(_WIN32) /* Windows */
+#include <win32.h>
+#else /* Unknown. Assume it is POSIX-compliant and little-endian. */
+#include <posix.h>
+#define __LITTLE_ENDIAN__ 1
+#endif
+
+#endif

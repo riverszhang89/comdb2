@@ -35,55 +35,10 @@
 #include "sqlquery.pb-c.h"
 #include "sqlresponse.pb-c.h"
 
-/* errno and strerror() */
-/* Error codes set by Windows Sockets are
-   not made available through the errno variable.
-   Use our own. */
-#define ERRNO WSAGetLastError()
-#define SETERRNO(err) WSASetLastError(err)
-char *STRERROR(int err) {
-	void *errbuf;
-	FormatMessage(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
-        FORMAT_MESSAGE_FROM_SYSTEM |
-        FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL,
-        err,
-        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        (LPTSTR) &errbuf,
-        0, NULL);
-	return errbuf;
-}
-/* Windows precious. No-op on nix */
-#define FREEERRORSTR(s) LocalFree(s)
-#else
-#define MUTEX_T pthread_mutex_t
-#define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
-#define MUTEX_LOCK(lk) pthread_mutex_lock(lk)
-#define MUTEX_UNLOCK(lk) pthread_mutex_unlock(lk)
-#define ONCE_T pthread_once_t
-#define ONCE_INIT PTHREAD_ONCE_INIT
-#define ONCE(once, rtn) pthread_once(once, rtn)
-#define SELF pthread_self
-#define ERRNO errno
-#define STRERROR(err) strerror(err)
-#define SETERRNO(err) do { errno = err; } while (0)
-#define FREEERRORSTR(s)
-#endif /* _WIN32 */
-
-/* Disabling sockpool on Windows */
-#ifdef _WIN32
-#define WITH_SOCK_POOL 0
-#endif
-
-/* Features */
 #ifndef WITH_SOCK_POOL
 #define WITH_SOCK_POOL 1
-#else
-/* no-op */
-#define cdb2_socket_pool_get(a, b, c) INVALID_SOCKET
-#define cdb2_socket_pool_donate_ext(a, b, c, d, e, f, g)
 #endif
+
 #ifndef WITH_SSL
 #define WITH_SSL 1
 #endif
@@ -91,19 +46,6 @@ char *STRERROR(int err) {
 #define SOCKPOOL_SOCKET_NAME "/tmp/sockpool.socket"
 #define COMDB2DB "comdb2db"
 #define COMDB2DB_NUM 32432
-
-/* Paths */
-#if defined(_WIN32)
-static char CDB2DBCONFIG_NOBBENV[512] = "\\opt\\bb\\etc\\cdb2\\config\\comdb2db.cfg";
-/* The real path is COMDB2_ROOT + CDB2DBCONFIG_NOBBENV_PATH */
-static char CDB2DBCONFIG_NOBBENV_PATH[] = "\\etc\\cdb2\\config.d\\";
-static char CDB2DBCONFIG_TEMP_BB_BIN[512] = "\\bb\\bin\\comdb2db.cfg";
-#else
-static char CDB2DBCONFIG_NOBBENV[512] = "/opt/bb/etc/cdb2/config/comdb2db.cfg";
-/* The real path is COMDB2_ROOT + CDB2DBCONFIG_NOBBENV_PATH */
-static char CDB2DBCONFIG_NOBBENV_PATH[] = "/etc/cdb2/config.d/";
-static char CDB2DBCONFIG_TEMP_BB_BIN[512] = "/bb/bin/comdb2db.cfg";
-#endif
 
 static char *CDB2DBCONFIG_BUF = NULL;
 
@@ -1158,8 +1100,6 @@ static int get_comdb2db_hosts(cdb2_hndl_tp *hndl, char comdb2db_hosts[][64],
 }
 
 #if WITH_SOCK_POOL
-/* SOCKPOOL CODE START */
-
 static int sockpool_enabled = 1;
 static time_t sockpool_fail_time = 0;
 static int sockpool_fd = -1;
@@ -1365,8 +1305,9 @@ void cdb2_socket_pool_donate_ext(const char *typestr, int fd, int ttl,
     }
     MUTEX_UNLOCK(&cdb2_sockpool_mutex);
 }
-
-/* SOCKPOOL CODE ENDS */
+#else
+#define cdb2_socket_pool_get(a, b, c) INVALID_SOCKET
+#define cdb2_socket_pool_donate_ext(a, b, c, d, e, f, g)
 #endif /* WITH_SOCK_POOL */
 
 static int send_reset(SBUF2 *sb)
@@ -2083,26 +2024,7 @@ static int cdb2_hostid()
 {
     static int MACHINE_ID = 0;
     if (MACHINE_ID == 0) {
-#ifdef _WIN32
-        struct hostent *hp = NULL;
-        DWORD sz = MAX_COMPUTERNAME_LENGTH;
-        char nm[MAX_COMPUTERNAME_LENGTH + 1];
-        if (GetComputerName(nm, &sz) == 0) {
-            /* Return an arbitrary value */
-            MACHINE_ID = 1;
-            return MACHINE_ID;
-        }
-        hp = gethostbyname(nm);
-        if (hp == NULL) {
-            /* If this fails, return an different value */
-            MACHINE_ID = 2;
-            return MACHINE_ID;
-        }
-        MACHINE_ID = *(int *)hp->h_addr;
-        MACHINE_ID = (MACHINE_ID << 16 | MACHINE_ID >> 16);
-#else
         MACHINE_ID = gethostid();
-#endif
     }
     return MACHINE_ID;
 }

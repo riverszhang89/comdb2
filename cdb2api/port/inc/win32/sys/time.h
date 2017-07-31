@@ -13,9 +13,9 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
-
-#ifndef _INCLUDED_PORT_MSVC_ALLOCA_H_
-#define _INCLUDED_PORT_MSVC_ALLOCA_H_
-#include <malloc.h>
-#define alloca _alloca
+ 
+#ifndef _INCLUDED_PORT_WIN32_SYS_TIME_H_
+#define _INCLUDED_PORT_WIN32_SYS_TIME_H_
+#include <winsock2.h> /* struct timeval */
+int gettimeofday(struct timeval *tv, struct timezone *tz);
 #endif

@@ -14,10 +14,13 @@
    limitations under the License.
  */
  
-#ifndef _INCLUDED_PORT_MSVC_SYS_TYPES_H_
-#define _INCLUDED_PORT_MSVC_SYS_TYPES_H_
-#include <win32.h>
-typedef DWORD pid_t;
+#ifndef _INCLUDED_PORT_WIN32_SYS_TYPES_H_
+#define _INCLUDED_PORT_WIN32_SYS_TYPES_H_
+
+#include <windows.h>
 #include <BaseTsd.h>
+
+typedef DWORD pid_t;
 typedef SSIZE_T ssize_t;
+
 #endif

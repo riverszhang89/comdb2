@@ -13,9 +13,17 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
- 
-#ifndef _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#define _INCLUDED_PORT_MSVC_SYS_TIME_H_
-#include <winsock2.h> /* struct timeval */
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+
+#ifndef _INCLUDED_PORT_POSIX_H_
+#define _INCLUDED_PORT_POSIX_H_
+
+typedef int SOCKET;
+
+#define INVALID_SOCKET -1
+#define SOCKET_ERROR -1
+#define INADDR_NONE ((in_addr_t)-1)
+
+#include <error.h>
+#define seterrno(err) do { errno = err; } while (0)
+
 #endif

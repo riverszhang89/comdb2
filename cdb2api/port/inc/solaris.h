@@ -14,8 +14,16 @@
    limitations under the License.
  */
 
-#ifndef _INCLUDED_PORT_MSVC_UNISTD_H_
-#define _INCLUDED_PORT_MSVC_UNISTD_H_
-#include <sys/types.h> /* pid_t */
-#define getpid() GetCurrentProcessId()
+#ifndef _INCLUDED_PORT_SOLARIS_H_
+#define _INCLUDED_PORT_SOLARIS_H_
+
+#include <posix.h>
+
+#include <sys/isa_defs.h>
+#ifdef _LITTLE_ENDIAN
+#define __LITTLE_ENDIAN__ 1
+#else
+#define __LITTLE_ENDIAN__ 0
+#endif
+
 #endif

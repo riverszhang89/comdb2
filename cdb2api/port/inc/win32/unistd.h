@@ -13,5 +13,10 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
- 
-#include <netdb.h>
+
+#ifndef _INCLUDED_PORT_WIN32_UNISTD_H_
+#define _INCLUDED_PORT_WIN32_UNISTD_H_
+#include <sys/types.h> /* pid_t */
+#define getpid() GetCurrentProcessId()
+long gethostid(void);
+#endif

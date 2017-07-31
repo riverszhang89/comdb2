@@ -14,14 +14,18 @@
    limitations under the License.
  */
 
-#include <win32.h>
+#include <windows.h>
 
-char *strndup(const char *s, size_t n)
+char *WSAStrError(int err)
 {
-    size_t len = strnlen(s, n);
-    char *p = malloc(len + 1);
-    if (p == NULL)
-        return NULL;
-    p[len] = '\0';
-    return (char *)memcpy(p, s, len);
+	char errbuf[1024];
+	FormatMessage(
+        FORMAT_MESSAGE_FROM_SYSTEM |
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        err,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPTSTR) &errbuf,
+        1024, NULL);
+	return errbuf;
 }

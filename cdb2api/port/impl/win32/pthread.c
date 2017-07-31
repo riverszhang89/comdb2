@@ -13,26 +13,30 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
-
+ 
+#include <windows.h>
 #include <pthread.h>
+#include <stdlib.h>
+#include <malloc.h>
 
-int pthread_mutex_lock(pthread_mutex_t *lk)
+int pthread_mutex_lock(HANDLE *lk)
 {
+	HANDLE tmp;
     if (*lk == NULL) {
-        HANDLE tmp = CreateMutex(NULL, FALSE, NULL);
-        if (InterlockedCompareExchangePointer((PVOID*)lk,
+        tmp = CreateMutex(NULL, FALSE, NULL);
+        if (InterlockedCompareExchangePointer((PVOID *)lk,
                                               (PVOID)tmp, NULL) != NULL)
             CloseHandle(tmp);
     }
     return (WaitForSingleObject(*lk, INFINITE) == WAIT_FAILED);
 }
 
-int pthread_mutex_unlock(pthread_mutex_t *lk)
+int pthread_mutex_unlock(HANDLE *lk)
 {
     return (ReleaseMutex(*lk) == 0);
 }
 
-int pthread_mutex_init(pthread_mutex_t *restrict lk, const pthread_mutexattr_t *restrict unused)
+int pthread_mutex_init(HANDLE *restrict lk, const pthread_mutexattr_t *restrict unused)
 {
     HANDLE ret = CreateMutex(NULL, FALSE, NULL);
     (void)unused;
@@ -42,30 +46,37 @@ int pthread_mutex_init(pthread_mutex_t *restrict lk, const pthread_mutexattr_t *
     return 0;
 }
 
-int pthread_mutex_destroy(pthread_mutex_t *lk)
+int pthread_mutex_destroy(HANDLE *lk)
 {
     return (CloseHandle(*lk) == 0);
 }
 
-int pthread_once(volatile pthread_once_t *st, void (*rtn)(void))
+typedef struct once_st {
+    HANDLE lk;
+    BOOL initd;
+} once_t;
+
+int pthread_once(pthread_once_t *once_ctrl, void (*init_rtn)(void))
 {
     int rc = 0;
-    if (!st->initd) {
-        if (st->lk == NULL) {
-            HANDLE tmp = CreateMutex(NULL, FALSE, NULL);
-            if (InterlockedCompareExchangePointer((PVOID*)&st->lk,
-                                                  (PVOID)tmp, NULL) != NULL)
-                CloseHandle(tmp);
-        }
+	once_t *once, *tmp;
 
-        rc = (WaitForSingleObject(st->lk, INFINITE) == WAIT_FAILED);
-        if (!rc) {
-            if (!st->initd) {
-                rtn();
-                st->initd = TRUE;
-            }
-            ReleaseMutex(st->lk);
-        }
-    }
+	if (*once_ctrl == NULL) {
+		tmp = calloc(1, sizeof(once_t));
+		if (InterlockedCompareExchangePointer((PVOID*)once_control,
+					(PVOID)tmp, NULL) != NULL)
+			free(tmp);
+	}
+
+	once = (once_t *)*once_ctrl;
+    if (!once->initd) {
+		if ((rc = pthread_mutex_lock(&once->lk)) == 0) {
+			if (!once->initd) {
+                init_rtn();
+                once->initd = TRUE;
+			}
+			pthread_mutex_unlock(&once->lk);
+		}
+	}
     return rc;
 }

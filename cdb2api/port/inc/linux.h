@@ -14,27 +14,16 @@
    limitations under the License.
  */
 
-#ifndef _INCLUDED_PORT_MSVC_WIN32_H_
-#define _INCLUDED_PORT_MSVC_WIN32_H_
-#define WIN32_LEAN_AND_MEAN
-#define _CRT_SECURE_NO_WARNINGS
-#include <windows.h>
+#ifndef _INCLUDED_PORT_LINUX_H_
+#define _INCLUDED_PORT_LINUX_H_
 
-/* MSVC does not like C99.
-   MSVC does not like POSIX. */
-#define inline __inline
-#ifndef __func__
-#define __func__ __FUNCTION__
-#endif
-#ifndef PATH_MAX
-#define PATH_MAX MAX_PATH
+#include <posix.h>
+
+#include <endian.h>
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#define __LITTLE_ENDIAN__ 1
+#else
+#define __LITTLE_ENDIAN__ 0
 #endif
 
-#include <string.h>
-#define strdup _strdup
-#define strtok_r strtok_s
-#define snprintf sprintf_s
-
-/* MSVC does not have strndup(). Define our own. */
-char *strndup(const char *s, size_t n);
 #endif
