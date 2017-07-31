@@ -25,7 +25,7 @@
 #include <aix.h>
 #elif defined(_WIN32) /* Windows */
 #include <win32.h>
-#else /* Unknown. Assume it is POSIX-compliant and little-endian. */
+#else /* Untested. Assume it is POSIX-compliant and little-endian. */
 #include <posix.h>
 #define __LITTLE_ENDIAN__ 1
 #endif

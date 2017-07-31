@@ -439,19 +439,9 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
     rc = connect(s, name, namelen);
     if (rc == SOCKET_ERROR && einprogress()) {
         /*wait for connect event */
-#ifdef _WIN32
-        struct timeval tv;
-        FD_ZERO(&wfds);
-        FD_SET(s, &wfds);
-
-        tv.tv_sec = timeoutms / 1000;
-        tv.tv_usec = (timeoutms % 1000) * 1000;
-        rc = select(1, NULL, &wfds, NULL, &tv);
-#else
         pfd.fd = s;
         pfd.events = POLLOUT;
         rc = poll(&pfd, 1, timeoutms);
-#endif
         if (rc == 0) {
             /*timeout*/
             /*fprintf(stderr,"connect timed out\n");*/
@@ -460,16 +450,10 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
         if (rc != 1) { /*poll failed?*/
             return -1;
         }
-#ifdef _WIN32
-        if (!FD_ISSET(s, &wfds)) { /*wrong event*/
-            return -1;
-        }
-#else
         if ((pfd.revents & POLLOUT) == 0) { /*wrong event*/
             /*fprintf(stderr,"poll event %d\n",pfd.revents);*/
             return -1;
         }
-#endif
     } else if (rc == SOCKET_ERROR) {
         /*connect failed?*/
         return -1;
@@ -2051,10 +2035,7 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, SBUF2 *sb, char *dbname,
     while (isspace(*sql))
         sql++;
     sqlquery.sql_query = sql;
-    sqlquery.little_endian = 0;
-#if defined(_LINUX_SOURCE) || defined(_WIN32)
-    sqlquery.little_endian = 1;
-#endif
+    sqlquery.little_endian = __LITTLE_ENDIAN__;
 
     sqlquery.n_bindvars = n_bindvars;
     sqlquery.bindvars = bindvars;
@@ -2278,14 +2259,7 @@ retry_next_record:
                 tmsec = (num_retry - hndl->num_hosts) * 100;
                 if (tmsec > 1000)
                     tmsec = 1000;
-#ifdef _WIN32
-                struct timeval tv;
-                tv.tv_sec = tmsec / 1000;
-                tv.tv_usec = (tmsec % 1000) * 1000;
-                select(0, NULL, NULL, NULL, &tv);
-#else
                 poll(NULL, 0, tmsec);
-#endif
             }
             cdb2_connect_sqlhost(hndl);
             if (hndl->sb == NULL) {
@@ -3279,14 +3253,7 @@ retry_queries:
                         SELF(), __func__, __LINE__, tmsec);
             }
 
-#ifdef _WIN32
-            struct timeval tv;
-            tv.tv_sec = tmsec / 1000;
-            tv.tv_usec = (tmsec % 1000) * 1000;
-            select(0, NULL, NULL, NULL, &tv);
-#else
             poll(NULL, 0, tmsec);
-#endif
         }
         cdb2_connect_sqlhost(hndl);
         if (hndl->sb == NULL) {
@@ -4450,14 +4417,7 @@ static int cdb2_get_dbhosts(cdb2_hndl_tp *hndl)
 retry:
     if (rc && num_retry < MAX_RETRIES) {
         num_retry++;
-#ifdef _WIN32
-        struct timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = 250000;
-        select(0, NULL, NULL, NULL, &tv);
-#else
         poll(NULL, 0, 250); // Sleep for 250ms everytime and total of 5 seconds
-#endif
     } else if (rc) {
         return rc;
     }

@@ -22,6 +22,9 @@
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
+#include <winsockets.h>
+
+#define cdb2_gethostbyname(hp, nm) do { hp = gethostbyname(nm); } while (0)
 
 #define inline __inline
 #ifndef __func__

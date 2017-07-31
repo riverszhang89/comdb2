@@ -27,6 +27,9 @@ typedef unsigned long int in_addr_t;
 
 #define close() closesocket()
 
+#define fcntlnonblocking(s, flag) ioctlsocket(s, FIONBIO, &nonblocking)
+#define fcntlblocking(s, flag) fcntl(s, F_SETFL, flags)
+
 /* Error codes set by Windows Sockets are
    not made available through the errno variable.
    Use our own. */

@@ -19,6 +19,15 @@
 
 #include <posix.h>
 
+#undef cdb2_gethostbyname
+#define cdb2_gethostbyname(hp, nm) do {	\
+	struct hostent hostbuf;	\
+	char tmp[8192];	\
+	int tmplen = 8192;	\
+	int herr;	\
+        hp = gethostbyname_r(tok, &hostbuf, tmp, tmplen, &herr);	\
+} while (0)
+
 #include <sys/isa_defs.h>
 #ifdef _LITTLE_ENDIAN
 #define __LITTLE_ENDIAN__ 1
