@@ -20,15 +20,14 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <winsock2.h>
 #include <ws2tcpip.h>
-
 #include <windows.h>
 
 typedef unsigned long int in_addr_t;
 
 #define close() closesocket()
 
-#define fcntlnonblocking(s, flag) ioctlsocket(s, FIONBIO, &nonblocking)
-#define fcntlblocking(s, flag) fcntl(s, F_SETFL, flags)
+#define fcntlnonblocking(s, flag) (flag = 1, ioctlsocket(s, FIONBIO, &flag))
+#define fcntlblocking(s, flag) (flag = 0, ioctlsocket(s, FIONBIO, &flag))
 
 /* Error codes set by Windows Sockets are
    not made available through the errno variable.

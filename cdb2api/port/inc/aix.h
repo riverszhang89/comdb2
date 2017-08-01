@@ -32,4 +32,6 @@
 #define __LITTLE_ENDIAN__ 0
 #endif
 
+#define HAVE_MSGHDR_MSG_CONTROL
+
 #endif

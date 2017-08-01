@@ -29,9 +29,9 @@ typedef int SOCKET;
 #include <unistd.h>
 #include <fcntl.h>
 #define fcntlnonblocking(s, flag)	\
-	(((flags = fcntl(s, F_GETFL, 0)) < 0) ? -1 : ((fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0) ? -1 : 0))
+	(((flags = fcntl(s, F_GETFL, 0)) < 0) ? SOCKET_ERROR : ((fcntl(s, F_SETFL, ((int)flags) | O_NONBLOCK) < 0) ? SOCKET_ERROR : 0))
 
-#define fcntlblocking(s, flag) fcntl(s, F_SETFL, flags)
+#define fcntlblocking(s, flag) fcntl(s, F_SETFL, (int)flags)
 
 #include <netdb.h>
 #define cdb2_gethostbyname(hp, nm) do { hp = gethostbyname(nm); } while (0)

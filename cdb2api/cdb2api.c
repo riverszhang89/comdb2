@@ -134,10 +134,6 @@ static int is_sql_read(const char *sqlstr)
 
 /* PASSFD CODE */
 #if WITH_SOCK_POOL
-#if defined(_IBM_SOURCE) || defined(_LINUX_SOURCE)
-#define HAVE_MSGHDR_MSG_CONTROL
-#endif
-
 enum {
     PASSFD_SUCCESS = 0,
     PASSFD_RECVMSG = -1, /* error with recvmsg() */
@@ -357,22 +353,19 @@ static int cdb2_tcpresolve(const char *host, struct in_addr *in, int *port)
     /*RESOLVE AN ADDRESS*/
     in_addr_t inaddr;
 
-    int len;
-    char tmp[8192];
-    int tmplen = 8192;
-    int herr;
-    struct hostent hostbuf, *hp = NULL;
+    size_t len;
+    struct hostent *hp = NULL;
     char tok[128], *cc;
     cc = strchr(host, (int)':');
     if (cc == 0) {
-        len = (int)strlen(host);
+        len = strlen(host);
         if (len >= sizeof(tok))
             return -2;
         memcpy(tok, host, len);
         tok[len] = 0;
     } else {
         *port = atoi(cc + 1);
-        len = (int)(cc - host);
+        len = (cc - host);
         if (len >= sizeof(tok))
             return -2;
         memcpy(tok, host, len);
@@ -382,17 +375,7 @@ static int cdb2_tcpresolve(const char *host, struct in_addr *in, int *port)
         /* it's dotted-decimal */
         memcpy(&in->s_addr, &inaddr, sizeof(inaddr));
     } else {
-#ifdef _LINUX_SOURCE
-        gethostbyname_r(tok, &hostbuf, tmp, tmplen, &hp, &herr);
-#elif _SUN_SOURCE
-        hp = gethostbyname_r(tok, &hostbuf, tmp, tmplen, &herr);
-#else
-        (void)tmp;
-        (void)tmplen;
-        (void)herr;
-        (void)hostbuf;
-        hp = gethostbyname(tok);
-#endif
+		cdb2_gethostbyname(hp, tok);
         if (hp == NULL) {
 			char *errs = STRERROR(ERRNO);
             fprintf(stderr, "%s:gethostbyname(%s): errno=%d err=%s\n", __func__,
@@ -410,32 +393,18 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
                    int timeoutms)
 {
     /* connect with timeout */
-#ifdef _WIN32
-    fd_set wfds;
-#else
+    unsigned long flags;
     struct pollfd pfd;
-#endif
     int rc;
     int err;
-#ifdef _AIX
     socklen_t len;
-#else
-    int len;
-#endif
+
     if (timeoutms <= 0)
         return connect(s, name, namelen); /*no timeout specified*/
-#ifdef _WIN32
-    unsigned long nonblocking = 1;
-    if (ioctlsocket(s, FIONBIO, &nonblocking) == SOCKET_ERROR)
-        return -1;
-#else
-    int flags = fcntl(s, F_GETFL, 0);
-    if (flags < 0)
-        return -1;
-    if (fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0) {
-        return -1;
-    }
-#endif /* _WIN32 */
+
+	if (fcntlnonblocking(s, flags) == SOCKET_ERROR)
+		return -1;
+
     rc = connect(s, name, namelen);
     if (rc == SOCKET_ERROR && einprogress()) {
         /*wait for connect event */
@@ -458,21 +427,17 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
         /*connect failed?*/
         return -1;
     }
-#if defined(_WIN32)
-    nonblocking = 0;
-    if(ioctlsocket(s, FIONBIO, &nonblocking) == SOCKET_ERROR)
-        return -1;
-#else
-    if (fcntl(s, F_SETFL, flags) < 0) {
-        return -1;
-    }
-#endif
-    len = sizeof(err);
+
+	if (fcntlblocking(s, flags) == SOCKET_ERROR)
+		return -1;
+
+    len = (socklen_t)sizeof(err);
     if (getsockopt(s, SOL_SOCKET, SO_ERROR, (void *)&err, &len) == SOCKET_ERROR) {
         return -1;
     }
-	SETERRNO(err);
-    if (ERRNO != 0)
+
+	seterror(err);
+    if (errno != 0)
         return -1;
     return 0;
 }
@@ -1036,10 +1001,7 @@ static int get_comdb2db_hosts(cdb2_hndl_tp *hndl, char comdb2db_hosts[][64],
                                     *comdb2db_num, NULL, comdb2db_hosts,
                                     comdb2db_ports, master, num_hosts, NULL);
         if (ret != 0) {
-            char tmp[8192];
-            int tmplen = 8192;
-            int herr;
-            struct hostent hostbuf, *hp = NULL;
+            struct hostent *hp = NULL;
 
             char dns_name[256];
 
@@ -1050,17 +1012,7 @@ static int get_comdb2db_hosts(cdb2_hndl_tp *hndl, char comdb2db_hosts[][64],
                          comdb2db_name, cdb2_dnssuffix);
             }
 
-#ifdef _LINUX_SOURCE
-            gethostbyname_r(dns_name, &hostbuf, tmp, tmplen, &hp, &herr);
-#elif _SUN_SOURCE
-            hp = gethostbyname_r(dns_name, &hostbuf, tmp, tmplen, &herr);
-#else
-            (void)tmp;
-            (void)tmplen;
-            (void)herr;
-            (void)hostbuf;
-            hp = gethostbyname(dns_name);
-#endif
+			cdb2_gethostbyname(hp, dns_name);
             if (hp) {
                 int rc = -1;
                 int i = 0;
@@ -4922,10 +4874,12 @@ int cdb2_open(cdb2_hndl_tp **handle, const char *dbname, const char *type,
 	WSADATA wsaData;
 	if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0) {
 		fprintf(stderr, "WSAStartup() failed with error %d: %s\n",
-				ERRNO, STRERROR(ERRNO));
+				errno, strerrno(errno));
 		free(hndl);
+		/* Set handle to NULL so that we don't mistakenly
+		   call WSACleanup() in cdb2_close(). */
 		*handle = NULL;
-		return ERRNO;
+		return errno;
 	}
 #endif
 
