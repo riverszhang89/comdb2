@@ -27,8 +27,6 @@
 #include <strings.h>
 #include <unistd.h>
 
-#include <sockerrno.h>
-
 #if SBUF2_SERVER
 #  ifndef SBUF2_DFL_SIZE
 #    define SBUF2_DFL_SIZE 1024ULL

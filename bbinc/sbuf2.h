@@ -46,9 +46,9 @@
 extern "C" {
 #endif
 
-/* Server is not yet ported to Windows. */
+/* Server is not ported to Windows yet. */
 #if SBUF2_SERVER
-#include <berksockets.h>
+typedef int SOCKET;
 #else
 #include <os.h>
 #endif

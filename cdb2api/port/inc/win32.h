@@ -14,6 +14,10 @@
    limitations under the License.
  */
 
+#ifndef _INCLUDED_PORT_OS_H_
+#error "Use #include <os.h> instead."
+#endif
+
 #ifndef _INCLUDED_PORT_WIN32_H_
 #define _INCLUDED_PORT_WIN32_H_
 
@@ -22,7 +26,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
-#include "winsockets.h"
 
 #define cdb2_gethostbyname(hp, nm) do { hp = gethostbyname(nm); } while (0)
 
@@ -42,6 +45,8 @@
 #ifndef strtok_r
 #define strtok_r strtok_s
 #endif
+/* MSVC does not have strndup(). Define our own. */
+char *strndup(const char *s, size_t n);
 
 #include <stdio.h>
 #ifndef snprintf
@@ -54,8 +59,7 @@
 #undef srandom
 #define srandom(seed) srand(seed)
 
-/* MSVC does not have strndup(). Define our own. */
-char *strndup(const char *s, size_t n);
+#include "winsockets.h"
 
 /* Windows-style Paths */
 static char CDB2DBCONFIG_NOBBENV[512] = "\\opt\\bb\\etc\\cdb2\\config\\comdb2db.cfg";

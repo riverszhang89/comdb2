@@ -14,7 +14,7 @@
    limitations under the License.
  */
 
-#if _WIN32_WINNT < _WIN32_WINNT_VISTA
+#if defined(_WIN32_WINNT_VISTA) && WINVER >= _WIN32_WINNT_VISTA
 
 #include <windows.h>
 #include <sys/poll.h>
@@ -69,5 +69,5 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout)
 
 #else
 /* Avoid empty compilation unit: some compilers complain about it. */
-extern int __unused;
+extern int __this_is_an_empty_compilation_unit__;
 #endif

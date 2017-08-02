@@ -5,13 +5,13 @@
 #OPENSSL_LIB=C:\OpenSSL-Win64\lib
 
 # HOME
-#PROTOC_INC=C:\Program1\include
-#PROTOC_LIB=C:\Program1\lib
-#PROTOC_BIN=C:\Program1\bin
+PROTOC_INC=C:\Program1\include
+PROTOC_LIB=C:\Program1\lib
+PROTOC_BIN=C:\Program1\bin
 # OFFICE x64
-PROTOC_INC=C:\Program Files (x86)\include
-PROTOC_LIB=C:\Program Files (x86)\lib
-PROTOC_BIN=C:\Program Files (x86)\bin
+#PROTOC_INC=C:\Program Files (x86)\include
+#PROTOC_LIB=C:\Program Files (x86)\lib
+#PROTOC_BIN=C:\Program Files (x86)\bin
 
 ## Quick and dirty
 LDLIBPATH=/LIBPATH:"$(PROTOC_LIB)"
@@ -63,7 +63,7 @@ CFLAGS=/nologo $(CFLAGS_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 DLL=libcdb2api.dll
 LD=link.exe /DLL
 LDLIBS=protobuf-c.lib kernel32.lib user32.lib uuid.lib wsock32.lib ws2_32.lib libcmt.lib /nodefaultlib:msvcrt.lib
-# Uncomment the line below for backward compatibility
+# Uncomment the line below for backward compatibility.
 DOWNLEVEL=WindowsApp_downlevel.lib OneCore_downlevel.lib mincore_downlevel.lib
 LDLIBS=$(LDLIBS) $(DOWNLEVEL)
 
@@ -80,15 +80,17 @@ LIB=libcdb2api.a
 AR=lib.exe
 ARFLAGS=
 
-OBJECTS=sqlquery.pb-c.obj sqlresponse.pb-c.obj cdb2api.obj
-OBJECTS=$(OBJECTS) port\impl\win32\gethostid.obj
-OBJECTS=$(OBJECTS) port\impl\win32\gettimeofday.obj
-OBJECTS=$(OBJECTS) port\impl\win32\poll.obj
-OBJECTS=$(OBJECTS) port\impl\win32\pthread.obj
-OBJECTS=$(OBJECTS) port\impl\win32\strndup.obj
-OBJECTS=$(OBJECTS) port\impl\win32\WSAStrError.obj
+CORE_OBJECTS=cdb2api.obj
+PROTOC_OBJECTS=sqlquery.pb-c.obj sqlresponse.pb-c.obj
+PORT_OBJECTS=gethostid.obj gettimeofday.obj poll.obj pthread.obj strndup.obj WSAStrError.obj
+OBJECTS=$(CORE_OBJECTS) $(PROTOC_OBJECTS) $(PORT_OBJECTS)
 
 .c.obj::
+	$(CC) @<<
+	$(CFLAGS) $<
+<<
+
+{port\impl\win32\}.c.obj::
 	$(CC) @<<
 	$(CFLAGS) $<
 <<
@@ -116,7 +118,7 @@ sqlresponse.pb-c.obj: sqlresponse.pb-c.c
 	$(ARFLAGS) $(OBJECTS) /out:$@
 <<
 
-TEST:
+TEST: ALL
 	$(CC) t.c -DCDB2API_STATIC_LIBRARY $(LIB) /link $(LDLIBPATH) $(LDLIBS) /out:t.a.exe
 	$(CC) t.c /link $(LDLIBPATH) $(LDLIBS) libcdb2api.lib /out:t.dll.exe
 

@@ -18,7 +18,7 @@
 
 char *WSAStrError(int err)
 {
-	char errbuf[1024];
+	static char errbuf[1024];
 	FormatMessage(
         FORMAT_MESSAGE_FROM_SYSTEM |
         FORMAT_MESSAGE_IGNORE_INSERTS,

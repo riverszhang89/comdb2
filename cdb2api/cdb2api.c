@@ -37,7 +37,6 @@
 #include "sqlresponse.pb-c.h"
 
 #include <os.h>
-#include <sockerrno.h>
 
 #ifndef WITH_SOCK_POOL
 #define WITH_SOCK_POOL 1

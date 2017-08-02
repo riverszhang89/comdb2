@@ -14,6 +14,10 @@
    limitations under the License.
  */
 
+#ifndef _INCLUDED_PORT_OS_H_
+#error "Use #include <os.h> instead."
+#endif
+
 #ifndef _INCLUDED_PORT_WINSOCKETS_H_
 #define _INCLUDED_PORT_WINSOCKETS_H_
 
@@ -21,7 +25,6 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <io.h>
-#include <windows.h>
 
 typedef unsigned long int in_addr_t;
 
@@ -32,5 +35,28 @@ typedef unsigned long int in_addr_t;
 
 #define fcntlnonblocking(s, flag) (flag = 1, ioctlsocket(s, FIONBIO, &flag))
 #define fcntlblocking(s, flag) (flag = 0, ioctlsocket(s, FIONBIO, &flag))
+
+/* Error codes set by Windows Sockets are
+   not made available through the errno variable.
+   Use our own. */
+
+#include <errno.h>
+#undef errno
+#define errno WSAGetLastError()
+
+/* Windows-ism: WSAGetLastError() is not a valid lvalue thus
+   it is impossible to do things like `errno=EINVAL'. */
+#define seterrno(err) WSASetLastError(err)
+
+#include <string.h>
+char *WSAStrError(int err);
+#undef strerror
+#define strerror(err) WSAStrError(err)
+
+/* Map WinSock error codes to Berkeley errors */
+#undef EINPROGRESS
+#define EINPROGRESS WSAEWOULDBLOCK
+#undef EINTR
+#define EINTR WSAEINPROGRESS
 
 #endif

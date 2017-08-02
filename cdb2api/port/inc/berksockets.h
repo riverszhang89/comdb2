@@ -14,6 +14,10 @@
    limitations under the License.
  */
 
+#ifndef _INCLUDED_PORT_OS_H_
+#error "Use #include <os.h> instead."
+#endif
+
 #ifndef _INCLUDED_PORT_BERKSOCKETS_H_
 #define _INCLUDED_PORT_BERKSOCKETS_H_
 
@@ -32,4 +36,7 @@ typedef int SOCKET;
 #include <netdb.h>
 #define cdb2_gethostbyname(hp, nm) do { hp = gethostbyname(nm); } while (0)
 
+#include <errno.h>
+/* To be consistent with WSASetLastError(). */
+#define seterrno(err) do { errno = err; } while (0)
 #endif
