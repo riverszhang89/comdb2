@@ -14,8 +14,6 @@
    limitations under the License.
  */
 
-#include <os.h>
-
 #include <sbuf2.h>
 #include <limits.h>
 #include <unistd.h>
@@ -37,6 +35,9 @@
 
 #include "sqlquery.pb-c.h"
 #include "sqlresponse.pb-c.h"
+
+#include <os.h>
+#include <sockerrno.h>
 
 #ifndef WITH_SOCK_POOL
 #define WITH_SOCK_POOL 1
@@ -436,7 +437,7 @@ static int lclconn(SOCKET s, const struct sockaddr *name, int namelen,
         return -1;
     }
 
-	seterror(err);
+    seterrno(err);
     if (errno != 0)
         return -1;
     return 0;
@@ -4860,7 +4861,7 @@ int cdb2_open(cdb2_hndl_tp **handle, const char *dbname, const char *type,
 	WSADATA wsaData;
 	if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0) {
 		fprintf(stderr, "WSAStartup() failed with error %d: %s\n",
-				errno, strerrno(errno));
+				errno, strerror(errno));
 		free(hndl);
 		/* Set handle to NULL so that we don't mistakenly
 		   call WSACleanup() in cdb2_close(). */

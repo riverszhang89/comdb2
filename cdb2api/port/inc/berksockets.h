@@ -14,20 +14,15 @@
    limitations under the License.
  */
 
-#ifndef _INCLUDED_PORT_POSIX_H_
-#define _INCLUDED_PORT_POSIX_H_
+#ifndef _INCLUDED_PORT_BERKSOCKETS_H_
+#define _INCLUDED_PORT_BERKSOCKETS_H_
 
 typedef int SOCKET;
-#define HAVE_SOCKET_TYPE
 
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 #define INADDR_NONE ((in_addr_t)-1)
 
-#include <errno.h>
-#define seterrno(err) do { errno = err; } while (0)
-
-#include <unistd.h>
 #include <fcntl.h>
 #define fcntlnonblocking(s, flag)	\
 	(((flags = fcntl(s, F_GETFL, 0)) < 0) ? SOCKET_ERROR : ((fcntl(s, F_SETFL, ((int)flags) | O_NONBLOCK) < 0) ? SOCKET_ERROR : 0))

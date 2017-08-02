@@ -19,9 +19,9 @@
 
 #include <sys/socket.h>
 
-#if _WIN32_WINNT >= 0x0600
+#if _WIN32_WINNT >= _WIN32_WINNT_VISTA
 #define poll(fds, nfds, tm) WSAPoll(fds, nfds, tm)
-#else /* Windows Vista or below: use our own. */
+#else /* Windows XP or below: use our own. */
 #define POLLIN 0x0001
 #define POLLPRI 0x0002
 #define POLLOUT 0x0004
@@ -37,6 +37,8 @@ struct pollfd {
     short events;     /* requested events */
     short revents;    /* returned events */
 };
+
+typedef unsigned long int nfds_t;
 
 int poll(struct pollfd *fds, nfds_t nfds, int timeout);
 

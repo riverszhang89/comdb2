@@ -49,12 +49,10 @@
 #endif
 
 #include <stdlib.h>
-#ifndef random
+#undef random
 #define random() rand()
-#endif
-#ifndef srandom
-#define srandom() srand()
-#endif
+#undef srandom
+#define srandom(seed) srand(seed)
 
 /* MSVC does not have strndup(). Define our own. */
 char *strndup(const char *s, size_t n);

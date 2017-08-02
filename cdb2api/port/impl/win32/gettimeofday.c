@@ -1,8 +1,9 @@
-#include <windows.h>
 #include <sys/time.h>
+#include <stdint.h>
+#include <windows.h>
 
 /* gettimeofday() */
-static int gettimeofday(struct timeval *tv, void *unused)
+int gettimeofday(struct timeval *tv, void *unused)
 {
     FILETIME ft;
     const uint64_t shift = 116444736000000000ULL;

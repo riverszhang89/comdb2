@@ -14,7 +14,7 @@
    limitations under the License.
  */
 
-#if _WIN32_WINNT < 0x0600 /* Windows Vista or below */
+#if _WIN32_WINNT < _WIN32_WINNT_VISTA
 
 #include <windows.h>
 #include <sys/poll.h>
@@ -67,4 +67,7 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout)
 	return ret;
 }
 
+#else
+/* Avoid empty compilation unit: some compilers complain about it. */
+extern int __unused;
 #endif

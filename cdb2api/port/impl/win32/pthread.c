@@ -63,7 +63,7 @@ int pthread_once(pthread_once_t *once_ctrl, void (*init_rtn)(void))
 
 	if (*once_ctrl == NULL) {
 		tmp = calloc(1, sizeof(once_t));
-		if (InterlockedCompareExchangePointer((PVOID*)once_control,
+		if (InterlockedCompareExchangePointer((PVOID*)once_ctrl,
 					(PVOID)tmp, NULL) != NULL)
 			free(tmp);
 	}
