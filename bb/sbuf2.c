@@ -27,6 +27,8 @@
 #include <strings.h>
 #include <unistd.h>
 
+#include <sockerrno.h>
+
 #if SBUF2_SERVER
 #  ifndef SBUF2_DFL_SIZE
 #    define SBUF2_DFL_SIZE 1024ULL
@@ -61,8 +63,8 @@ struct sbuf2 {
     int ungetc_buf_len;
 #endif
 
-    sbuf2writefn write;
-    sbuf2readfn read;
+    sbuf2writefn writefn;
+    sbuf2readfn readfn;
 
     unsigned int lbuf;
     unsigned char *rbuf;
@@ -166,14 +168,14 @@ int SBUF2_FUNC(sbuf2flush)(SBUF2 *sb)
         void *ssl;
 ssl_downgrade:
         ssl = sb->ssl;
-        rc = sb->write(sb, (char *)&sb->wbuf[sb->wtl], len);
+        rc = sb->writefn(sb, (char *)&sb->wbuf[sb->wtl], len);
         if (rc == 0 && sb->ssl != ssl) {
             /* Fall back to plaintext if client donates
                the socket to sockpool. */
             goto ssl_downgrade;
         }
 #else
-        rc = sb->write(sb, (char *)&sb->wbuf[sb->wtl], len);
+        rc = sb->writefn(sb, (char *)&sb->wbuf[sb->wtl], len);
 #endif
         if (rc <= 0)
             return -1 + rc;
@@ -316,11 +318,11 @@ int SBUF2_FUNC(sbuf2getc)(SBUF2 *sb)
         void *ssl;
 ssl_downgrade:
         ssl = sb->ssl;
-        rc = sb->read(sb, (char *)sb->rbuf, sb->lbuf - 1);
+        rc = sb->readfn(sb, (char *)sb->rbuf, sb->lbuf - 1);
         if (rc == 0 && sb->ssl != ssl)
             goto ssl_downgrade;
 #else
-        rc = sb->read(sb, (char *)sb->rbuf, sb->lbuf - 1);
+        rc = sb->readfn(sb, (char *)sb->rbuf, sb->lbuf - 1);
 #endif
         if (rc <= 0)
             return -1 + rc;
@@ -420,11 +422,11 @@ static int sbuf2fread_int(char *ptr, int size, int nitems,
             void *ssl;
 ssl_downgrade:
             ssl = sb->ssl;
-            rc = sb->read(sb, (char *)sb->rbuf, sb->lbuf - 1);
+            rc = sb->readfn(sb, (char *)sb->rbuf, sb->lbuf - 1);
             if (rc == 0 && sb->ssl != ssl)
                 goto ssl_downgrade;
 #else
-            rc = sb->read(sb, (char *)sb->rbuf, sb->lbuf - 1);
+            rc = sb->readfn(sb, (char *)sb->rbuf, sb->lbuf - 1);
 #endif
             if (rc <= 0) {
                 if (rc == 0) { /* this is a timeout */
@@ -497,7 +499,7 @@ static int swrite_unsecure(SBUF2 *sb, const char *cc, int len)
             pol.fd = sb->fd;
             pol.events = POLLOUT;
             rc = poll(&pol, 1, sb->writetimeout);
-        } while (rc == SOCKET_ERROR && eintr());
+        } while (rc == SOCKET_ERROR && errno == EINTR);
 
         if (rc <= 0)
             return rc; /*timed out or error*/
@@ -579,7 +581,7 @@ static int sread_unsecure(SBUF2 *sb, char *cc, int len)
             pol.fd = sb->fd;
             pol.events = POLLIN;
             rc = poll(&pol, 1, sb->readtimeout);
-        } while (rc == SOCKET_ERROR && eintr());
+        } while (rc == SOCKET_ERROR && errno == EINTR);
 
         if (rc <= 0)
             return rc; /*timed out or error*/
@@ -662,30 +664,30 @@ void SBUF2_FUNC(sbuf2gettimeout)(SBUF2 *sb, int *readtimeout, int *writetimeout)
     *writetimeout = sb->writetimeout;
 }
 
-void SBUF2_FUNC(sbuf2setrw)(SBUF2 *sb, sbuf2readfn read, sbuf2writefn write)
+void SBUF2_FUNC(sbuf2setrw)(SBUF2 *sb, sbuf2readfn readfn, sbuf2writefn writefn)
 {
-    sb->read = read;
-    sb->write = write;
+    sb->readfn = readfn;
+    sb->writefn = writefn;
 }
 
-void SBUF2_FUNC(sbuf2setr)(SBUF2 *sb, sbuf2readfn read)
+void SBUF2_FUNC(sbuf2setr)(SBUF2 *sb, sbuf2readfn readfn)
 {
-    sb->read = read;
+    sb->readfn = readfn;
 }
 
-void SBUF2_FUNC(sbuf2setw)(SBUF2 *sb, sbuf2writefn write)
+void SBUF2_FUNC(sbuf2setw)(SBUF2 *sb, sbuf2writefn writefn)
 {
-    sb->write = write;
+    sb->writefn = writefn;
 }
 
 sbuf2readfn SBUF2_FUNC(sbuf2getr)(SBUF2 *sb)
 {
-    return sb->read;
+    return sb->readfn;
 }
 
 sbuf2writefn SBUF2_FUNC(sbuf2getw)(SBUF2 *sb)
 {
-    return sb->write;
+    return sb->writefn;
 }
 
 int SBUF2_FUNC(sbuf2setbufsize)(SBUF2 *sb, unsigned int size)
@@ -732,8 +734,8 @@ SBUF2 *SBUF2_FUNC(sbuf2open)(SOCKET fd, int flags)
         sb->ungetc_buf_len = 0;
         memset(sb->ungetc_buf, EOF, SBUF2UNGETC_BUF_MAX);
 #endif
-        sb->write = swrite; /*default writer/reader*/
-        sb->read = sread;
+        sb->writefn = swrite; /*default writer/reader*/
+        sb->readfn = sread;
 #if SBUF2_SERVER
         comdb2ma alloc = comdb2ma_create(0, 0, "sbuf2", 0);
         if (alloc != NULL) {

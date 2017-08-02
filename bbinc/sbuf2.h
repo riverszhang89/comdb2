@@ -46,8 +46,11 @@
 extern "C" {
 #endif
 
-#ifndef HAVE_SOCKET_TYPE
-typedef int SOCKET;
+/* Server is not yet ported to Windows. */
+#if SBUF2_SERVER
+#include <berksockets.h>
+#else
+#include <os.h>
 #endif
 
 typedef struct sbuf2 SBUF2;
