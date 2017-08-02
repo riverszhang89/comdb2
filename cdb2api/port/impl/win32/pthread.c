@@ -36,7 +36,7 @@ int pthread_mutex_unlock(HANDLE *lk)
     return (ReleaseMutex(*lk) == 0);
 }
 
-int pthread_mutex_init(HANDLE *restrict lk, const pthread_mutexattr_t *restrict unused)
+int pthread_mutex_init(volatile HANDLE *lk, const volatile pthread_mutexattr_t *unused)
 {
     HANDLE ret = CreateMutex(NULL, FALSE, NULL);
     (void)unused;

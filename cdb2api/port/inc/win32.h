@@ -22,7 +22,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
-#include <winsockets.h>
+#include "winsockets.h"
 
 #define cdb2_gethostbyname(hp, nm) do { hp = gethostbyname(nm); } while (0)
 
@@ -34,10 +34,27 @@
 #define PATH_MAX MAX_PATH
 #endif
 
+/* MSVC does not like POSIX. */
 #include <string.h>
+#ifndef strdup
 #define strdup _strdup
+#endif
+#ifndef strtok_r
 #define strtok_r strtok_s
+#endif
+
+#include <stdio.h>
+#ifndef snprintf
 #define snprintf sprintf_s
+#endif
+
+#include <stdlib.h>
+#ifndef random
+#define random() rand()
+#endif
+#ifndef srandom
+#define srandom() srand()
+#endif
 
 /* MSVC does not have strndup(). Define our own. */
 char *strndup(const char *s, size_t n);

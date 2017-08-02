@@ -51,7 +51,7 @@ CFLAGS_CFG=/MTd /Zi /Od /W4 /wd4127 /wd4201 /Fd"libcdb2api_src" /FD
 LDFLAGS_CFG=/debug
 !ENDIF
 
-CFLAGS_INC=/I../bbinc /I../bb $(CFLAGS_INC)
+CFLAGS_INC=/I..\bbinc /I..\bb $(CFLAGS_INC) /Iport\inc /Iport\inc\win32
 CFLAGS_DEF=$(CFLAGS_DEF) -DSBUF2_SERVER=0
 !IF "$(CDB2API_STATIC_LIBRARY)" != "1"
 CFLAGS_DEF=$(CFLAGS_DEF) -DBUILD_DLL

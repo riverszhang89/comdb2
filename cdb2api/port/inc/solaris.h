@@ -17,7 +17,7 @@
 #ifndef _INCLUDED_PORT_SOLARIS_H_
 #define _INCLUDED_PORT_SOLARIS_H_
 
-#include <posix.h>
+#include "posix.h"
 
 #undef cdb2_gethostbyname
 #define cdb2_gethostbyname(hp, nm) do {	\

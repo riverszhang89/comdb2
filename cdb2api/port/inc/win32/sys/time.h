@@ -17,5 +17,5 @@
 #ifndef _INCLUDED_PORT_WIN32_SYS_TIME_H_
 #define _INCLUDED_PORT_WIN32_SYS_TIME_H_
 #include <winsock2.h> /* struct timeval */
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+int gettimeofday(struct timeval *tv, void *unused);
 #endif

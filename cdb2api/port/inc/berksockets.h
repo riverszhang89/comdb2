@@ -18,12 +18,13 @@
 #define _INCLUDED_PORT_POSIX_H_
 
 typedef int SOCKET;
+#define HAVE_SOCKET_TYPE
 
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 #define INADDR_NONE ((in_addr_t)-1)
 
-#include <error.h>
+#include <errno.h>
 #define seterrno(err) do { errno = err; } while (0)
 
 #include <unistd.h>

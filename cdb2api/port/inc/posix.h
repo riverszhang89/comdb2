@@ -17,7 +17,7 @@
 #ifndef _INCLUDED_PORT_POSIX_H_
 #define _INCLUDED_PORT_POSIX_H_
 
-#include <berksockets.h>
+#include "berksockets.h"
 
 /* Unix-style Paths */
 static char CDB2DBCONFIG_NOBBENV[512] = "/opt/bb/etc/cdb2/config/comdb2db.cfg";

@@ -26,7 +26,8 @@ typedef DWORD pthread_mutexattr_t;
 typedef HANDLE pthread_mutex_t;
 #define PTHREAD_MUTEX_INITIALIZER NULL
 
-int pthread_mutex_init(pthread_mutex_t *restrict mutex, const pthread_mutexattr_t *restrict attr);
+int pthread_mutex_init(volatile pthread_mutex_t *mutex,
+        const volatile pthread_mutexattr_t *attr);
 int pthread_mutex_destroy(pthread_mutex_t *mutex);
 int pthread_mutex_lock(pthread_mutex_t *lk);
 int pthread_mutex_unlock(pthread_mutex_t *lk);

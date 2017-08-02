@@ -16,36 +16,16 @@
 
 /* simple buffering for stream */
 
-/* Myself */
 #include <sbuf2.h>
 
-/* Standard headers */
 #include <errno.h>
+#include <poll.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* Platform-dependent headers */
-#ifdef _WIN32
-#include <io.h>
-#else
-#include <poll.h>
 #include <strings.h>
-#include <sys/uio.h>
 #include <unistd.h>
-#endif /* !_WIN32 */
-
-/* On Windows, a socket is not a file. */
-#ifdef _WIN32
-#define xpwrite(sb, b, l) \
-    (sb->flags & SBUF2_IS_FILE) ? _write((int)sb->fd, b, l) : send(sb->fd, b, l, 0)
-#define xpread(sb, b, l) \
-    (sb->flags & SBUF2_IS_FILE) ? _read((int)sb->fd, b, l) : recv(sb->fd, b, l, 0)
-#else
-#define xpwrite(sb, b, l) write(sb->fd, b, l)
-#define xpread(sb, b, l) read(sb->fd, b, l)
-#endif
 
 #if SBUF2_SERVER
 #  ifndef SBUF2_DFL_SIZE
@@ -508,42 +488,24 @@ int SBUF2_FUNC(sbuf2printfx)(SBUF2 *sb, char *buf, int lbuf, char *fmt, ...)
 static int swrite_unsecure(SBUF2 *sb, const char *cc, int len)
 {
     int rc;
-#ifdef _WIN32
-    fd_set wfds;
-#else
     struct pollfd pol;
-#endif
     if (sb == 0)
         return -1;
 
     if (sb->writetimeout > 0) {
         do {
-#ifdef _WIN32
-            struct timeval tv;
-            FD_ZERO(&wfds);
-            FD_SET(sb->fd, &wfds);
-            tv.tv_sec = sb->writetimeout / 1000;
-            tv.tv_usec = (sb->writetimeout % 1000) * 1000;
-            rc = select(1, NULL, &wfds, NULL, &tv);
-#else
             pol.fd = sb->fd;
             pol.events = POLLOUT;
             rc = poll(&pol, 1, sb->writetimeout);
-#endif
         } while (rc == SOCKET_ERROR && eintr());
 
         if (rc <= 0)
             return rc; /*timed out or error*/
-#ifdef _WIN32
-        if (!FD_ISSET(sb->fd, &wfds))
-            return -1;
-#else
         if ((pol.revents & POLLOUT) == 0)
             return -100000 + pol.revents;
-#endif
         /*can write*/
     }
-    return xpwrite(sb, cc, len);
+    return write(sb->fd, cc, len);
 }
 
 static int swrite(SBUF2 *sb, const char *cc, int len)
@@ -564,12 +526,12 @@ int SBUF2_FUNC(sbuf2unbufferedwrite)(SBUF2 *sb, const char *cc, int len)
 {
     int n;
 #if !WITH_SSL
-    n = xpwrite(sb, cc, len);
+    n = write(sb->fd, cc, len);
 #else
     int ioerr;
 ssl_downgrade:
     if (sb->ssl == NULL)
-        n = xpwrite(sb, cc, len);
+        n = write(sb->fd, cc, len);
     else {
         ERR_clear_error();
         n = SSL_write(sb->ssl, cc, len);
@@ -609,41 +571,23 @@ ssl_downgrade:
 static int sread_unsecure(SBUF2 *sb, char *cc, int len)
 {
     int rc;
-#ifdef _WIN32
-    fd_set rfds;
-#else
     struct pollfd pol;
-#endif
     if (sb == 0)
         return -1;
     if (sb->readtimeout > 0) {
         do {
-#ifdef _WIN32
-            struct timeval tv;
-            FD_ZERO(&rfds);
-            FD_SET(sb->fd, &rfds);
-            tv.tv_sec = sb->readtimeout / 1000;
-            tv.tv_usec = (sb->readtimeout % 1000) * 1000;
-            rc = select(1, &rfds, NULL, NULL, &tv);
-#else
             pol.fd = sb->fd;
             pol.events = POLLIN;
             rc = poll(&pol, 1, sb->readtimeout);
-#endif
         } while (rc == SOCKET_ERROR && eintr());
 
         if (rc <= 0)
             return rc; /*timed out or error*/
-#ifdef _WIN32
-        if (!FD_ISSET(sb->fd, &rfds))
-            return -1;
-#else
         if ((pol.revents & POLLIN) == 0)
             return -100000 + pol.revents;
-#endif
         /*something to read*/
     }
-    return xpread(sb, cc, len);
+    return read(sb->fd, cc, len);
 }
 
 static int sread(SBUF2 *sb, char *cc, int len)
@@ -664,12 +608,12 @@ int SBUF2_FUNC(sbuf2unbufferedread)(SBUF2 *sb, char *cc, int len)
 {
     int n;
 #if !WITH_SSL
-    n = xpread(sb, cc, len);
+    n = read(sb->fd, cc, len);
 #else
     int ioerr;
 ssl_downgrade:
     if (sb->ssl == NULL)
-        n = xpread(sb, cc, len);
+        n = read(sb->fd, cc, len);
     else {
         ERR_clear_error();
         n = SSL_read(sb->ssl, cc, len);

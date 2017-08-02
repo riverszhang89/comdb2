@@ -14,11 +14,14 @@
    limitations under the License.
  */
  
-#ifndef _INCLUDED_PORT_WIN32_SYS_TYPES_H_
-#define _INCLUDED_PORT_WIN32_SYS_TYPES_H_
+#ifndef _INCLUDED_PORT_WIN32_SYS_POLL_H_
+#define _INCLUDED_PORT_WIN32_SYS_POLL_H_
 
 #include <sys/socket.h>
 
+#if _WIN32_WINNT >= 0x0600
+#define poll(fds, nfds, tm) WSAPoll(fds, nfds, tm)
+#else /* Windows Vista or below: use our own. */
 #define POLLIN 0x0001
 #define POLLPRI 0x0002
 #define POLLOUT 0x0004
@@ -36,5 +39,7 @@ struct pollfd {
 };
 
 int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+
+#endif /* _WIN32_WINNT */
 
 #endif

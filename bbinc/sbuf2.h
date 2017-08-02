@@ -19,7 +19,7 @@
 
 /* sbuf2.h -  simple buffering for stream. stupid fopen can't handle fd>255
 
-/* WARNING - don't incude this in other header files that will be widely used
+ * WARNING - don't incude this in other header files that will be widely used
  * (e.g. comdb2_api.h) - the symbol sbuf2 conflicts with many fortran common
  * area names */
 
@@ -46,16 +46,8 @@
 extern "C" {
 #endif
 
-#ifdef _WIN32
-#define einprogress() (WSAGetLastError() == WSAEWOULDBLOCK)
-#define eintr() (WSAGetLastError() == WSAEINPROGRESS)
-#else
+#ifndef HAVE_SOCKET_TYPE
 typedef int SOCKET;
-#define INVALID_SOCKET -1
-#define SOCKET_ERROR -1
-#define closesocket close
-#define einprogress() (errno == EINPROGRESS)
-#define eintr() (errno == EINTR)
 #endif
 
 typedef struct sbuf2 SBUF2;
@@ -71,9 +63,6 @@ enum SBUF2_FLAGS {
     SBUF2_NO_FLUSH = 8,
     /* adjust read/write calls to write on non-blocking socket */
     SBUF2_NO_BLOCK = 16
-#ifdef _WIN32
-    , SBUF2_IS_FILE = 32
-#endif
 };
 
 typedef int (*sbuf2readfn)(SBUF2 *sb, char *buf, int nbytes);
