@@ -28,10 +28,10 @@ int gettimeofday(struct timeval *tv, void *unused)
     union {
         FILETIME f;
         uint64_t i;
-    } caster;
-    caster.f = ft;
-    caster.i -= shift;
-    tv->tv_sec = (long)(caster.i / 10000000);
-    tv->tv_usec = (long)((caster.i / 10) % 1000000);
+    } u;
+    u.f = ft;
+    u.i -= shift;
+    tv->tv_sec = (long)(u.i / 10000000);
+    tv->tv_usec = (long)((u.i / 10) % 1000000);
     return 0;
 }
