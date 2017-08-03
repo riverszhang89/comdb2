@@ -14,4 +14,8 @@
    limitations under the License.
  */
  
+/* Guard against #include <winsockets.h> directly. */
+#ifndef _INCLUDED_PORT_WIN32_SYS_SOCKET_H_
+#define _INCLUDED_PORT_WIN32_SYS_SOCKET_H_
 #include <winsockets.h>
+#endif

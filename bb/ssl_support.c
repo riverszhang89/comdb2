@@ -17,19 +17,14 @@
 /* myself */
 #include <ssl_support.h>
 
-/* Common */
+/* sys */
 #include <errno.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
-
-/* Platform-dependent */
-#ifdef _WIN32
-#else
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pthread.h>
-#endif
 
 /* openssl */
 #define OPENSSL_THREAD_DEFINES
@@ -44,6 +39,8 @@
 #  include <openssl/rand.h> /* RAND_pseudo_bytes() */
 #  include "mem_bb.h" /* subsystem malloc routines. */
 #  include <mem_override.h> /* override malloc routines. */
+#else
+#  include <os.h>
 #endif
 
 #ifdef my_ssl_println
@@ -73,7 +70,7 @@ static void ssl_threadid(CRYPTO_THREADID *thd)
 }
 
 /* For OpenSSL < 1.0.0. */
-static unsigned long ssl_threadid_deprecated()
+static unsigned long ssl_threadid_deprecated(void)
 {
     return (unsigned long)pthread_self();
 }

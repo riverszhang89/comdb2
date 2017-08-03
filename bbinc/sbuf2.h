@@ -46,11 +46,12 @@
 extern "C" {
 #endif
 
-/* Server code is not ported to Windows yet. */
 #if SBUF2_SERVER
+/* Server code is not ported to Windows yet. */
 typedef int SOCKET;
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
+#define seterrno(err) do { errno = err; } while (0)
 #else
 #include <os.h>
 #endif

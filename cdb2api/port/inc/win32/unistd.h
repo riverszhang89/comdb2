@@ -16,7 +16,17 @@
 
 #ifndef _INCLUDED_PORT_WIN32_UNISTD_H_
 #define _INCLUDED_PORT_WIN32_UNISTD_H_
-#include <sys/types.h> /* pid_t */
+#include <windows.h>
+
+#define R_OK 0x04
+
+typedef DWORD pid_t;
 #define getpid() GetCurrentProcessId()
+
 long gethostid(void);
+
+typedef DWORD uid_t;
+#define getuid() 0
+#define geteuid() 0
+
 #endif

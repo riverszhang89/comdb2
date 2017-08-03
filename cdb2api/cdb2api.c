@@ -72,7 +72,26 @@ static char cdb2_sslkey[PATH_MAX];
 static char cdb2_sslca[PATH_MAX];
 static int cdb2_cache_ssl_sess = 0;
 static pthread_mutex_t cdb2_ssl_sess_lock = PTHREAD_MUTEX_INITIALIZER;
-typedef struct cdb2_ssl_sess_list cdb2_ssl_sess_list;
+
+/* MSVC C2079. See the link below.
+   https://msdn.microsoft.com/en-us/library/9ekhdcxs.aspx */
+typedef struct cdb2_ssl_sess {
+    char host[64];
+    SSL_SESSION *sess;
+} cdb2_ssl_sess;
+
+typedef struct cdb2_ssl_sess_list {
+    struct cdb2_ssl_sess_list *next;
+    char dbname[64];
+    char cluster[64];
+    int ref;
+    int n;
+    /* We need to malloc the list separately as
+       the list may change due to SSL re-negotiation
+       or database migration. */
+    cdb2_ssl_sess *list;
+} cdb2_ssl_sess_list;
+
 static cdb2_ssl_sess_list cdb2_ssl_sess_cache;
 static void cdb2_free_ssl_sessions(cdb2_ssl_sess_list *sessions);
 static cdb2_ssl_sess_list *cdb2_get_ssl_sessions(cdb2_hndl_tp *hndl);
@@ -559,25 +578,6 @@ typedef struct cdb2_query_list_item {
     char *sql;
     struct cdb2_query_list_item *next;
 } cdb2_query_list;
-
-#if WITH_SSL
-typedef struct cdb2_ssl_sess {
-    char host[64];
-    SSL_SESSION *sess;
-} cdb2_ssl_sess;
-
-typedef struct cdb2_ssl_sess_list {
-    struct cdb2_ssl_sess_list *next;
-    char dbname[64];
-    char cluster[64];
-    int ref;
-    int n;
-    /* We need to malloc the list separately as
-       the list may change due to SSL re-negotiation
-       or database migration. */
-    cdb2_ssl_sess *list;
-} cdb2_ssl_sess_list;
-#endif
 
 struct cdb2_hndl {
     char dbname[64];

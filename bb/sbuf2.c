@@ -539,10 +539,10 @@ ssl_downgrade:
             ioerr = SSL_get_error(sb->ssl, n);
             switch (ioerr) {
             case SSL_ERROR_WANT_READ:
-                errno = EAGAIN;
+                seterrno(EAGAIN);
                 break;
             case SSL_ERROR_WANT_WRITE:
-                errno = EAGAIN;
+                seterrno(EAGAIN);
                 break;
             case SSL_ERROR_ZERO_RETURN:
                 /* Peer has done a clean shutdown. */
@@ -556,10 +556,10 @@ ssl_downgrade:
                 goto ssl_downgrade;
             case SSL_ERROR_SYSCALL:
                 if (n == 0)
-                    errno = ECONNRESET;
+                    seterrno(ECONNRESET);
                 break;
             default:
-                errno = EIO;
+                seterrno(EIO);
                 break;
             }
         }
@@ -621,10 +621,10 @@ ssl_downgrade:
             ioerr = SSL_get_error(sb->ssl, n);
             switch (ioerr) {
             case SSL_ERROR_WANT_READ:
-                errno = EAGAIN;
+                seterrno(EAGAIN);
                 break;
             case SSL_ERROR_WANT_WRITE:
-                errno = EAGAIN;
+                seterrno(EAGAIN);
                 break;
             case SSL_ERROR_ZERO_RETURN:
                 /* Peer has done a clean shutdown. */
@@ -638,10 +638,10 @@ ssl_downgrade:
                 goto ssl_downgrade;
             case SSL_ERROR_SYSCALL:
                 if (n == 0)
-                    errno = ECONNRESET;
+                    seterrno(ECONNRESET);
                 break;
             default:
-                errno = EIO;
+                seterrno(EIO);
                 break;
             }
         }
@@ -771,7 +771,7 @@ int SBUF2_FUNC(sbuf2eof)(SBUF2 *sb)
     if (sb == NULL)
         return -2;
 
-    errno = 0;
+    seterrno(0);
     i = sbuf2getc(sb);
 
     if (i >= 0) {

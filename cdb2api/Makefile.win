@@ -1,17 +1,17 @@
 #OPENSSL_INC=R:\include
 #OPENSSL_LIB=C:\Program Files (x86)\GnuWin32\lib
 
-#OPENSSL_INC=C:\OpenSSL-Win64\include
-#OPENSSL_LIB=C:\OpenSSL-Win64\lib
+OPENSSL_INC=C:\OpenSSL-Win64\include
+OPENSSL_LIB=C:\OpenSSL-Win64\lib
 
 # HOME
-PROTOC_INC=C:\Program1\include
-PROTOC_LIB=C:\Program1\lib
-PROTOC_BIN=C:\Program1\bin
+#PROTOC_INC=C:\Program1\include
+#PROTOC_LIB=C:\Program1\lib
+#PROTOC_BIN=C:\Program1\bin
 # OFFICE x64
-#PROTOC_INC=C:\Program Files (x86)\include
-#PROTOC_LIB=C:\Program Files (x86)\lib
-#PROTOC_BIN=C:\Program Files (x86)\bin
+PROTOC_INC=C:\Program Files (x86)\include
+PROTOC_LIB=C:\Program Files (x86)\lib
+PROTOC_BIN=C:\Program Files (x86)\bin
 
 ## Quick and dirty
 LDLIBPATH=/LIBPATH:"$(PROTOC_LIB)"
@@ -56,7 +56,9 @@ LDFLAGS_CFG=/debug
 
 CFLAGS_INC=/I..\bbinc /I..\bb $(CFLAGS_INC) /Iport\inc /Iport\inc\win32
 CFLAGS_DEF=$(CFLAGS_DEF) -DSBUF2_SERVER=0
-!IF "$(CDB2API_STATIC_LIBRARY)" != "1"
+
+# Build a DLL unless instructed otherwise.
+!IFNDEF CDB2API_STATIC_LIBRARY
 CFLAGS_DEF=$(CFLAGS_DEF) -DBUILD_DLL
 !ENDIF
 

@@ -14,8 +14,8 @@
    limitations under the License.
  */
 
-#ifndef _INCLUDED_PORT_OS_H_
-#error "Use #include <os.h> instead."
+#if !defined(_INCLUDED_PORT_OS_H_) && !defined(_INCLUDED_PORT_WIN32_SYS_SOCKET_H_)
+#error "Use #include <os.h> or system headers instead."
 #endif
 
 #ifndef _INCLUDED_PORT_WINSOCKETS_H_
@@ -24,12 +24,11 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <io.h>
 
 typedef unsigned long int in_addr_t;
 
+#include <io.h>
 #define close(s) closesocket(s)
-
 #define write(s, b, l) send(s, b, l, 0)
 #define read(s, b, l) recv(s, b, l, 0)
 
@@ -56,7 +55,13 @@ char *WSAStrError(int err);
 /* Map WinSock error codes to Berkeley errors */
 #undef EINPROGRESS
 #define EINPROGRESS WSAEWOULDBLOCK
+#undef EAGAIN
+#define EAGAIN WSAEWOULDBLOCK
+#undef ECONNRESET
+#define ECONNRESET WSAECONNRESET
 #undef EINTR
 #define EINTR WSAEINPROGRESS
+#undef EIO
+#define EIO WSAECONNABORTED
 
 #endif

@@ -57,13 +57,14 @@ struct peer_info {
 #    undef UNLOCK
 #  endif
 #  define UNLOCK(arg)
+#  include <os.h>
 #endif
 
 /* Given an fd, work out which machine the connection is from.
    Cache hostname info only in server mode. */
 char *SBUF2_FUNC(get_origin_mach_by_buf)(SBUF2 *sb)
 {
-    int fd;
+    SOCKET fd;
     char *funcname;
     struct sockaddr_in peeraddr;
     int len = sizeof(peeraddr);
