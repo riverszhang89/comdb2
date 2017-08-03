@@ -143,7 +143,7 @@ int SBUF2_FUNC(sbuf2close)(SBUF2 *sb)
 #endif
 
     if (!(sb->flags & SBUF2_NO_CLOSE_FD))
-        closesocket(sb->fd);
+        close(sb->fd);
 
     return sbuf2free(sb);
 }

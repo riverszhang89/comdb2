@@ -14,10 +14,6 @@
    limitations under the License.
  */
 
-#ifndef _INCLUDED_PORT_OS_H_
-#error "Use #include <os.h> instead."
-#endif
-
 #ifndef _INCLUDED_PORT_WIN32_H_
 #define _INCLUDED_PORT_WIN32_H_
 
@@ -67,7 +63,7 @@ static char CDB2DBCONFIG_NOBBENV[512] = "\\opt\\bb\\etc\\cdb2\\config\\comdb2db.
 static char CDB2DBCONFIG_NOBBENV_PATH[] = "\\etc\\cdb2\\config.d\\";
 static char CDB2DBCONFIG_TEMP_BB_BIN[512] = "\\bb\\bin\\comdb2db.cfg";
 
-/* Temporarily disable sockpool on Windows */
+/* Sockpool is not ported yet, so temporarily disable the feature. */
 #ifdef _WIN32
 #define WITH_SOCK_POOL 0
 #endif
