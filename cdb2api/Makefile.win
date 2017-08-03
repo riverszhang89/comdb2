@@ -45,6 +45,9 @@ CFLAGS_INC=$(CFLAGS_INC) /I"$(PROTOC_INC)"
 
 !IF "$(CONFIG)" == ""
 CONFIG=Release
+!ENDIF
+
+!IF "$(CONFIG)" == "Release"
 CFLAGS_CFG=/MT /O2 /W4 /wd4100 /wd4127 /wd4201
 !ELSE
 CFLAGS_CFG=/MTd /Zi /Od /W4 /wd4127 /wd4201 /Fd"libcdb2api_src" /FD
@@ -61,7 +64,7 @@ CC=cl.exe
 CFLAGS=/nologo $(CFLAGS_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 
 DLL=libcdb2api.dll
-LD=link.exe /DLL
+LD=link.exe /DLL /incremental:no
 LDLIBS=protobuf-c.lib kernel32.lib user32.lib uuid.lib wsock32.lib ws2_32.lib libcmt.lib /nodefaultlib:msvcrt.lib
 # Uncomment the line below for backward compatibility.
 DOWNLEVEL=WindowsApp_downlevel.lib OneCore_downlevel.lib mincore_downlevel.lib
