@@ -24,6 +24,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <inttypes.h>
 
 /* extra OpenSSL headers */
 #include <openssl/asn1.h>
@@ -68,7 +69,7 @@ char *SBUF2_FUNC(get_origin_mach_by_buf)(SBUF2 *sb)
     char *funcname;
     struct sockaddr_in peeraddr;
     int len = sizeof(peeraddr);
-    char *host;
+    char *host = NULL;
 #if SBUF2_SERVER
     struct peer_info *info;
     struct peer_info key;
@@ -81,12 +82,12 @@ char *SBUF2_FUNC(get_origin_mach_by_buf)(SBUF2 *sb)
 
     fd = sb->fd;
 
-    if (fd == -1)
+    if (fd == INVALID_SOCKET)
         return "???";
 
     bzero(&peeraddr, sizeof(peeraddr));
     if (getpeername(fd, (struct sockaddr *)&peeraddr, &len) < 0) {
-        loge("%s:getpeername failed fd %d: %d %s\n",
+        loge("%s:getpeername failed fd %" PRIiPTR ": %d %s\n",
                __func__, fd, errno, strerror(errno));
         return "???";
     }
@@ -115,14 +116,13 @@ char *SBUF2_FUNC(get_origin_mach_by_buf)(SBUF2 *sb)
             /* Do a slow lookup of this internet address in the host database
              * to get a hostname, and then search the bigsnd node list to
              * map this to a node number. */
-            struct hostent *hp = NULL, rslt;
             char hnm[256] = {0};
             char *h_name = NULL;
-            int node, rc;
+            int rc;
             int error_num = 0;
             int goodrc = 0;
 
-#ifdef _LINUX_SOURCE
+#if defined(_LINUX_SOURCE) || defined(_WIN32)
             funcname = "getnameinfo";
             rc = getnameinfo((struct sockaddr *)&peeraddr, sizeof(peeraddr),
                              hnm, sizeof(hnm), NULL, 0, 0);
@@ -134,6 +134,7 @@ char *SBUF2_FUNC(get_origin_mach_by_buf)(SBUF2 *sb)
                 error_num = errno;
             }
 #else
+            struct hostent *hp = NULL;
             funcname = "getipnodebyaddr";
             hp = getipnodebyaddr(&peeraddr.sin_addr, sizeof(peeraddr.sin_addr),
                                  peeraddr.sin_family, &error_num);
@@ -147,7 +148,7 @@ char *SBUF2_FUNC(get_origin_mach_by_buf)(SBUF2 *sb)
                 char addrstr[64] = "";
                 inet_ntop(peeraddr.sin_family, &peeraddr.sin_addr, addrstr,
                           sizeof(addrstr));
-                loge("%s:%s failed fd %d (%s): error_num %d",
+                loge("%s:%s failed fd %" PRIiPTR "(%s): error_num %d",
                        __func__, funcname, fd, addrstr, error_num);
                 switch (error_num) {
                 case HOST_NOT_FOUND:
@@ -229,7 +230,7 @@ static int sslio_pollin(SBUF2 *sb)
         pol.events = POLLIN;
         /* A readtimeout of 0 actually means an infinite poll timeout. */
         rc = poll(&pol, 1, sb->readtimeout == 0 ? -1 : sb->readtimeout);
-    } while (rc == -1 && errno == EINTR);
+    } while (rc == SOCKET_ERROR && errno == EINTR);
 
     if (rc <= 0) /* timedout or error. */
         return rc;
@@ -250,7 +251,7 @@ static int sslio_pollout(SBUF2 *sb)
         pol.events = POLLOUT;
         /* A writetimeout of 0 actually means an infinite poll timeout. */
         rc = poll(&pol, 1, sb->writetimeout == 0 ? -1 : sb->writetimeout);
-    } while (rc == -1 && errno == EINTR);
+    } while (rc == SOCKET_ERROR && errno == EINTR);
 
     if (rc <= 0) /* timedout or error. */
         return rc;
@@ -326,7 +327,7 @@ static int ssl_verify_san(const char *hostname, const X509 *cert)
         return -1;
 
     len = sk_GENERAL_NAME_num(peersan);
-    for (ii = 0; ii != len; ++ii) {
+    for (rc = 1, ii = 0; ii != len; ++ii) {
         name = sk_GENERAL_NAME_value(peersan, ii);
         if (name->type != GEN_DNS)
             continue;
@@ -433,7 +434,9 @@ static int sslio_accept_or_connect(SBUF2 *sb,
                                    ssl_mode verify, char *err, size_t n,
                                    SSL_SESSION *sess, int *unrecoverable)
 {
-    int rc, ioerr, fd, flags;
+    int rc, ioerr;
+	SOCKET fd;
+    unsigned long flags;
 
     *unrecoverable = 1;
 
@@ -460,14 +463,14 @@ static int sslio_accept_or_connect(SBUF2 *sb,
 
     /* Set fd. */
     fd = sbuf2fileno(sb);
-    if ((flags = fcntl(fd, F_GETFL, 0)) < 0 ||
-        (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)) {
+	if ((rc = fcntlnonblocking(fd, flags)) == SOCKET_ERROR) {
         ssl_sfeprint(err, n, my_ssl_eprintln,
                      "fcntl: (%d) %s", errno, strerror(errno));
-        rc = -1;
         goto error;
     }
-    rc = SSL_set_fd(sb->ssl, fd);
+
+	/* SSL_set_fd() takes a fd of int type. */
+    rc = SSL_set_fd(sb->ssl, (int)fd);
     if (rc != 1) {
         ssl_sfliberrprint(err, n, my_ssl_eprintln,
                           "Failed to set fd");
@@ -503,19 +506,19 @@ re_accept_or_connect:
             if (rc == 0) {
                 ssl_sfeprint(err, n, my_ssl_eprintln,
                              "Unexpected EOF observed.");
-                errno = ECONNRESET;
+                seterrno(ECONNRESET);
             } else {
                 ssl_sfeprint(err, n, my_ssl_eprintln,
                              "IO error. errno %d.", errno);
             }
             break;
         case SSL_ERROR_SSL:
-            errno = EIO;
+            seterrno(EIO);
             ssl_sfliberrprint(err, n, my_ssl_eprintln,
                               "A failure in SSL library occured");
             break;
         default:
-            errno = EIO;
+            seterrno(EIO);
             ssl_sfeprint(err, n, my_ssl_eprintln,
                          "Failed to establish connection with peer. "
                          "SSL error = %d.", ioerr);
@@ -528,10 +531,10 @@ re_accept_or_connect:
     }
 
     /* Put blocking back. */
-    if (fcntl(fd, F_SETFL, flags) < 0) {
+    if ((rc == fcntlnonblocking(fd, flags)) == SOCKET_ERROR) {
         ssl_sfeprint(err, n, my_ssl_eprintln,
                      "fcntl: (%d) %s", errno, strerror(errno));
-        return -1;
+        return rc;
     }
 
     if (rc != 1) {
@@ -593,11 +596,11 @@ reread:
         ioerr = SSL_get_error(sb->ssl, n);
         switch (ioerr) {
         case SSL_ERROR_WANT_READ:
-            errno = EAGAIN;
+            seterrno(EAGAIN);
             wantread = 1;
             goto reread;
         case SSL_ERROR_WANT_WRITE:
-            errno = EAGAIN;
+            seterrno(EAGAIN);
             wantread = 0;
             goto reread;
         case SSL_ERROR_ZERO_RETURN:
@@ -612,14 +615,14 @@ reread:
             break;
         case SSL_ERROR_SYSCALL:
             if (n == 0)
-                errno = ECONNRESET;
+                seterrno(ECONNRESET);
             break;
         case SSL_ERROR_SSL:
             PRINT_SSL_ERRSTR_MT(my_ssl_eprintln,
                                 "A failure in SSL library occured");
             /* Fall through */
         default:
-            errno = EIO;
+            seterrno(EIO);
             break;
         }
     }
@@ -644,11 +647,11 @@ rewrite:
         ioerr = SSL_get_error(sb->ssl, n);
         switch (ioerr) {
         case SSL_ERROR_WANT_READ:
-            errno = EAGAIN;
+            seterrno(EAGAIN);
             wantwrite = 0;
             goto rewrite;
         case SSL_ERROR_WANT_WRITE:
-            errno = EAGAIN;
+            seterrno(EAGAIN);
             wantwrite = 1;
             goto rewrite;
         case SSL_ERROR_ZERO_RETURN:
@@ -663,14 +666,14 @@ rewrite:
             break;
         case SSL_ERROR_SYSCALL:
             if (n == 0)
-                errno = ECONNRESET;
+                seterrno(ECONNRESET);
             break;
         case SSL_ERROR_SSL:
             PRINT_SSL_ERRSTR_MT(my_ssl_eprintln,
                                 "A failure in SSL library occured");
             /* Fall through */
         default:
-            errno = EIO;
+            seterrno(EIO);
             break;
         }
     }

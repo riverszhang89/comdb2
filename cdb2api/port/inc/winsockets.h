@@ -43,8 +43,8 @@ typedef unsigned long int in_addr_t;
 #undef errno
 #define errno WSAGetLastError()
 
-/* Windows-ism: WSAGetLastError() is not a valid lvalue thus
-   it is impossible to do things like `errno=EINVAL'. */
+/* Please forgive the ugliness: WSAGetLastError() is not a valid l-value
+   thus it is impossible to do something like `errno = EINVAL'. */
 #define seterrno(err) WSASetLastError(err)
 
 #include <string.h>
@@ -63,5 +63,7 @@ char *WSAStrError(int err);
 #define EINTR WSAEINPROGRESS
 #undef EIO
 #define EIO WSAECONNABORTED
+#undef EACCES
+#define EACCES WSAEACCES
 
 #endif

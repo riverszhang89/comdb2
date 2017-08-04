@@ -5,19 +5,30 @@ OPENSSL_INC=C:\OpenSSL-Win64\include
 OPENSSL_LIB=C:\OpenSSL-Win64\lib
 
 # HOME
-#PROTOC_INC=C:\Program1\include
-#PROTOC_LIB=C:\Program1\lib
-#PROTOC_BIN=C:\Program1\bin
+PROTOC_INC=C:\Program1\include
+PROTOC_LIB=C:\Program1\lib
+PROTOC_BIN=C:\Program1\bin
 # OFFICE x64
-PROTOC_INC=C:\Program Files (x86)\include
-PROTOC_LIB=C:\Program Files (x86)\lib
-PROTOC_BIN=C:\Program Files (x86)\bin
+#PROTOC_INC=C:\Program Files (x86)\include
+#PROTOC_LIB=C:\Program Files (x86)\lib
+#PROTOC_BIN=C:\Program Files (x86)\bin
 
 ## Quick and dirty
+!IF "$(PROTOC_LIB)" != ""
 LDLIBPATH=/LIBPATH:"$(PROTOC_LIB)"
+!ENDIF
+
+!IF "$(OPENSSL_LIB)" != ""
+LDLIBPATH=$(LDLIBPATH) /LIBPATH:"$(OPENSSL_LIB)"
+!ENDIF
+
+#VS 2017
 LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.10.25017\lib\onecore\x64"
 LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\um\x64"
 LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.15063.0\ucrt\x64"
+# VS2013
+#LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Windows Kits\8.1\Lib\winv6.3\um\x64"
+#LDLIBPATH=$(LDLIBPATH) /LIBPATH:"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\lib\amd64"
 
 !IF "$(COMDB2_ROOT)" == ""
 COMDB2_ROOT=\\opt\\bb
@@ -67,16 +78,19 @@ CFLAGS=/nologo $(CFLAGS_CFG) $(CFLAGS_INC) $(CFLAGS_DEF) /c
 
 DLL=libcdb2api.dll
 LD=link.exe /DLL /incremental:no
-LDLIBS=protobuf-c.lib kernel32.lib user32.lib uuid.lib wsock32.lib ws2_32.lib libcmt.lib /nodefaultlib:msvcrt.lib
-# Uncomment the line below for backward compatibility.
-DOWNLEVEL=WindowsApp_downlevel.lib OneCore_downlevel.lib mincore_downlevel.lib
-LDLIBS=$(LDLIBS) $(DOWNLEVEL)
-
-!IFNDEF MSVC_VER
-MSVC_VER=1900
+LDLIBS_3RD_PARTY=protobuf-c.lib
+!IFNDEF WITHOUT_SSL
+LDLIBS_3RD_PARTY=$(LDLIBS_3RD_PARTY) ssleay32.lib libeay32.lib
 !ENDIF
-!IF $(MSVC_VER) >= 1900
-LDLIBS=$(LDLIBS) legacy_stdio_definitions.lib
+LDLIBS_WIN_CORE=user32.lib uuid.lib wsock32.lib ws2_32.lib libcmt.lib /nodefaultlib:msvcrt.lib
+LDLIBS=$(LDLIBS_3RD_PARTY) $(LDLIBS_WIN_CORE)
+
+!IFNDEF _MSC_VER
+_MSC_VER=1600
+!ENDIF
+!IF $(_MSC_VER) >= 1900
+DOWNLEVEL=WindowsApp_downlevel.lib OneCore_downlevel.lib
+LDLIBS=$(LDLIBS) legacy_stdio_definitions.lib $(DOWNLEVEL)
 !ENDIF
 
 LDFLAGS=$(LDFLAGS) $(LDLIBS) $(LDLIBPATH) $(LDFLAGS_CFG)

@@ -37,6 +37,6 @@ typedef int SOCKET;
 #define cdb2_gethostbyname(hp, nm) do { hp = gethostbyname(nm); } while (0)
 
 #include <errno.h>
-/* To be consistent with WSASetLastError(). */
+/* To be consistent with Windows WSASetLastError(). */
 #define seterrno(err) do { errno = err; } while (0)
 #endif
