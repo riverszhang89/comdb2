@@ -24,6 +24,9 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <inttypes.h>
+
+#define SOCKFMTTYPE "%" PRIdPTR
 
 typedef unsigned long int in_addr_t;
 

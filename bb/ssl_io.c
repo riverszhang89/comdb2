@@ -48,6 +48,11 @@ struct peer_info {
     /* Data */
     char *host;
 };
+/* Server code is not ported to Windows yet. */
+#define fcntlnonblocking(s, flag)	\
+	(((flags = fcntl(s, F_GETFL, 0)) < 0) ? SOCKET_ERROR : ((fcntl(s, F_SETFL, ((int)flags) | O_NONBLOCK) < 0) ? SOCKET_ERROR : 0))
+
+#define fcntlblocking(s, flag) fcntl(s, F_SETFL, (int)flags)
 #else
 /* Don't cache host info in client mode. */
 #  ifdef LOCK
@@ -531,7 +536,7 @@ re_accept_or_connect:
     }
 
     /* Put blocking back. */
-    if ((rc == fcntlnonblocking(fd, flags)) == SOCKET_ERROR) {
+    if ((rc == fcntlblocking(fd, flags)) == SOCKET_ERROR) {
         ssl_sfeprint(err, n, my_ssl_eprintln,
                      "fcntl: (%d) %s", errno, strerror(errno));
         return rc;

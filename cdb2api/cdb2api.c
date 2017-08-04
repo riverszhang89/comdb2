@@ -30,7 +30,6 @@
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <limits.h>
-#include <inttypes.h>
 
 #include "cdb2api.h"
 
@@ -1474,7 +1473,7 @@ retry_newsql_connect:
     fd = cdb2_socket_pool_get(hndl->newsql_typestr, hndl->dbnum, NULL);
 
     if (hndl->debug_trace)
-        fprintf(stderr, "fd %" PRIiPTR "\n", fd);
+        fprintf(stderr, "fd " SOCKFMTTYPE "\n", fd);
     if (fd == INVALID_SOCKET) {
         if (!allow_pmux_route) {
             fd = cdb2_tcpconnecth_to(host, port, 0, CDB2_CONNECT_TIMEOUT);
@@ -4182,7 +4181,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, char *type, char *dbname,
     int port = 0;
     SOCKET fd = cdb2_socket_pool_get(newsql_typestr, dbnum, NULL);
     if (hndl->debug_trace)
-        fprintf(stderr, "dbinfo fd %" PRIiPTR "\n", fd);
+        fprintf(stderr, "dbinfo fd " SOCKFMTTYPE "\n", fd);
     if (fd == INVALID_SOCKET) {
         if (host == NULL)
             return -1;

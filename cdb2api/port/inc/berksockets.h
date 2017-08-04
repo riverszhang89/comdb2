@@ -22,6 +22,7 @@
 #define _INCLUDED_PORT_BERKSOCKETS_H_
 
 typedef int SOCKET;
+#define SOCKFMTTYPE "%d"
 
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
