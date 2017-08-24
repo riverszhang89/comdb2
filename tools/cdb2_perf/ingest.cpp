@@ -472,7 +472,7 @@ int main(int argc, char *argv[])
 
     // record what queries we gathered
     // dump them first
-    dump(db, blockid);
+    // dump(db, blockid);
 
     if (db.maxtime != 0)
         store(db, blockid, block.str());

@@ -7,8 +7,11 @@
 #include <map>
 #include <list>
 #include <vector>
-#include <tuple>
 #include <algorithm>
+#include <fstream>
+
+#include <time.h>
+#include <sys/time.h>
 
 #include <cdb2api.h>
 #include <time.h>
@@ -56,16 +59,6 @@ class cdb2_exception : public std::exception
     int _rc;
 };
 
-const std::string timestr(dbtime_t t)
-{
-    time_t tt = t;
-    struct tm tm;
-    localtime_r(&tt, &tm);
-    char s[100];
-    snprintf(s, sizeof(s), "%d-%02d-%02dT%02d%02d%02d", 1900 + tm.tm_year,
-             tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-    return std::string(s);
-}
 
 dbtime_t roundtime(dbtime_t dbt, int granularity)
 {
@@ -91,10 +84,11 @@ cdb2_client_datetimeus_t totimestamp(int64_t timestamp)
     return out;
 }
 
-#define HOUR(n) (3600 * n)
-#define MINUTE(n) (60 * n)
+#define SEC2USEC(n) (1000000ll * n)
 
-#define SEC2USEC(n) (1000000 * n)
+#define HOUR(n) SEC2USEC(3600ll * n)
+#define MINUTE(n) SEC2USEC(60ll * n)
+#define SECOND(n) SEC2USEC(n)
 
 // int64_t to bind in cdb2 APIs
 struct rollup_rules {
@@ -104,7 +98,7 @@ struct rollup_rules {
 
 /* TODO: read from db? */
 rollup_rules rules[] = {
-    {HOUR(0), MINUTE(15)}
+    {HOUR(0), MINUTE(1)}
 };
 
 // This is mostly for debugging, since all we really need is a block id.
@@ -143,28 +137,69 @@ struct sql_event {
 
 };
 
-typedef std::tuple<std::string /* fingerprint */, std::string /* host */,
-                   std::vector<std::string> /* context */, dbtime_t /* time */>
-    sql_event_key;
+std::string timestr(int64_t ms) {
+    time_t t = ms / 1000000;
+    struct tm *tm;
+    tm = localtime(&t);
+    char out[100];
+    sprintf(out, "%4d%02d%02dT%02d:%02d:%02d.%d", 1900 + tm->tm_year, tm->tm_mon+1, tm->tm_mday, 
+                                                  tm->tm_hour, tm->tm_min, tm->tm_sec, (int) (ms % 1000000));
+    return std::string(out);
+}
+
+struct sql_event_key {
+    std::string fingerprint;
+    std::string host;
+    std::vector<std::string> contexts;
+    dbtime_t time;
+
+    sql_event_key(const std::string &_fingerprint, const std::string &_host, const std::vector<std::string> &_contexts, dbtime_t _time) : 
+        fingerprint(_fingerprint), host(_host), contexts(_contexts), time(_time)
+    {
+    }
+
+};
+
+std::ostream &operator<<(std::ostream &out, const sql_event_key &e)
+{
+    out << "[ time:" << e.time << " fp:" << e.fingerprint
+        << " host:" << e.host << " contexts:";
+    out << "[";
+
+    int first = 1;
+    for (auto ai : e.contexts) {
+        if (!first)
+            out << " ";
+        out << ai;
+        first = 0;
+    }
+    out << "] ]";
+    return out;
+}
+
 
 struct sql_event_key_cmp {
-    int operator()(const sql_event_key &k1, const sql_event_key &k2)
-    {
-        int cmp = std::get<3>(k1) - std::get<3>(k2);
-        if (cmp == 0) return cmp;
-        if (std::get<0>(k1) != std::get<0>(k2))
-            return -1;
-        if (std::get<1>(k1) != std::get<1>(k2))
-            return -1;
-        if (std::get<3>(k1) != std::get<3>(k2))
-            return -1;
-        if (std::get<2>(k1).size() != std::get<2>(k2).size())
-            return -1;
-        for (unsigned i = 0; i < std::get<2>(k1).size(); i++) {
-            if (std::get<2>(k1)[i] != std::get<2>(k2)[i])
-                return -1;
+    bool cmp(const sql_event_key &k1, const sql_event_key &k2) {
+        if (k1.time < k2.time)
+            return true;
+        if (k1.fingerprint < k2.fingerprint)
+            return true;
+        if (k1.host < k2.host)
+            return true;
+        if (k1.contexts.size() < k2.contexts.size())
+            return true;
+        for (size_t i = 0; i < k1.contexts.size(); i++) {
+            if (i >= k2.contexts.size())
+                return true;
+            if (k1.contexts[i] < k2.contexts[i])
+                return true;
         }
-        return -1;
+        return false;
+    }
+    int operator()(const sql_event_key &k1, const sql_event_key &k2) {
+        int c = cmp(k1, k2); 
+        // std::cout << "(" << k1 << k2 << " cmp=" << c << ")";
+        return c;
     }
 };
 
@@ -223,19 +258,6 @@ bool operator<(const sql_event &ev1, const sql_event &ev2)
     return ev1.time - ev2.time;
 }
 
-std::ostream &operator<<(std::ostream &out, const sql_event_key &e)
-{
-    out << "[time: " << std::get<3>(e) << " fp: " << std::get<0>(e)
-        << " host: " << std::get<1>(e) << " "; 
-    out << "[";
-
-    for (auto ai : std::get<2>(e)) {
-        out << ai << " ";
-    }
-    out << "]";
-    return out;
-}
-
 std::ostream &operator<<(std::ostream &out, const sql_event &e)
 {
     out << "[time: " << e.time << " fp: " << e.fingerprint 
@@ -243,10 +265,10 @@ std::ostream &operator<<(std::ostream &out, const sql_event &e)
     return out;
 }
 
-sql_event_key evkey(sql_event &e, int rulenum)
+sql_event_key evkey(sql_event &e, int64_t granularity)
 {
     sql_event_key k = sql_event_key(e.fingerprint, e.host, e.contexts,
-                         roundtime(e.time, SEC2USEC(rules[rulenum].granularity)));
+                         roundtime(e.time, granularity));
     std::sort(e.contexts.begin(), e.contexts.end());
     return k;
 }
@@ -257,14 +279,19 @@ int cson_to_string( void * state, void const * src, unsigned int n ) {
     return 0;
 }
 
-void rollup_block_contents(const std::string &blockid, const std::string &olddata, std::string &newdata_out,
-                           int rulenum)
+void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
+                           int64_t age, int64_t granularity)
 {
     int rc;
     cson_parse_info info;
     cson_parse_opt opt = {.maxDepth = 32, .allowComments = 0};
     cson_value *olddata_value;
     cson_value *newdata;
+    int64_t now;
+
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    now = SEC2USEC(tv.tv_sec) + tv.tv_usec;
 
     rc = cson_parse_string(&olddata_value, olddata.c_str(), olddata.size(),
                            &opt, &info);
@@ -277,7 +304,8 @@ void rollup_block_contents(const std::string &blockid, const std::string &olddat
     cson_array *new_ar = cson_value_get_array(newdata);
     cson_array_reserve(new_ar, nent);
 
-    std::map<sql_event_key, sql_event, sql_event_key_cmp> events;
+    std::map<sql_event_key, sql_event, sql_event_key_cmp> sqlevents;
+    std::multimap<int64_t, cson_value*> events;
 
     for (int i = 0; i < nent; i++) {
         cson_value *v;
@@ -285,29 +313,59 @@ void rollup_block_contents(const std::string &blockid, const std::string &olddat
         /* things we don't expect, or things that aren't sql events - pass right
          * through */
         if (!cson_value_is_object(v)) {
-            cson_array_append(new_ar, v);
+            std::cout << "not an object" << std::endl;
             continue;
         }
         cson_object *obj;
         cson_value_fetch_object(v, &obj);
         if (cson_object_get(obj, "type") == nullptr) {
-            cson_array_append(new_ar, v);
+            std::cout << "no type property" << std::endl;
             continue;
         }
-        std::string type(get_strprop(v, "type"));
-        if (type != "sql") {
-            cson_array_append(new_ar, v);
+        if (cson_object_get(obj, "time") == nullptr) {
+            std::cout << "no time property" << std::endl;
             continue;
         }
 
+        std::string type(get_strprop(v, "type"));
+        int64_t eventtime;
+        if (!get_intprop(v, "time", &eventtime)) {
+            std::cout << "no integer time property" << std::endl;
+            continue;
+        }
+
+        if (eventtime <= 0) {
+            std::cout << "invalid time property" << std::endl;
+            continue;
+        }
+
+        if (type != "sql") {
+            events.insert(std::pair<int64_t, cson_value*>(eventtime, v));
+            continue;
+        }
         sql_event ev = parse_event(v);
-        sql_event_key k = evkey(ev, rulenum);
-        auto fnd = events.find(k);
-        if (fnd == events.end()) {
-            ev.time = roundtime(ev.time, rules[rulenum].granularity);
-            events.insert(std::pair<sql_event_key, sql_event>(k, ev));
+
+        // std::cout << "time " << timestr(ev.time) << " diff " << (now - ev.time) / 1000000;
+        /* New events are preserved as is */
+        if (ev.time - ev.runtime >= now - age) {
+            // std::cout << " skip " << std::endl;
+            events.insert(std::pair<int64_t, cson_value*>(eventtime, v));
+            continue;
+        }
+
+        sql_event_key k = evkey(ev, granularity);
+
+        // std::cout << " fold to " << roundtime(ev.time, granularity) << " key " << k;
+
+        /* Fold older events */
+        auto fnd = sqlevents.find(k);
+        if (fnd == sqlevents.end()) {
+            // std::cout << " new ";
+            ev.time = roundtime(ev.time, granularity);
+            sqlevents.insert(std::pair<sql_event_key, sql_event>(k, ev));
         } else {
             fnd->second.count++;
+            // std::cout << " repeat " << fnd->second.count;
             fnd->second.rows += ev.rows;
             fnd->second.runtime += ev.runtime;
             fnd->second.lockwaits += ev.lockwaits;
@@ -316,6 +374,7 @@ void rollup_block_contents(const std::string &blockid, const std::string &olddat
             fnd->second.readtime += ev.readtime;
             fnd->second.writes += ev.writetime;
         }
+        // std::cout << std::endl;
     }
 
 #if 0
@@ -327,7 +386,8 @@ void rollup_block_contents(const std::string &blockid, const std::string &olddat
     std::sort(ev.begin(), ev.end());
 #endif
 
-    for (auto it : events) {
+    /* Add the summarized events */
+    for (auto it : sqlevents) {
         cson_value *v = cson_value_new_object();
         cson_object *o  = cson_value_get_object(v);
         const sql_event &ev = it.second;
@@ -351,11 +411,17 @@ void rollup_block_contents(const std::string &blockid, const std::string &olddat
         cson_object_set(o, "readtime", cson_value_new_integer(ev.readtime / ev.count));
         cson_object_set(o, "writes", cson_value_new_integer(ev.rows / ev.count));
         cson_object_set(o, "writetime", cson_value_new_integer(ev.rows / ev.count));
-        cson_array_append(new_ar, v);
+        cson_object_set(o, "summarized", cson_value_new_bool(1));
+        cson_object_set(o, "count", cson_value_new_integer(ev.count));
+        events.insert(std::pair<int64_t, cson_value*>(ev.time, v));
+    }
+
+    for (auto it : events) {
+        cson_array_append(new_ar, it.second);
     }
 
     cson_output_opt outopt = { 0, 255, 0, 0, 0, 0 };
-    std::cout << "  " << nent << " -> " << events.size() << std::endl;
+    std::cout << nent << " -> " << events.size() << std::endl;
     std::stringstream s;
     cson_output(newdata, cson_to_string, &s, &outopt);
     cson_free_value(newdata);
@@ -379,7 +445,7 @@ void rollup_block(cdb2_hndl_tp *db, const block &b, int rulenum)
     std::string blockdata = std::string((char *)cdb2_column_value(db, 0));
     std::string newdata;
     std::cout << b.blockid;
-    rollup_block_contents(b.blockid, blockdata, newdata, rulenum);
+    rollup_block_contents(blockdata, newdata, rules[rulenum].age, rules[rulenum].granularity);
     rc = cdb2_next_record(db);
     if (rc != CDB2_OK_DONE)
         throw cdb2_exception(rc, db, "unexpected block record");
@@ -453,5 +519,13 @@ int main(int argc, char *argv[])
         std::cerr << "error: " << std.what() << std::endl;
       }
     }
+#if 0
+    std::fstream f("in");
+    std::string in((std::istreambuf_iterator<char>(f)), (std::istreambuf_iterator<char>()));
+    std::string out;
+    rollup_block_contents(in, out, HOUR(2), MINUTE(15));
+    std::cout << out << std::endl;
+#endif
+
     return 0;
 }
