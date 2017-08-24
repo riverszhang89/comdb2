@@ -1,0 +1,9 @@
+#!/bin/bash
+
+for table in blocks events queries contexts querytypes; do 
+    echo $table
+    del=$(cdb2sql -tabs comdb2perfdb "delete from $table limit 1000")
+    while [[ $del -gt 0 ]]; do
+        del=$(cdb2sql -tabs comdb2perfdb "delete from $table limit 1000")
+    done
+done

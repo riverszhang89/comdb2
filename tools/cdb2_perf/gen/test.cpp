@@ -80,7 +80,7 @@ int from;
 int to;
 
 const char *comma = "";
-void query(int second) {
+void query(int64_t second) {
     /* start with a day ago so we can test rolling up stats */
     int64_t querytime = second;
     std::stringstream s;
@@ -121,7 +121,7 @@ void query(int second) {
 
 int read_date(char *s) {
     struct tm tm = {0};
-    int rc = scanf("%04d%02d%02dT%02d%02d%02d", &tm.tm_year,
+    int rc = sscanf(s, "%04d-%02d-%02dT%02d:%02d:%02d", &tm.tm_year,
             &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, 
             &tm.tm_sec);
     if (rc < 3) {
@@ -231,9 +231,8 @@ int main(int argc, char *argv[]) {
     std::cout << "nfp " << nfp << "  ";
     std::cout << "nmachines " << nmachines << "  ";
     std::cout << "ncontexts " << ncontexts << "  ";
-    std::cout << "from " << timestr(from) << "(" << from << ")" << "  ";
-    std::cout << "to " << timestr(to) << "  " << std::endl;;
-
+    std::cout << "from " << timestr(from) << "  " << "(" << from << ")" << "  ";
+    std::cout << "to " << timestr(to) << "  " << "(" << to << ")" << "  " << std::endl;
 
     for (int i = 0; i < nfp; i++)
         fingerprints.push_back(randhexstr(32));
@@ -255,7 +254,7 @@ int main(int argc, char *argv[]) {
             std::cout.flush();
         }
         for (int i = 0; i < nq; i++) {
-            query(second);
+            query((int64_t) second * 1000000 + i );
         }
     }
     f << "]" << std::endl;

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+for db in $(seq 1 300); do
+    dbname=db${db}
+    if [[ $db -lt 3 ]]; then
+        qps=1000
+    elif [[ $db -lt 10 ]]; then
+        qps=300
+    elif [[ $db -lt 50 ]]; then
+        qps=100
+    elif [[ $db -lt 200 ]]; then
+        qps=5
+    else
+        qps=1
+    fi
+    nfp=$((1 + $RANDOM % 20))
+    echo "./test  --dbname=$dbname --queries-per-second=$qps --num-machines=10 --num-contexts=100 >/dev/null"
+done | parallel -j4 --will-cite

@@ -1,0 +1,3 @@
+#!/bin/bash
+
+parallel --will-cite -j6 --bar ../ingest ::: *.events.*

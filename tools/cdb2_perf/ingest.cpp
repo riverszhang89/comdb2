@@ -121,7 +121,7 @@ cdb2_client_datetimeus_t totimestamp(int64_t timestamp)
     time_t tval = timestamp / 1000000;
     cdb2_client_datetimeus_t out{0};
 
-    gmtime_r(&tval, &t);
+    localtime_r(&tval, &t);
 
     out.tm.tm_year = t.tm_year;
     out.tm.tm_mon = t.tm_mon;
