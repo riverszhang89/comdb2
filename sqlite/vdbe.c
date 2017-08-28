@@ -2859,8 +2859,19 @@ case OP_Column: {
   Mem *pReg;         /* PseudoTable input register */
   /* COMDB2 MODIFICATION */
   int datacopy;
+  int p1;
 
-  pC = p->apCsr[pOp->p1];
+  p1 = pOp->p1;
+  if (p1<0){
+    pIn3 = &aMem[pOp->p3];
+    if ( (pIn3->flags & MEM_Genid)==0 ){
+      rc = SQLITE_CORRUPT_BKPT;
+      goto abort_due_to_error;
+    }
+    p1=pIn3->du.cg.cur;
+  }
+
+  pC = p->apCsr[p1];
   p2 = pOp->p2;
 
   /* If the cursor cache is stale, bring it up-to-date */
@@ -2870,7 +2881,7 @@ case OP_Column: {
   assert( pOp->p3>0 && pOp->p3<=(p->nMem+1 - p->nCursor) );
   pDest = &aMem[pOp->p3];
   memAboutToChange(p, pDest);
-  assert( pOp->p1>=0 && pOp->p1<p->nCursor );
+  assert( p1>=0 && p1<p->nCursor );
   assert( pC!=0 );
   assert( p2<pC->nField );
   aOffset = pC->aOffset;
@@ -2890,7 +2901,10 @@ case OP_Column: {
     else if( pC->isTable ){
       zData = (u8 *)sqlite3BtreeDataFetch(pCrsr, &avail);
       assert(zData != NULL);
-      rc = get_data(pCrsr, (u8 *) zData, p2, pDest);
+      if( pOp->p5!=OPFLAG_GENID || !sqlite3ColumnIsBlob(pCrsr, p2) )
+        rc = get_data(pCrsr, (u8 *) zData, p2, pDest);
+      else
+        sqlite3VdbeMemSetGenid(pDest, pCrsr, p1);
     }else{
       datacopy = p2;
       if( is_datacopy(pCrsr, &datacopy) ){
@@ -3238,10 +3252,10 @@ case OP_MakeRecord: {
   pLast = &pData0[nField-1];
   file_format = p->minWriteFileFormat;
 
-   /* Identify the output register */
-   assert( pOp->p3<pOp->p1 || pOp->p3>=pOp->p1+pOp->p2 );
-   pOut = &aMem[pOp->p3];
-   memAboutToChange(p, pOut);
+  /* Identify the output register */
+  assert( pOp->p3<pOp->p1 || pOp->p3>=pOp->p1+pOp->p2 );
+  pOut = &aMem[pOp->p3];
+  memAboutToChange(p, pOut);
 
   /* Apply the requested affinity to all inputs
   */
@@ -4682,18 +4696,29 @@ case OP_SeekRowid: {        /* jump, in3 */
   BtCursor *pCrsr;
   int res;
   u64 iKey;
+  int p1;
+  p1 = pOp->p1;
 
-  pIn3 = &aMem[pOp->p3];
-  if( (pIn3->flags & MEM_Int)==0 ){
+  if ( p1<0 ){
+    pIn3 = &aMem[pOp->p3];
+    if ( (pIn3->flags & MEM_Genid)==0 ){
+      rc = SQLITE_CORRUPT_BKPT;
+      goto abort_due_to_error;
+    }
+    p1=pIn3->du.cg.cur;
+    iKey=pIn3->du.cg.genid;
+  }else if( (pIn3->flags & MEM_Int)==0 ){
     applyAffinity(pIn3, SQLITE_AFF_NUMERIC, encoding);
     if( (pIn3->flags & MEM_Int)==0 ) goto jump_to_p2;
   }
   /* Fall through into OP_NotExists */
 case OP_NotExists:          /* jump, in3 */
+  if ( pOp->p1>=0 )
+    p1 = pOp->p1;
   pIn3 = &aMem[pOp->p3];
   assert( pIn3->flags & MEM_Int );
-  assert( pOp->p1>=0 && pOp->p1<p->nCursor );
-  pC = p->apCsr[pOp->p1];
+  assert( p1>=0 && p1<p->nCursor );
+  pC = p->apCsr[p1];
   assert( pC!=0 );
 #ifdef SQLITE_DEBUG
   pC->seekOp = 0;
@@ -4703,7 +4728,9 @@ case OP_NotExists:          /* jump, in3 */
   pCrsr = pC->uc.pCursor;
   assert( pCrsr!=0 );
   res = 0;
-  iKey = pIn3->u.i;
+  if ( pOp->p1>=0 )
+    iKey = pIn3->u.i;
+  fprintf(stderr, "ikey is %lld\n", iKey);
   /* COMDB2 MODIFICATION */
   /* res = -1 triggers early verify check */
   if (pOp->p5) res = -1;
@@ -4717,6 +4744,12 @@ case OP_NotExists:          /* jump, in3 */
   VdbeBranchTaken(res!=0,2);
   pC->seekResult = res;
   if( res!=0 ){
+    if(pOp->p1<0){
+      /* If the genid is not found, something must have gone wrong before
+         we reach here. Abort this. */
+      rc = SQLITE_CORRUPT_BKPT;
+      goto abort_due_to_error;
+    }
     if( pOp->p2==0 && rc==SQLITE_OK ) rc = SQLITE_CORRUPT_BKPT;
     goto jump_to_p2;
   }

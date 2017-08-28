@@ -12607,3 +12607,18 @@ uint16_t stmt_num_tbls(sqlite3_stmt *stmt)
     Vdbe *v = (Vdbe *)stmt;
     return v->numTables;
 }
+
+void sqlite3VdbeMemSetGenid(Mem *pMem, BtCursor *pC, int p1)
+{
+    sqlite3VdbeMemSetNull(pMem);
+    pMem->du.cg.genid = pC->genid;
+    pMem->du.cg.cur = p1;
+    pMem->flags = MEM_Genid;
+}
+
+int sqlite3ColumnIsBlob(BtCursor *pC, int n)
+{
+    int type = pC->sc->member[n].type;
+    return (type == SERVER_BLOB || type == SERVER_BLOB2
+            || type == SERVER_VUTF8);
+}

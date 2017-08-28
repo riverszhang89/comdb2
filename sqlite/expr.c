@@ -3244,11 +3244,23 @@ int sqlite3ExprCodeGetColumn(
   sqlite3ExprCodeGetColumnOfTable(v, pTab, iTable, iColumn, iReg);
   if( p5 ){
     sqlite3VdbeChangeP5(v, p5);
-  }else{   
+  }else{
     sqlite3ExprCacheStore(pParse, iTable, iColumn, iReg);
   }
   return iReg;
 }
+void sqlite3ExprCodeGetColumnToRegWithP5(
+  Parse *pParse,   /* Parsing and code generating context */
+  Table *pTab,     /* Description of the table we are reading from */
+  int iColumn,     /* Index of the table column */
+  int iTable,      /* The cursor pointing to the table */
+  int iReg,        /* Store results here */
+  int p5           /* P5 value */
+){
+  int r1 = sqlite3ExprCodeGetColumn(pParse, pTab, iColumn, iTable, iReg, p5);
+  if( r1!=iReg ) sqlite3VdbeAddOp2(pParse->pVdbe, OP_SCopy, r1, iReg);
+}
+
 void sqlite3ExprCodeGetColumnToReg(
   Parse *pParse,   /* Parsing and code generating context */
   Table *pTab,     /* Description of the table we are reading from */
@@ -3256,10 +3268,8 @@ void sqlite3ExprCodeGetColumnToReg(
   int iTable,      /* The cursor pointing to the table */
   int iReg         /* Store results here */
 ){
-  int r1 = sqlite3ExprCodeGetColumn(pParse, pTab, iColumn, iTable, iReg, 0);
-  if( r1!=iReg ) sqlite3VdbeAddOp2(pParse->pVdbe, OP_SCopy, r1, iReg);
+  sqlite3ExprCodeGetColumnToRegWithP5(pParse, pTab, iColumn, iTable, iReg, 0);  
 }
-
 
 /*
 ** Clear all column cache entries.
@@ -4156,6 +4166,10 @@ int sqlite3ExprCodeExprList(
       sqlite3ExprCodeAtInit(pParse, pExpr, target+i, 0);
     }else{
       int inReg = sqlite3ExprCodeTarget(pParse, pExpr, target+i);
+      /* If caller has requested genid optimization and the token is COLUMN,
+         change P5 now. */
+      if( flags & SQLITE_ECEL_GENID && pExpr->op==TK_COLUMN )
+        sqlite3VdbeChangeP5(v, OPFLAG_GENID);
       if( inReg!=target+i ){
         VdbeOp *pOp;
         if( copyOp==OP_Copy

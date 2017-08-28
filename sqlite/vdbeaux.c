@@ -3300,15 +3300,16 @@ int sqlite3VdbeCursorMoveto(VdbeCursor **pp, int *piCol){
 **     11                                  datetime COMDB2 MODIFICATION
 **    N>=12 and even       (N-12)/2        BLOB
 **    N>=13 and odd        (N-13)/2        text
-**    SQLITE_MAX_U32-1                     intervaldsus COMDB2 MODIFICATION
-**    SQLITE_MAX_U32                       datetimeus COMDB2 MODIFICATION
+*****                 COMDB2 MODIFICATION            *****
+**    SQLITE_MAX_U32-4                     guard
+**    SQLITE_MAX_U32-3   sizeof curgenid_t genid for vutf8 (since R7)
+**    SQLITE_MAX_U32-2   sizeof curgenid_t genid for blob (since R7)
+**    SQLITE_MAX_U32-1   sizeof intv_t     intervaldsus (since R6)
+**    SQLITE_MAX_U32     sizeof dttz_t     datetimeus (since R6)
 **
 ** The 8 and 9 types were added in 3.3.0, file format 4.  Prior versions
 ** of SQLite will not understand those serial types.
 **
-** COMDB2 MODIFICATION
-** The (SQLITE_MAX_U32-1) and SQLITE_MAX_U32 were added in R6. Prior versions
-** of Comdb2 will not understand those serial types.
 ** Note for future expansion:
 ** When introducing new serial types greater than 11, please update
 ** sqlite3IsFixedLengthSerialType accordingly.
@@ -3364,23 +3365,29 @@ u32 sqlite3VdbeSerialType(Mem *pMem, int file_format, u32 *pLen){
 
   /* COMDB2 MODIFICATION */
   if( flags & MEM_Interval ){
-      /* use a rezerved serial to specify an interval */
-      if ( pMem->du.tv.type == INTV_DSUS_TYPE ){
-        *pLen = sizeof(intv_t);
-        return (SQLITE_MAX_U32-1);
-      }else{
-        *pLen = offsetof(intv_t, u.ds.prec); /* R5 ms-interval type */
-        return 10;
-      }
+    /* use a rezerved serial to specify an interval */
+    if ( pMem->du.tv.type == INTV_DSUS_TYPE ){
+      *pLen = sizeof(intv_t);
+      return (SQLITE_MAX_U32-1);
+    }else{
+      *pLen = offsetof(intv_t, u.ds.prec); /* R5 ms-interval type */
+      return 10;
+    }
   }
 
   /* COMDB2 MODIFICATION */
   if( flags & MEM_Datetime ){
-      /* use a rezerved serial to specify a datetime */
-      *pLen = sizeof(dttz_t);
-      if (pMem->du.dt.dttz_prec == DTTZ_PREC_USEC)
-        return SQLITE_MAX_U32;
-      return 11;
+    /* use a rezerved serial to specify a datetime */
+    *pLen = sizeof(dttz_t);
+    if (pMem->du.dt.dttz_prec == DTTZ_PREC_USEC)
+      return SQLITE_MAX_U32;
+    return 11;
+  }
+
+  /* COMDB2 MODIFICATION */
+  if( flags & MEM_Genid ){
+    *pLen = sizeof(curgenid_t);
+    return (SQLITE_MAX_U32-2);
   }
 
   assert( (pMem->db && pMem->db->mallocFailed) || flags&(MEM_Str|MEM_Blob) );
@@ -3418,7 +3425,9 @@ static const u8 sqlite3SmallTypeSizes[] = {
 */
 u32 sqlite3VdbeSerialTypeLen(u32 serial_type){
   /* COMDB2 MODIFICATION */
-  if( serial_type==(SQLITE_MAX_U32-1) ){
+  if( serial_type==(SQLITE_MAX_U32-2) ){
+    return sizeof(curgenid_t);
+  }else if( serial_type==(SQLITE_MAX_U32-1) ){
     return sizeof(intv_t);
   }else if( serial_type==SQLITE_MAX_U32 ){
     return sizeof(dttz_t);
@@ -3508,7 +3517,7 @@ static u64 floatSwap(u64 in){
 u32 sqlite3VdbeSerialPut(u8 *buf, Mem *pMem, u32 serial_type){
   u32 len;
 
-  if( serial_type == 6 )
+  if( serial_type==6 )
   {
     int64_t *p=(int64_t *)buf;
     *p=flibc_htonll( pMem->u.i );
@@ -3685,6 +3694,14 @@ u32 sqlite3VdbeSerialPut(u8 *buf, Mem *pMem, u32 serial_type){
     return sizeof(dttz_t);
   } 
 
+  if( serial_type == SQLITE_MAX_U32-2 ){
+    curgenid_t *p = (curgenid_t *)buf;
+    bzero(p, sizeof(*p));
+    p->genid = flibc_htonll( pMem->du.cg.genid );
+    p->cur = htonl( pMem->du.cg.cur );
+    return sizeof(curgenid_t);
+  }
+
   /* String or blob */
   if( serial_type>=12 ){
     assert( pMem->n + ((pMem->flags & MEM_Zero)?pMem->u.nZero:0)
@@ -3823,7 +3840,7 @@ static inline u32 sqlite3VdbeSerialGet(
       pMem->u.i = *(int64_t *)buf;
 #endif
       pMem->u.i = flibc_ntohll(pMem->u.i);
-      pMem->flags = MEM_Int;
+      pMem->flags = ( serial_type==6 ) ? MEM_Int : MEM_Genid;
       return 8;
     }
     case 7: { /* IEEE floating point */
@@ -4001,6 +4018,12 @@ static inline u32 sqlite3VdbeSerialGet(
       pMem->flags = MEM_Datetime;
       pMem->tz = NULL;  /* make sure it's not garbage */
       return sizeof(dttz_t);
+    }
+    case (SQLITE_MAX_U32-2): {
+      curgenid_t *p = (curgenid_t *)buf;
+      pMem->du.cg.genid = flibc_htonll( p->genid );
+      pMem->du.cg.cur = htonl( p->cur );
+      return sizeof(curgenid_t);
     }
     default: {
       /* EVIDENCE-OF: R-14606-31564 Value is a BLOB that is (N-12)/2 bytes in

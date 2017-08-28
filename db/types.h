@@ -71,6 +71,11 @@ extern int gbl_datetime_precision;
 
 #include <plbitlib.h>
 
+typedef struct curgenid_st {
+    long long genid;
+    int cur; /* Which cursor the genid is from. */
+} curgenid_t;
+
 typedef struct dttz {
     /* this need to be signed so the datetimes before epoch compare correctly*/
     long long dttz_sec;       /* datetime extension, epoch seconds */
