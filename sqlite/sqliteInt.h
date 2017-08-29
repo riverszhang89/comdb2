@@ -4496,6 +4496,6 @@ void sqlite3FingerprintDelete(sqlite3 *db, SrcList *pTabList, Expr *pWhere);
 void sqlite3FingerprintInsert(sqlite3 *db, SrcList *, Select *, IdList *, With *);
 void sqlite3FingerprintUpdate(sqlite3 *db, SrcList *pTabList, ExprList *pChanges, Expr *pWhere, int onError);
 void comdb2WriteTransaction(Parse*);
-void sqlite3VdbeMemSetGenid(Mem*, BtCursor*, int);
+void sqlite3VdbeMemSetGenid(Mem*, BtCursor*, int, int);
 int sqlite3ColumnIsBlob(BtCursor*, int);
 #endif /* _SQLITEINT_H_ */

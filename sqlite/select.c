@@ -1467,7 +1467,7 @@ static void generateSortTail(
     nOp = sqlite3VdbeAddOp3(v, OP_Column, iSortTab, nKey+bSeq+i, sortRegRow);
     VdbeComment((v, "%s", aOutEx[i].zName ? aOutEx[i].zName : aOutEx[i].zSpan));
     sqlite3VdbeAddOp3(v, OP_SeekRowid, -1, nOp+3, sortRegRow);
-    sqlite3VdbeAddOp3(v, OP_Column, -1, nKey+bSeq+i, sortRegRow);
+    sqlite3VdbeAddOp3(v, OP_Column, -1, -1, sortRegRow);
     VdbeComment((v, "%s", aOutEx[i].zName ? aOutEx[i].zName : aOutEx[i].zSpan));
   }
   switch( eDest ){

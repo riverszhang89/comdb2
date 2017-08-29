@@ -3699,6 +3699,7 @@ u32 sqlite3VdbeSerialPut(u8 *buf, Mem *pMem, u32 serial_type){
     bzero(p, sizeof(*p));
     p->genid = flibc_htonll( pMem->du.cg.genid );
     p->cur = htonl( pMem->du.cg.cur );
+    p->idx = htonl( pMem->du.cg.idx );
     return sizeof(curgenid_t);
   }
 
@@ -3840,7 +3841,7 @@ static inline u32 sqlite3VdbeSerialGet(
       pMem->u.i = *(int64_t *)buf;
 #endif
       pMem->u.i = flibc_ntohll(pMem->u.i);
-      pMem->flags = ( serial_type==6 ) ? MEM_Int : MEM_Genid;
+      pMem->flags = MEM_Int;
       return 8;
     }
     case 7: { /* IEEE floating point */
@@ -4023,6 +4024,8 @@ static inline u32 sqlite3VdbeSerialGet(
       curgenid_t *p = (curgenid_t *)buf;
       pMem->du.cg.genid = flibc_htonll( p->genid );
       pMem->du.cg.cur = htonl( p->cur );
+      pMem->du.cg.idx = htonl( p->idx );
+      pMem->flags = MEM_Genid;
       return sizeof(curgenid_t);
     }
     default: {

@@ -2862,6 +2862,8 @@ case OP_Column: {
   int p1;
 
   p1 = pOp->p1;
+  p2 = pOp->p2;
+
   if (p1<0){
     pIn3 = &aMem[pOp->p3];
     if ( (pIn3->flags & MEM_Genid)==0 ){
@@ -2869,10 +2871,10 @@ case OP_Column: {
       goto abort_due_to_error;
     }
     p1=pIn3->du.cg.cur;
+    p2=pIn3->du.cg.idx;
   }
 
   pC = p->apCsr[p1];
-  p2 = pOp->p2;
 
   /* If the cursor cache is stale, bring it up-to-date */
   rc = sqlite3VdbeCursorMoveto(&pC, &p2);
@@ -2904,7 +2906,7 @@ case OP_Column: {
       if( pOp->p5!=OPFLAG_GENID || !sqlite3ColumnIsBlob(pCrsr, p2) )
         rc = get_data(pCrsr, (u8 *) zData, p2, pDest);
       else
-        sqlite3VdbeMemSetGenid(pDest, pCrsr, p1);
+        sqlite3VdbeMemSetGenid(pDest, pCrsr, p1, p2);
     }else{
       datacopy = p2;
       if( is_datacopy(pCrsr, &datacopy) ){
@@ -4730,7 +4732,6 @@ case OP_NotExists:          /* jump, in3 */
   res = 0;
   if ( pOp->p1>=0 )
     iKey = pIn3->u.i;
-  fprintf(stderr, "ikey is %lld\n", iKey);
   /* COMDB2 MODIFICATION */
   /* res = -1 triggers early verify check */
   if (pOp->p5) res = -1;

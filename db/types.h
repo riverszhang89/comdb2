@@ -74,6 +74,7 @@ extern int gbl_datetime_precision;
 typedef struct curgenid_st {
     long long genid;
     int cur; /* Which cursor the genid is from. */
+    int idx; /* position in the original schema. */
 } curgenid_t;
 
 typedef struct dttz {

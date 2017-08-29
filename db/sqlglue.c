@@ -12608,11 +12608,12 @@ uint16_t stmt_num_tbls(sqlite3_stmt *stmt)
     return v->numTables;
 }
 
-void sqlite3VdbeMemSetGenid(Mem *pMem, BtCursor *pC, int p1)
+void sqlite3VdbeMemSetGenid(Mem *pMem, BtCursor *pC, int p1, int p2)
 {
     sqlite3VdbeMemSetNull(pMem);
     pMem->du.cg.genid = pC->genid;
     pMem->du.cg.cur = p1;
+    pMem->du.cg.idx = p2;
     pMem->flags = MEM_Genid;
 }
 
