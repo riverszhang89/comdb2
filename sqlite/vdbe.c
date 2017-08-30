@@ -4703,10 +4703,8 @@ case OP_SeekRowid: {        /* jump, in3 */
 
   if ( p1<0 ){
     pIn3 = &aMem[pOp->p3];
-    if ( (pIn3->flags & MEM_Genid)==0 ){
-      rc = SQLITE_CORRUPT_BKPT;
-      goto abort_due_to_error;
-    }
+    if ( (pIn3->flags & MEM_Genid)==0 )
+      goto jump_to_p2;
     p1=pIn3->du.cg.cur;
     iKey=pIn3->du.cg.genid;
   }else if( (pIn3->flags & MEM_Int)==0 ){
