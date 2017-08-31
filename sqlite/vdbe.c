@@ -4699,10 +4699,11 @@ case OP_SeekRowid: {        /* jump, in3 */
   int res;
   u64 iKey;
   int p1;
+
   p1 = pOp->p1;
+  pIn3 = &aMem[pOp->p3];
 
   if ( p1<0 ){
-    pIn3 = &aMem[pOp->p3];
     if ( (pIn3->flags & MEM_Genid)==0 )
       goto jump_to_p2;
     p1=pIn3->du.cg.cur;

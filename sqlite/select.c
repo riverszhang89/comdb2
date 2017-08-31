@@ -5169,6 +5169,7 @@ int sqlite3Select(
   AggInfo sAggInfo;      /* Information used by aggregate queries */
   int iEnd;              /* Address of the end of the query */
   sqlite3 *db;           /* The database connection */
+  int bCurClose = 1;     /* True if sqlite3WhereEndExt has closed the cursors */
 
 #ifndef SQLITE_OMIT_EXPLAIN
   int iRestoreSelectId = pParse->iSelectId;
@@ -5712,9 +5713,8 @@ int sqlite3Select(
           struct AggInfo_col *pCol = &sAggInfo.aCol[i];
           if( pCol->iSorterColumn>=j ){
             int r1 = j + regBase;
-            sqlite3ExprCodeGetColumnToRegWithP5(pParse,
-                               pCol->pTab, pCol->iColumn, pCol->iTable, r1,
-                               OPFLAG_GENID);
+            sqlite3ExprCodeGetColumnGenidToRegIfApplicable(pParse,
+                               pCol->pTab, pCol->iColumn, pCol->iTable, r1);
             j++;
           }
         }
@@ -5723,7 +5723,8 @@ int sqlite3Select(
         sqlite3VdbeAddOp2(v, OP_SorterInsert, sAggInfo.sortingIdx, regRecord);
         sqlite3ReleaseTempReg(pParse, regRecord);
         sqlite3ReleaseTempRange(pParse, regBase, nCol);
-        sqlite3WhereEnd(pWInfo);
+        bCurClose = ( sSort.pOrderBy==0 );
+        sqlite3WhereEndExt(pWInfo, bCurClose);
         sAggInfo.sortingIdxPTab = sortPTab = pParse->nTab++;
         sortOut = sqlite3GetTempReg(pParse);
         sqlite3VdbeAddOp3(v, OP_OpenPseudo, sortPTab, sortOut, nCol);
@@ -5803,7 +5804,8 @@ int sqlite3Select(
         sqlite3VdbeAddOp2(v, OP_SorterNext, sAggInfo.sortingIdx, addrTopOfLoop);
         VdbeCoverage(v);
       }else{
-        sqlite3WhereEnd(pWInfo);
+        bCurClose = ( sSort.pOrderBy==0 );
+        sqlite3WhereEndExt(pWInfo, bCurClose);
         sqlite3VdbeChangeToNoop(v, addrSortingIdx);
       }
 
@@ -6017,6 +6019,8 @@ int sqlite3Select(
     explainTempTable(pParse,
                      sSort.nOBSat>0 ? "RIGHT PART OF ORDER BY":"ORDER BY");
     generateSortTail(pParse, p, &sSort, pEList->nExpr, pDest);
+    sqlite3WhereCloseCursors(pWInfo);
+  }else if( bCurClose==0 ){
     sqlite3WhereCloseCursors(pWInfo);
   }
 

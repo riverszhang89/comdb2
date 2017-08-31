@@ -3798,7 +3798,7 @@ int sqlite3WhereOkOnePass(WhereInfo*, int*);
 void sqlite3ExprCodeLoadIndexColumn(Parse*, Index*, int, int, int);
 int sqlite3ExprCodeGetColumn(Parse*, Table*, int, int, int, u8);
 void sqlite3ExprCodeGetColumnToReg(Parse*, Table*, int, int, int);
-void sqlite3ExprCodeGetColumnToRegWithP5(Parse*, Table*, int, int, int, int);
+void sqlite3ExprCodeGetColumnGenidToRegIfApplicable(Parse*,Table*,int,int,int);
 void sqlite3ExprCodeGetColumnOfTable(Vdbe*, Table*, int, int, int);
 void sqlite3ExprCodeMove(Parse*, int, int, int);
 void sqlite3ExprCacheStore(Parse*, int, int, int);
