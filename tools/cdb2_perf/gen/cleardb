@@ -1,9 +1,16 @@
 #!/bin/bash
 
 for table in blocks events queries contexts querytypes; do 
-    echo $table
-    del=$(cdb2sql -tabs comdb2perfdb "delete from $table limit 1000")
+    if [[ "$table" = "blocks" ]]; then
+        lim=2
+    else
+        lim=1000
+    fi
+    count=$(cdb2sql -tabs comdb2perfdb "select count(*) from $table")
+    echo $table $count
+    del=$(cdb2sql -tabs comdb2perfdb "delete from $table limit $lim")
     while [[ $del -gt 0 ]]; do
-        del=$(cdb2sql -tabs comdb2perfdb "delete from $table limit 1000")
+        echo $table $del
+        del=$(cdb2sql -tabs comdb2perfdb "delete from $table limit $lim")
     done
 done
