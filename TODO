@@ -1,0 +1,8 @@
+What databases does my context talk to?
+What queries does my context make?
+What contexts talk to this database?
+(when open tracing...) What databases were involved in this request?
+What changed for my database in the last day/week.
+What changed for my context in the last day/week.
+What's the call rate for this query?
+What's the cost/service time for this query?
