@@ -3259,18 +3259,29 @@ void sqlite3ExprCodeGetColumnToReg(
   int r1 = sqlite3ExprCodeGetColumn(pParse, pTab, iColumn, iTable, iReg, 0);
   if( r1!=iReg ) sqlite3VdbeAddOp2(pParse->pVdbe, OP_SCopy, r1, iReg);
 }
-void sqlite3ExprCodeGetColumnGenidToRegIfApplicable(
+
+/*
+** Return true if P5 is OPFLAG_GENID.
+*/
+int sqlite3ExprCodeGetColumnGenidToRegIfApplicable(
   Parse *pParse,   /* Parsing and code generating context */
   Table *pTab,     /* Description of the table we are reading from */
   int iColumn,     /* Index of the table column */
   int iTable,      /* The cursor pointing to the table */
   int iReg         /* Store results here */
 ){
+  int rv = 0;
   Vdbe *p = pParse->pVdbe;
   int r1 = sqlite3ExprCodeGetColumn(pParse, pTab, iColumn, iTable, iReg, 0);
-  if( sqlite3VdbeGetOp(p, -1)->opcode==OP_Column )
-    sqlite3VdbeChangeP5(p, OPFLAG_GENID);
+  if( sqlite3VdbeGetOp(p, -1)->opcode==OP_Column ){
+    int colaff = sqlite3TableColumnAffinity(pTab, iColumn);
+    if( colaff==SQLITE_AFF_BLOB || colaff==SQLITE_AFF_TEXT ){
+      sqlite3VdbeChangeP5(p, OPFLAG_GENID);
+      rv = 1;
+    }
+  }
   if( r1!=iReg ) sqlite3VdbeAddOp2(p, OP_SCopy, r1, iReg);
+  return rv;
 }
 
 /*
@@ -4132,7 +4143,7 @@ void sqlite3ExprCodeAndCache(Parse *pParse, Expr *pExpr, int target){
 ** Generate code that pushes the value of every element of the given
 ** expression list into a sequence of registers beginning at target.
 **
-** Return the number of elements evaluated.
+** Return true if the blob/text expressions can be potentially optimized.
 **
 ** The SQLITE_ECEL_DUP flag prevents the arguments from being
 ** filled using OP_SCopy.  OP_Copy must be used instead.
@@ -4152,7 +4163,7 @@ int sqlite3ExprCodeExprList(
   u8 flags           /* SQLITE_ECEL_* flags */
 ){
   struct ExprList_item *pItem;
-  int i, j, n;
+  int i, j, n, rv;
   u8 copyOp = (flags & SQLITE_ECEL_DUP) ? OP_Copy : OP_SCopy;
   Vdbe *v = pParse->pVdbe;
   assert( pList!=0 );
@@ -4160,7 +4171,7 @@ int sqlite3ExprCodeExprList(
   assert( pParse->pVdbe!=0 );  /* Never gets this far otherwise */
   n = pList->nExpr;
   if( !ConstFactorOk(pParse) ) flags &= ~SQLITE_ECEL_FACTOR;
-  for(pItem=pList->a, i=0; i<n; i++, pItem++){
+  for(rv=0, pItem=pList->a, i=0; i<n; i++, pItem++){
     Expr *pExpr = pItem->pExpr;
     if( (flags & SQLITE_ECEL_REF)!=0 && (j = pList->a[i].u.x.iOrderByCol)>0 ){
       sqlite3VdbeAddOp2(v, copyOp, j+srcReg-1, target+i);
@@ -4170,9 +4181,15 @@ int sqlite3ExprCodeExprList(
       int inReg = sqlite3ExprCodeTarget(pParse, pExpr, target+i);
       /* If caller has requested genid optimization
          and the last opcode is COLUMN, change P5 now. */
-      if( flags & SQLITE_ECEL_GENID &&
-         sqlite3VdbeGetOp(v, -1)->opcode==OP_Column )
-        sqlite3VdbeChangeP5(v, OPFLAG_GENID);
+      if( flags&SQLITE_ECEL_GENID &&
+          sqlite3VdbeGetOp(v, -1)->opcode==OP_Column &&
+          pExpr->pTab!=NULL ){
+        int colaff = sqlite3TableColumnAffinity(pExpr->pTab, pExpr->iColumn);
+        if( colaff==SQLITE_AFF_BLOB || colaff==SQLITE_AFF_TEXT ){
+          sqlite3VdbeChangeP5(v, OPFLAG_GENID);
+          rv = 1;
+        }
+      }
       if( inReg!=target+i ){
         VdbeOp *pOp;
         if( copyOp==OP_Copy
@@ -4187,7 +4204,7 @@ int sqlite3ExprCodeExprList(
       }
     }
   }
-  return n;
+  return rv;
 }
 
 /*

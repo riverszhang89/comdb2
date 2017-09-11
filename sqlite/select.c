@@ -877,7 +877,7 @@ static void codeDistinct(
 ** zero or more, then data is pulled from srcTab and pEList is used only 
 ** to get number columns and the datatype for each column.
 */
-static void selectInnerLoop(
+static int selectInnerLoop(
   Parse *pParse,          /* The parser context */
   Select *p,              /* The complete select statement being coded */
   ExprList *pEList,       /* List of values being extracted */
@@ -896,6 +896,7 @@ static void selectInnerLoop(
   int iParm = pDest->iSDParm; /* First argument to disposal method */
   int nResultCol;             /* Number of result columns */
   int nPrefixReg = 0;         /* Number of extra registers before regResult */
+  int rv = 0;
 
   assert( v );
   assert( pEList!=0 );
@@ -933,7 +934,16 @@ static void selectInnerLoop(
       sqlite3VdbeAddOp3(v, OP_Column, srcTab, i, regResult+i);
       /* If caller has requested genid optimization
          and we're about to sort, change P5 now. */
-      if( pSort && pSort->pOrderBy ) sqlite3VdbeChangeP5(v, OPFLAG_GENID);
+      if( pSort && pSort->pOrderBy ){
+        Expr *pExpr = pEList->a[i].pExpr;
+        if( pExpr->pTab!=NULL ){
+          int colaff = sqlite3TableColumnAffinity(pExpr->pTab, pExpr->iColumn);
+          if( colaff==SQLITE_AFF_BLOB || colaff==SQLITE_AFF_TEXT ){
+            sqlite3VdbeChangeP5(v, OPFLAG_GENID);
+            rv = 1;
+          }
+        }
+      }
       VdbeComment((v, "%s", pEList->a[i].zName));
     }
   }else if( eDest!=SRT_Exists ){
@@ -947,7 +957,7 @@ static void selectInnerLoop(
       ecelFlags = 0;
     }
     if( pSort && pSort->pOrderBy ) ecelFlags |= SQLITE_ECEL_GENID;
-    sqlite3ExprCodeExprList(pParse, pEList, regResult, 0, ecelFlags);
+    rv = sqlite3ExprCodeExprList(pParse, pEList, regResult, 0, ecelFlags);
   }
 
   /* If the DISTINCT keyword was present on the SELECT statement
@@ -1210,6 +1220,7 @@ static void selectInnerLoop(
   if( pSort==0 && p->iLimit ){
     sqlite3VdbeAddOp2(v, OP_DecrJumpZero, p->iLimit, iBreak); VdbeCoverage(v);
   }
+  return rv;
 }
 
 /*
@@ -1402,7 +1413,8 @@ static void generateSortTail(
   Select *p,        /* The SELECT statement */
   SortCtx *pSort,   /* Information on the ORDER BY clause */
   int nColumn,      /* Number of columns of data */
-  SelectDest *pDest /* Write the sorted results here */
+  SelectDest *pDest,/* Write the sorted results here */
+  int bGenidOpt     /* True if genid optimization is enabled. */
 ){
   Vdbe *v = pParse->pVdbe;                     /* The prepared statement */
   int addrBreak = pSort->labelDone;            /* Jump here to exit loop */
@@ -1466,9 +1478,11 @@ static void generateSortTail(
     sortRegRow = regRow + i;
     nOp = sqlite3VdbeAddOp3(v, OP_Column, iSortTab, nKey+bSeq+i, sortRegRow);
     VdbeComment((v, "%s", aOutEx[i].zName ? aOutEx[i].zName : aOutEx[i].zSpan));
-    sqlite3VdbeAddOp3(v, OP_SeekRowid, -1, nOp+3, sortRegRow);
-    sqlite3VdbeAddOp3(v, OP_Column, -1, -1, sortRegRow);
-    VdbeComment((v, "%s", aOutEx[i].zName ? aOutEx[i].zName : aOutEx[i].zSpan));
+    if( bGenidOpt ){
+      sqlite3VdbeAddOp3(v, OP_SeekRowid, -1, nOp+3, sortRegRow);
+      sqlite3VdbeAddOp3(v, OP_Column, -1, -1, sortRegRow);
+      VdbeComment((v, "%s", aOutEx[i].zName ? aOutEx[i].zName : aOutEx[i].zSpan));
+    }
   }
   switch( eDest ){
     case SRT_EphemTab: {
@@ -5169,7 +5183,7 @@ int sqlite3Select(
   AggInfo sAggInfo;      /* Information used by aggregate queries */
   int iEnd;              /* Address of the end of the query */
   sqlite3 *db;           /* The database connection */
-  int bCurClose = 1;     /* True if sqlite3WhereEndExt has closed the cursors */
+  int bGenidOpt = 0;     /* True if sqlite3WhereEndExt closes the cursors */
 
 #ifndef SQLITE_OMIT_EXPLAIN
   int iRestoreSelectId = pParse->iSelectId;
@@ -5537,13 +5551,13 @@ int sqlite3Select(
     }
 
     /* Use the standard inner loop. */
-    selectInnerLoop(pParse, p, pEList, -1, &sSort, &sDistinct, pDest,
-                    sqlite3WhereContinueLabel(pWInfo),
-                    sqlite3WhereBreakLabel(pWInfo));
+    bGenidOpt = selectInnerLoop(pParse, p, pEList, -1, &sSort, &sDistinct,
+                                pDest, sqlite3WhereContinueLabel(pWInfo),
+                                sqlite3WhereBreakLabel(pWInfo));
 
     /* End the database scan loop.
     */
-    sqlite3WhereEndExt(pWInfo, sSort.pOrderBy==0);
+    sqlite3WhereEndExt(pWInfo, !bGenidOpt);
   }else{
     /* This case when there exist aggregate functions or a GROUP BY clause
     ** or both */
@@ -5713,8 +5727,8 @@ int sqlite3Select(
           struct AggInfo_col *pCol = &sAggInfo.aCol[i];
           if( pCol->iSorterColumn>=j ){
             int r1 = j + regBase;
-            sqlite3ExprCodeGetColumnGenidToRegIfApplicable(pParse,
-                               pCol->pTab, pCol->iColumn, pCol->iTable, r1);
+            bGenidOpt = sqlite3ExprCodeGetColumnGenidToRegIfApplicable(
+                pParse, pCol->pTab, pCol->iColumn, pCol->iTable, r1);
             j++;
           }
         }
@@ -5723,8 +5737,7 @@ int sqlite3Select(
         sqlite3VdbeAddOp2(v, OP_SorterInsert, sAggInfo.sortingIdx, regRecord);
         sqlite3ReleaseTempReg(pParse, regRecord);
         sqlite3ReleaseTempRange(pParse, regBase, nCol);
-        bCurClose = ( sSort.pOrderBy==0 );
-        sqlite3WhereEndExt(pWInfo, bCurClose);
+        sqlite3WhereEndExt(pWInfo, !bGenidOpt);
         sAggInfo.sortingIdxPTab = sortPTab = pParse->nTab++;
         sortOut = sqlite3GetTempReg(pParse);
         sqlite3VdbeAddOp3(v, OP_OpenPseudo, sortPTab, sortOut, nCol);
@@ -5804,8 +5817,7 @@ int sqlite3Select(
         sqlite3VdbeAddOp2(v, OP_SorterNext, sAggInfo.sortingIdx, addrTopOfLoop);
         VdbeCoverage(v);
       }else{
-        bCurClose = ( sSort.pOrderBy==0 );
-        sqlite3WhereEndExt(pWInfo, bCurClose);
+        sqlite3WhereEndExt(pWInfo, !bGenidOpt);
         sqlite3VdbeChangeToNoop(v, addrSortingIdx);
       }
 
@@ -5837,9 +5849,9 @@ int sqlite3Select(
       sqlite3VdbeAddOp1(v, OP_Return, regOutputRow);
       finalizeAggFunctions(pParse, &sAggInfo);
       sqlite3ExprIfFalse(pParse, pHaving, addrOutputRow+1, SQLITE_JUMPIFNULL);
-      selectInnerLoop(pParse, p, p->pEList, -1, &sSort,
-                      &sDistinct, pDest,
-                      addrOutputRow+1, addrSetAbort);
+      bGenidOpt = selectInnerLoop(pParse, p, p->pEList, -1, &sSort,
+                                  &sDistinct, pDest,
+                                  addrOutputRow+1, addrSetAbort);
       sqlite3VdbeAddOp1(v, OP_Return, regOutputRow);
       VdbeComment((v, "end groupby result generator"));
 
@@ -6018,11 +6030,10 @@ int sqlite3Select(
   if( sSort.pOrderBy ){
     explainTempTable(pParse,
                      sSort.nOBSat>0 ? "RIGHT PART OF ORDER BY":"ORDER BY");
-    generateSortTail(pParse, p, &sSort, pEList->nExpr, pDest);
-    sqlite3WhereCloseCursors(pWInfo);
-  }else if( bCurClose==0 ){
-    sqlite3WhereCloseCursors(pWInfo);
+    generateSortTail(pParse, p, &sSort, pEList->nExpr, pDest, bGenidOpt);
   }
+
+  if( bGenidOpt ) sqlite3WhereCloseCursors(pWInfo);
 
   /* Jump here to skip this query
   */

@@ -2679,13 +2679,6 @@ static int cursor_move_table(BtCursor *pCur, int *pRes, int how)
             if (pCur->is_recording)
                 pCur->genid = pCur->bdbcur->genid(pCur->bdbcur);
         } else {
-            /*
-               pCur->rrn = pCur->bdbcur->rrn(pCur->bdbcur);
-               pCur->genid = pCur->bdbcur->genid(pCur->bdbcur);
-               sz = pCur->bdbcur->datalen(pCur->bdbcur);
-               buf = pCur->bdbcur->data(pCur->bdbcur);
-               ver = pCur->bdbcur->ver(pCur->bdbcur);
-             */
             pCur->bdbcur->get_found_data(pCur->bdbcur, &pCur->rrn, &pCur->genid,
                                          &sz, &buf, &ver);
             vtag_to_ondisk_vermap(pCur->db, buf, &sz, ver);
