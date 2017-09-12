@@ -526,6 +526,7 @@ struct Vdbe {
   int explainTraceAlloced;
   int dtprec;             /* datetime precision - make it u32 to silence compiler */
   struct timespec tspec;  /* time of prepare, used for stable now() */
+  u8 bSorterFlushed;      /* True if the sorter has flushed. */
 };
 
 /*
@@ -644,7 +645,7 @@ void sqlite3VdbeSorterClose(sqlite3 *, VdbeCursor *);
 int sqlite3VdbeSorterRowkey(const VdbeCursor *, Mem *);
 int sqlite3VdbeSorterNext(sqlite3 *, const VdbeCursor *, int *);
 int sqlite3VdbeSorterRewind(const VdbeCursor *, int *);
-int sqlite3VdbeSorterWrite(const VdbeCursor *, Mem *);
+int sqlite3VdbeSorterWrite(const VdbeCursor *, Mem *, u8 *);
 int sqlite3VdbeSorterCompare(const VdbeCursor *, Mem *, int, int *);
 
 #if !defined(SQLITE_OMIT_SHARED_CACHE) 

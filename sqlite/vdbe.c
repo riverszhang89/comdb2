@@ -36,6 +36,7 @@ void *get_lastkey(BtCursor *pCur);
 void print_cooked_access(BtCursor *pCur, int col);
 int is_raw(BtCursor *pCur);
 int get_data(BtCursor *pCur, void *invoid, int fnum, Mem *m);
+int get_data_limited(BtCursor *pCur, void *invoid, int fnum, Mem *m, size_t);
 int is_datacopy(BtCursor *pCur, int *fnum);
 int get_datacopy(BtCursor *pCur, int fnum, Mem *m);
 int is_remote(BtCursor *pCur);
@@ -2902,11 +2903,18 @@ case OP_Column: {
     }
     else if( pC->isTable ){
       zData = (u8 *)sqlite3BtreeDataFetch(pCrsr, &avail);
+      size_t blobszthresh;
+      if( pOp->p5!=OPFLAG_GENID && p->bSorterFlushed ){
+        /* This is rougly a 4K page. */
+        blobszthresh = (sizeof(Mem) << 4);
+      }else{
+        blobszthresh = ~0;
+      }
       assert(zData != NULL);
-      if( pOp->p5!=OPFLAG_GENID || !sqlite3ColumnIsBlob(pCrsr, p2) )
-        rc = get_data(pCrsr, (u8 *) zData, p2, pDest);
-      else
+      rc = get_data_limited(pCrsr, (u8 *) zData, p2, pDest, blobszthresh);
+      if( rc==SQLITE_TOOBIG ){
         sqlite3VdbeMemSetGenid(pDest, pCrsr, p1, p2);
+      }
     }else{
       datacopy = p2;
       if( is_datacopy(pCrsr, &datacopy) ){
@@ -4116,6 +4124,7 @@ case OP_SorterOpen: {
   assert( pCx->pKeyInfo->enc==ENC(db) );
   rc = sqlite3VdbeSorterInit(db, pOp->p3, pCx);
   if( rc ) goto abort_due_to_error;
+  p->bSorterFlushed = 0;
   break;
 }
 
@@ -5663,6 +5672,9 @@ next_tail:
     goto jump_to_p2_and_check_for_interrupt;
   }else{
     pC->nullRow = 1;
+    if( pOp->opcode=OP_SorterNext ){
+      p->bSorterFlushed = 0;
+    }
   }
 
   /* COMDB2 MODIFICATION */
@@ -5708,7 +5720,7 @@ case OP_IdxInsert: {        /* in2 */
   rc = ExpandBlob(pIn2);
   if( rc ) goto abort_due_to_error;
   if( pOp->opcode==OP_SorterInsert ){
-    rc = sqlite3VdbeSorterWrite(pC, pIn2);
+    rc = sqlite3VdbeSorterWrite(pC, pIn2, &p->bSorterFlushed);
   }else{
     x.nKey = pIn2->n;
     x.pKey = pIn2->z;
@@ -6064,6 +6076,7 @@ case OP_ResetSorter: {
     rc = sqlite3BtreeClearTableOfCursor(pC->uc.pCursor);
     if( rc ) goto abort_due_to_error;
   }
+  p->bSorterFlushed = 0;
   break;
 }
 

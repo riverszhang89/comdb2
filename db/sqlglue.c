@@ -689,7 +689,7 @@ void done_sql_thread(void)
 }
 
 static int get_data_int(BtCursor *, struct schema *, uint8_t *in, int fnum,
-                        Mem *, uint8_t flip_orig, const char *tzname);
+                        Mem *, uint8_t flip_orig, const char *tzname, size_t);
 
 static int ondisk_to_sqlite_tz(struct dbtable *db, struct schema *s, void *inp,
                                int rrn, unsigned long long genid, void *outp,
@@ -737,7 +737,7 @@ static int ondisk_to_sqlite_tz(struct dbtable *db, struct schema *s, void *inp,
 
     for (fnum = 0; fnum < nField; fnum++) {
         memset(&m[fnum], 0, sizeof(Mem));
-        rc = get_data_int(pCur, s, in, fnum, &m[fnum], 1, tzname);
+        rc = get_data_int(pCur, s, in, fnum, &m[fnum], 1, tzname, ~0);
         if (rc)
             goto done;
         type[fnum] =
@@ -6742,7 +6742,8 @@ int is_raw(BtCursor *pCur)
 }
 
 static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
-                        int fnum, Mem *m, uint8_t flip_orig, const char *tzname)
+                        int fnum, Mem *m, uint8_t flip_orig,
+                        const char *tzname, size_t blobszthresh)
 {
     int null;
     i64 ival;
@@ -7042,10 +7043,12 @@ static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
             /* m->n is the blob length */
             m->n = (len > 0) ? len : 0;
 
-            /*fprintf(stderr, "m->n = %d\n", m->n); */
             m->flags = MEM_Blob;
-        } else
+        } else if (len > blobszthresh) {
+            rc = SQLITE_TOOBIG;
+        } else {
             rc = fetch_blob_into_sqlite_mem(pCur, sc, fnum, m);
+        }
 
         break;
     }
@@ -7068,8 +7071,11 @@ static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
 
             /*fprintf(stderr, "m->n = %d\n", m->n); */
             m->flags = MEM_Str | MEM_Ephem;
-        } else
+        } else if (len > blobszthresh) {
+            rc = SQLITE_TOOBIG;
+        } else {
             rc = fetch_blob_into_sqlite_mem(pCur, sc, fnum, m);
+        }
         break;
     }
 
@@ -7082,6 +7088,8 @@ static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
             m->z = NULL;
             m->flags = MEM_Blob;
             m->n = 0;
+        } else if (len > blobszthresh) {
+            rc = SQLITE_TOOBIG;
         } else
             rc = fetch_blob_into_sqlite_mem(pCur, sc, fnum, m);
         break;
@@ -7179,15 +7187,20 @@ done:
     return rc;
 }
 
-int get_data(BtCursor *pCur, void *invoid, int fnum, Mem *m)
+int get_data_limited(BtCursor *pCur, void *invoid, int fnum, Mem *m, size_t thresh)
 {
     if (unlikely(pCur->cursor_class == CURSORCLASS_REMOTE)) {
         /* convert the remote buffer to M array */
         abort(); /* this is suppsed to be a cooked access */
     } else {
         return get_data_int(pCur, pCur->sc, invoid, fnum, m, 0,
-                            pCur->clnt->tzname);
+                            pCur->clnt->tzname, thresh);
     }
+}
+
+int get_data(BtCursor *pCur, void *invoid, int fnum, Mem *m)
+{
+    return get_data_limited(pCur, invoid, fnum, m, ~0);
 }
 
 int get_datacopy(BtCursor *pCur, int fnum, Mem *m)
@@ -7201,7 +7214,7 @@ int get_datacopy(BtCursor *pCur, int fnum, Mem *m)
     }
 
     return get_data_int(pCur, pCur->db->schema, in, fnum, m, 0,
-                        pCur->clnt->tzname);
+                        pCur->clnt->tzname, ~0);
 }
 
 static int

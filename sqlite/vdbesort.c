@@ -1801,7 +1801,8 @@ static int vdbeSorterFlushPMA(VdbeSorter *pSorter){
 */
 int sqlite3VdbeSorterWrite(
   const VdbeCursor *pCsr,         /* Sorter cursor */
-  Mem *pVal                       /* Memory cell containing record */
+  Mem *pVal,                      /* Memory cell containing record */
+  u8 *pbFlush                     /* Destination to write bFlush to */
 ){
   VdbeSorter *pSorter;
   int rc = SQLITE_OK;             /* Return Code */
@@ -1907,6 +1908,9 @@ int sqlite3VdbeSorterWrite(
   pNew->nVal = pVal->n;
   pSorter->list.pList = pNew;
 
+  if ( pbFlush!=NULL ){
+    *pbFlush = (u8)bFlush;
+  }
   return rc;
 }
 
