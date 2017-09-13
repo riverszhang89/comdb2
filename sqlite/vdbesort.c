@@ -1866,6 +1866,9 @@ int sqlite3VdbeSorterWrite(
       pSorter->iMemory = 0;
       assert( rc!=SQLITE_OK || pSorter->list.pList==0 );
     }
+    if ( pbFlush!=NULL ){
+      *pbFlush = (u8)bFlush;
+    }
   }
 
   pSorter->list.szPMA += nPMA;
@@ -1908,9 +1911,6 @@ int sqlite3VdbeSorterWrite(
   pNew->nVal = pVal->n;
   pSorter->list.pList = pNew;
 
-  if ( pbFlush!=NULL ){
-    *pbFlush = (u8)bFlush;
-  }
   return rc;
 }
 

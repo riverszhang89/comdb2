@@ -2904,8 +2904,8 @@ case OP_Column: {
     else if( pC->isTable ){
       zData = (u8 *)sqlite3BtreeDataFetch(pCrsr, &avail);
       size_t blobszthresh;
-      if( pOp->p5!=OPFLAG_GENID && p->bSorterFlushed ){
-        /* This is rougly a 4K page. */
+      if( pOp->p5==OPFLAG_GENID && p->bSorterFlushed ){
+        /* This is rougly 4K. */
         blobszthresh = (sizeof(Mem) << 4);
       }else{
         blobszthresh = ~0;
@@ -2914,6 +2914,7 @@ case OP_Column: {
       rc = get_data_limited(pCrsr, (u8 *) zData, p2, pDest, blobszthresh);
       if( rc==SQLITE_TOOBIG ){
         sqlite3VdbeMemSetGenid(pDest, pCrsr, p1, p2);
+        rc=0;
       }
     }else{
       datacopy = p2;
@@ -5672,7 +5673,7 @@ next_tail:
     goto jump_to_p2_and_check_for_interrupt;
   }else{
     pC->nullRow = 1;
-    if( pOp->opcode=OP_SorterNext ){
+    if( pOp->opcode==OP_SorterNext ){
       p->bSorterFlushed = 0;
     }
   }
