@@ -36,7 +36,7 @@ void *get_lastkey(BtCursor *pCur);
 void print_cooked_access(BtCursor *pCur, int col);
 int is_raw(BtCursor *pCur);
 int get_data(BtCursor *pCur, void *invoid, int fnum, Mem *m);
-int get_data_limited(BtCursor *pCur, void *invoid, int fnum, Mem *m, size_t);
+int get_data_limited(BtCursor *, void *, int, Mem *, size_t, u8 *);
 int is_datacopy(BtCursor *pCur, int *fnum);
 int get_datacopy(BtCursor *pCur, int fnum, Mem *m);
 int is_remote(BtCursor *pCur);
@@ -2903,18 +2903,18 @@ case OP_Column: {
     }
     else if( pC->isTable ){
       zData = (u8 *)sqlite3BtreeDataFetch(pCrsr, &avail);
-      size_t blobszthresh;
+      size_t blobthresh;
+      u8 toobig;
       if( pOp->p5==OPFLAG_GENID && p->bSorterFlushed ){
         /* This is rougly 4K. */
-        blobszthresh = (sizeof(Mem) << 4);
+        blobthresh = (sizeof(Mem) << 4);
       }else{
-        blobszthresh = ~0;
+        blobthresh = ~0;
       }
       assert(zData != NULL);
-      rc = get_data_limited(pCrsr, (u8 *) zData, p2, pDest, blobszthresh);
-      if( rc==SQLITE_TOOBIG ){
+      rc = get_data_limited(pCrsr, (u8 *)zData, p2, pDest, blobthresh, &toobig);
+      if( toobig==1 ){
         sqlite3VdbeMemSetGenid(pDest, pCrsr, p1, p2);
-        rc=0;
       }
     }else{
       datacopy = p2;
