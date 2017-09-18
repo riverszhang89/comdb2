@@ -6741,9 +6741,18 @@ int is_raw(BtCursor *pCur)
     return 0;
 }
 
+/*
+** blobszthresh: If the length of the blob/vutf8 data is
+**               greater than `blobszthresh', don't fetch the data.
+** bTooBig:      Output parameter to indicate whether the blob/vutf8 data
+**               is too big or not.
+**               The return code of the function can come from sqlite,
+**               type system or bdb. Therefore we use an output parameter
+**               instead of return code to avoid any confusion.
+*/
 static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
                         int fnum, Mem *m, uint8_t flip_orig,
-                        const char *tzname, size_t blobszthresh, u8 *toobig)
+                        const char *tzname, size_t blobszthresh, u8 *bTooBig)
 {
     int null;
     i64 ival;
@@ -6753,8 +6762,8 @@ static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
     struct field *f = &(sc->member[fnum]);
     uint8_t *in_orig = in = in + f->offset;
 
-    if (toobig != NULL)
-        *toobig = 0;
+    if (bTooBig != NULL)
+        *bTooBig = 0;
 
     if (f->flags & INDEX_DESCEND) {
         if (gbl_sort_nulls_correctly) {
@@ -7048,8 +7057,8 @@ static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
 
             m->flags = MEM_Blob;
         } else if (len > blobszthresh) {
-            if (toobig != NULL)
-                *toobig = 1;
+            if (bTooBig != NULL)
+                *bTooBig = 1;
         } else {
             rc = fetch_blob_into_sqlite_mem(pCur, sc, fnum, m);
         }
@@ -7076,8 +7085,8 @@ static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
             /*fprintf(stderr, "m->n = %d\n", m->n); */
             m->flags = MEM_Str | MEM_Ephem;
         } else if (len > blobszthresh) {
-            if (toobig != NULL)
-                *toobig = 1;
+            if (bTooBig != NULL)
+                *bTooBig = 1;
         } else {
             rc = fetch_blob_into_sqlite_mem(pCur, sc, fnum, m);
         }
@@ -7094,8 +7103,8 @@ static int get_data_int(BtCursor *pCur, struct schema *sc, uint8_t *in,
             m->flags = MEM_Blob;
             m->n = 0;
         } else if (len > blobszthresh) {
-            if (toobig != NULL)
-                *toobig = 1;
+            if (bTooBig != NULL)
+                *bTooBig = 1;
         } else
             rc = fetch_blob_into_sqlite_mem(pCur, sc, fnum, m);
         break;
@@ -7193,14 +7202,14 @@ done:
     return rc;
 }
 
-int get_data_limited(BtCursor *pCur, void *invoid, int fnum, Mem *m, size_t thresh, u8 *toobig)
+int get_data_limited(BtCursor *pCur, void *invoid, int fnum, Mem *m, size_t thresh, u8 *bTooBig)
 {
     if (unlikely(pCur->cursor_class == CURSORCLASS_REMOTE)) {
         /* convert the remote buffer to M array */
         abort(); /* this is suppsed to be a cooked access */
     } else {
         return get_data_int(pCur, pCur->sc, invoid, fnum, m, 0,
-                            pCur->clnt->tzname, thresh, toobig);
+                            pCur->clnt->tzname, thresh, bTooBig);
     }
 }
 
@@ -12627,11 +12636,4 @@ void sqlite3VdbeMemSetGenid(Mem *pMem, BtCursor *pC, int p1, int p2)
     pMem->du.cg.cur = p1;
     pMem->du.cg.idx = p2;
     pMem->flags = MEM_Genid;
-}
-
-int sqlite3ColumnIsBlob(BtCursor *pC, int n)
-{
-    int type = pC->sc->member[n].type;
-    return (type == SERVER_BLOB || type == SERVER_BLOB2
-            || type == SERVER_VUTF8);
 }

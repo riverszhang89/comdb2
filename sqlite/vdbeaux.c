@@ -3302,8 +3302,8 @@ int sqlite3VdbeCursorMoveto(VdbeCursor **pp, int *piCol){
 **    N>=13 and odd        (N-13)/2        text
 *****                 COMDB2 MODIFICATION            *****
 **    SQLITE_MAX_U32-4                     guard
-**    SQLITE_MAX_U32-3   sizeof curgenid_t genid for vutf8 (since R7)
-**    SQLITE_MAX_U32-2   sizeof curgenid_t genid for blob (since R7)
+**    SQLITE_MAX_U32-3                     reserved
+**    SQLITE_MAX_U32-2   sizeof curgenid_t cursor, genid and field (since R7)
 **    SQLITE_MAX_U32-1   sizeof intv_t     intervaldsus (since R6)
 **    SQLITE_MAX_U32     sizeof dttz_t     datetimeus (since R6)
 **
@@ -3517,7 +3517,7 @@ static u64 floatSwap(u64 in){
 u32 sqlite3VdbeSerialPut(u8 *buf, Mem *pMem, u32 serial_type){
   u32 len;
 
-  if( serial_type==6 )
+  if( serial_type == 6 )
   {
     int64_t *p=(int64_t *)buf;
     *p=flibc_htonll( pMem->u.i );

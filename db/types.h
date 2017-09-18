@@ -71,6 +71,9 @@ extern int gbl_datetime_precision;
 
 #include <plbitlib.h>
 
+/* Internal data structure used by SQLite genid-based sort. 
+   No corresponding client and server types exist for the
+   data structure. */
 typedef struct curgenid_st {
     long long genid;
     int cur; /* Which cursor the genid is from. */

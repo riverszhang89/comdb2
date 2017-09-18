@@ -4143,7 +4143,7 @@ void sqlite3ExprCodeAndCache(Parse *pParse, Expr *pExpr, int target){
 ** Generate code that pushes the value of every element of the given
 ** expression list into a sequence of registers beginning at target.
 **
-** Return true if the blob/text expressions can be potentially optimized.
+** Return true if the expressions can be potentially optimized for genid sort.
 **
 ** The SQLITE_ECEL_DUP flag prevents the arguments from being
 ** filled using OP_SCopy.  OP_Copy must be used instead.
@@ -4179,7 +4179,7 @@ int sqlite3ExprCodeExprList(
       sqlite3ExprCodeAtInit(pParse, pExpr, target+i, 0);
     }else{
       int inReg = sqlite3ExprCodeTarget(pParse, pExpr, target+i);
-      /* If caller has requested genid optimization
+      /* If caller has requested genid sort optimization
          and the last opcode is COLUMN, change P5 now. */
       if( flags&SQLITE_ECEL_GENID &&
           sqlite3VdbeGetOp(v, -1)->opcode==OP_Column &&

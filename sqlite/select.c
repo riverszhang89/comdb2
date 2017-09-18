@@ -872,6 +872,8 @@ static void codeDistinct(
 ** This routine generates the code for the inside of the inner loop
 ** of a SELECT.
 **
+** Return true if the expressions can be potentially optimized for genid sort.
+**
 ** If srcTab is negative, then the pEList expressions
 ** are evaluated in order to get the data for this row.  If srcTab is
 ** zero or more, then data is pulled from srcTab and pEList is used only 
@@ -5183,7 +5185,7 @@ int sqlite3Select(
   AggInfo sAggInfo;      /* Information used by aggregate queries */
   int iEnd;              /* Address of the end of the query */
   sqlite3 *db;           /* The database connection */
-  int bGenidOpt = 0;     /* True if sqlite3WhereEndExt closes the cursors */
+  int bGenidOpt = 0;     /* True if sorting by genid's */
 
 #ifndef SQLITE_OMIT_EXPLAIN
   int iRestoreSelectId = pParse->iSelectId;
@@ -5556,6 +5558,9 @@ int sqlite3Select(
                                 sqlite3WhereBreakLabel(pWInfo));
 
     /* End the database scan loop.
+    ** Don't close the cursors if sorting by genid's.
+    ** We're going to use the cursors to fetch the data
+    ** after the sort is done.
     */
     sqlite3WhereEndExt(pWInfo, !bGenidOpt);
   }else{
@@ -6033,7 +6038,11 @@ int sqlite3Select(
     generateSortTail(pParse, p, &sSort, pEList->nExpr, pDest, bGenidOpt);
   }
 
-  if( bGenidOpt ) sqlite3WhereCloseCursors(pWInfo);
+  /* Cursors are left open when genid sort is used. 
+     Don't forget to close them at the end of the query plan. */
+  if( bGenidOpt ){
+    sqlite3WhereCloseCursors(pWInfo);
+  }
 
   /* Jump here to skip this query
   */

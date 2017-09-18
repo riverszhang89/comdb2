@@ -2839,6 +2839,15 @@ case OP_NotNull: {            /* same as TK_NOTNULL, jump, in1 */
 ** the result is guaranteed to only be used as the argument of a length()
 ** or typeof() function, respectively.  The loading of large blobs can be
 ** skipped for length() and all content loading can be skipped for typeof().
+**
+** COMDB2 MODIFICATION
+** If the OPFLAG_GENID bit is set on P5, when the type of the column is
+** blob or vutf8, and the size of the data exceeds a threshold, and
+** the VDBE sorter has flushed to disk, fetch the genid instead.
+**
+** If P1 is negative, P3 points to an MEM_Genid structure which
+** contains cursor and field information. If P3 is not an MEM_Genid
+** structure, raise an SQLITE_CORRUPT error.
 */
 case OP_Column: {
   i64 payloadSize64; /* Number of bytes in the record */
@@ -2865,7 +2874,8 @@ case OP_Column: {
   p1 = pOp->p1;
   p2 = pOp->p2;
 
-  if (p1<0){
+  if( p1<0 ){
+    assert( (pOp->p5 & OPFLAG_GENID)==0 );
     pIn3 = &aMem[pOp->p3];
     if ( (pIn3->flags & MEM_Genid)==0 ){
       rc = SQLITE_CORRUPT_BKPT;
@@ -2904,7 +2914,7 @@ case OP_Column: {
     else if( pC->isTable ){
       zData = (u8 *)sqlite3BtreeDataFetch(pCrsr, &avail);
       size_t blobthresh;
-      u8 toobig;
+      u8 bTooBig;
       if( pOp->p5==OPFLAG_GENID && p->bSorterFlushed ){
         /* This is rougly 4K. */
         blobthresh = (sizeof(Mem) << 4);
@@ -2912,8 +2922,8 @@ case OP_Column: {
         blobthresh = ~0;
       }
       assert(zData != NULL);
-      rc = get_data_limited(pCrsr, (u8 *)zData, p2, pDest, blobthresh, &toobig);
-      if( toobig==1 ){
+      rc = get_data_limited(pCrsr, (u8 *)zData, p2, pDest, blobthresh, &bTooBig);
+      if( bTooBig==1 ){
         sqlite3VdbeMemSetGenid(pDest, pCrsr, p1, p2);
       }
     }else{
@@ -4700,6 +4710,10 @@ case OP_Found: {        /* jump, in3 */
 ** This opcode leaves the cursor in a state where it cannot be advanced
 ** in either direction.  In other words, the Next and Prev opcodes will
 ** not work following this opcode.
+**
+** If P1 is negative, P3 points to an MEM_Genid structure which contains
+** cursor and genid information. If P3 is not an MEM_Genid structure,
+** jump to P2.
 **
 ** See also: Found, NotFound, NoConflict, SeekRowid
 */

@@ -14,8 +14,12 @@ int main(int argc, char **argv)
     unsigned long tm, delta;
     const char *tier;
 
-    if (argc < 2)
+    if (argc < 2) {
+        fprintf(stderr,
+                "%s database [tier][ninserts][nselects]\n",
+                argv[0]);
         exit(1);
+    }
 
     if (argc > 2)
         tier = argv[2];
