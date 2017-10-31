@@ -2,7 +2,7 @@ OBJS=test.o
 BINARY=test
 
 LIBS=
-CXXFLAGS=-Wall -g -O3
+CXXFLAGS=-Wall -g -O3 -std=c++11
 
 $(BINARY): $(OBJS)
 	g++ -o $(BINARY) $(OBJS) $(LDFLAGS) $(LIBS) -lz

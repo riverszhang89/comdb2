@@ -4,11 +4,11 @@ done | cdb2sql comdb2perfdb - >/dev/null
 
 cdb2sql comdb2perfdb 'create table blocks {
     schema {
-        cstring id[37]
-        datetimeus start
-        datetimeus end
-        cstring dbname[33]
-        vutf8 block
+        cstring id[37]       // PK
+        datetimeus start     // start time
+        datetimeus end       // end time
+        cstring dbname[33]   // database
+        vutf8 block          // an array of log events 
         int granularity      // 0 - all data, otherwise number of seconds sampled
     }
 
@@ -34,27 +34,78 @@ cdb2sql comdb2perfdb 'create table events {
 
 cdb2sql comdb2perfdb 'create table queries {
     schema {
-        cstring fingerprint[33]
-        longlong fingerprint_count
-        cstring dbname[33]
-        cstring blockid[37]
-        datetimeus start
-        datetimeus end
+        cstring fingerprint[33]         // query fingerprint
+        longlong fingerprint_count      // number of occurrences
+        cstring dbname[33]              // database
+        cstring context[33]             // context
+        cstring blockid[37]             // block id
+        datetimeus start                // start time
+        datetimeus end                  // end time
+
+        ////////////// statistics ///////////////////
+        // ingest leaves the values null. rollup fills them up.
+        ////////////////////////////////////////////
+
+        // cost
+        double   avgcost  null=yes      // average cost
+        longlong maxcost  null=yes      // max cost
+        longlong mincost  null=yes      // min cost
+
+        // number of rows
+        double   avgrows  null=yes      // average number of rows
+        longlong maxrows  null=yes      // max number of rows
+        longlong minrows  null=yes      // min number of rows
+
+        // runtime
+        double   avgrtm   null=yes      // average runtime
+        longlong maxrtm   null=yes      // max runtime
+        longlong minrtm   null=yes      // min runtime
+
+        // lockwaits
+        double   avglkws  null=yes      // average lockwaits
+        longlong maxlkws  null=yes      // max lockwaits
+        longlong minlkws  null=yes      // min lockwaits
+
+        // lockwait time
+        double   avglkwtm null=yes      // average lockwait time
+        longlong maxlkwtm null=yes      // max lockwait time
+        longlong minlkwtm null=yes      // min lockwait time
+
+        // # reads
+        double   avgrds   null=yes      // average number of reads
+        longlong maxrds   null=yes      // max number of reads
+        longlong minrds   null=yes      // min number of reads
+
+        // # readtime
+        double   avgrdtm  null=yes      // average read time
+        longlong maxrdtm  null=yes      // max read time
+        longlong minrdtm  null=yes      // min read time
+
+        // # writes
+        double   avgwrs   null=yes      // average number of writes
+        longlong maxwrs   null=yes      // max number of writes
+        longlong minwrs   null=yes      // min number of writes
+
+        // # writetime
+        double   avgwrtm  null=yes      // average write time
+        longlong maxwrtm  null=yes      // max write time
+        longlong minwrtm  null=yes      // min write time
     }
 
     keys {
     dup "db" = dbname + start + fingerprint
+    "fk" = fingerprint + blockid + dbname + context
     }
 }'
 
 cdb2sql comdb2perfdb 'create table contexts {
     schema {
-        cstring context[33]
-        longlong context_count
-        cstring dbname[33]
-        cstring blockid[37]
-        datetimeus start
-        datetimeus end
+        cstring context[33]           // context
+        longlong context_count        // number of occurrences
+        cstring dbname[33]            // database
+        cstring blockid[37]           // block id
+        datetimeus start              // start time
+        datetimeus end                // end time
     }
 
     keys {
@@ -66,15 +117,15 @@ cdb2sql comdb2perfdb 'create table contexts {
 
 cdb2sql comdb2perfdb 'create table querytypes {
     schema {
-        cstring fingerprint[33]
-        cstring dbname[33]
-        datetimeus first_seen
+        cstring fingerprint[33]  // fingerprint
+        cstring dbname[33]       // database
+        datetimeus first_seen    // first seen
         // longlong count   -- think about this - very handy to have, but turns into an update per db per block 
-        vutf8 sql[200]
+        vutf8 sql[200]           // SQL
     }
 
     keys {
-        "fp" = fingerprint
+        "fp" = fingerprint + dbname
     dup "dbname" = dbname + fingerprint
     }
 }'

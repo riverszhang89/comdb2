@@ -43,6 +43,12 @@
 //    "host" : "xps"
 // }
 
+struct FingerprintValue {
+    std::string fingerprint;
+    std::string context;
+    int64_t count;
+};
+
 struct dbstream {
     cdb2_hndl_tp *dbconn;
 
@@ -55,8 +61,8 @@ struct dbstream {
     // stats since the last time the block was flushed
     int64_t mintime, maxtime;
     int64_t count;
-    std::map<std::string, int64_t>
-        fingerprints; // known_fingerprints don't reset at each block, this does
+    // known_fingerprints don't reset at each block, this does
+    std::map<std::string, FingerprintValue> fingerprints;
     std::map<std::string, int64_t> contexts;
 
     dbstream(std::string _dbname, std::string s)
@@ -209,16 +215,10 @@ void handle_sql(dbstream &db, const std::string &blockid, const cson_value *v)
     if (t < db.mintime)
         db.mintime = t;
 
-    const char *s = get_strprop(v, "fingerprint");
-    if (s == nullptr)
+    const char *f = get_strprop(v, "fingerprint");
+    if (f == nullptr)
         return;
-    std::string fp(s);
-    auto it = db.fingerprints.find(fp);
-    if (it == db.fingerprints.end()) {
-        db.fingerprints.insert(std::pair<std::string, int>(fp, 1));
-    } else {
-        it->second++;
-    }
+    std::string fp(f);
 
     const cson_object *obj = cson_value_get_object(v);
     const cson_value *contextv = cson_object_get(obj, "context");
@@ -233,13 +233,27 @@ void handle_sql(dbstream &db, const std::string &blockid, const cson_value *v)
         if (c != nullptr && cson_value_is_string(c)) {
             cson_string *cs;
             cson_value_fetch_string(c, &cs);
-            const char *s = cson_string_cstr(cs);
-            std::string context(s);
-            auto it = db.contexts.find(context);
-            if (it == db.contexts.end())
+            const char *c = cson_string_cstr(cs);
+            std::string context(c);
+            auto itc = db.contexts.find(context);
+            if (itc == db.contexts.end())
                 db.contexts.insert(std::pair<std::string, int>(context, 1));
             else
-                it->second++;
+                itc->second++;
+
+            /* key is in the form of f=<fingerprint>,c=<context> */
+            std::string key = "f=" + fp + ",c=" + context;
+            auto itf = db.fingerprints.find(key);
+            if (itf == db.fingerprints.end()) {
+                /* value is a tuple of fingerprint, context and count */
+                FingerprintValue val;
+                val.fingerprint = fp;
+                val.context = context;
+                val.count = 1;
+                db.fingerprints.insert(std::pair<std::string, FingerprintValue>(key, val));
+            } else {
+                ++(itf->second.count);
+            }
         }
     }
 }
@@ -298,6 +312,13 @@ std::ostream &operator<<(std::ostream &os,
     return os;
 }
 
+std::ostream &operator<<(std::ostream &os,
+                         const FingerprintValue &obj)
+{
+    os << obj.fingerprint << " -> [" << obj.context << ", " << obj.count << "]";
+    return os;
+}
+
 void dump(dbstream &db, const std::string &blockid)
 {
     std::cout << "block: " << blockid << std::endl;
@@ -307,7 +328,7 @@ void dump(dbstream &db, const std::string &blockid)
     }
     std::cout << "fingerprints:" << std::endl;
     for (auto it = db.fingerprints.begin(); it != db.fingerprints.end(); ++it) {
-        std::cout << *it << std::endl;
+        std::cout << it->second << std::endl;
     }
 }
 
@@ -341,20 +362,25 @@ bool storequeries(const dbstream &db, const std::string &blockid)
 {
     for (auto it : db.fingerprints) {
         const char *sql = "insert into queries(fingerprint, fingerprint_count, "
-                          "dbname, blockid, start, end) values(@fingerprint, "
-                          "@fingerprint_count, @dbname, @blockid, @start, "
+                          "dbname, context, blockid, start, end) values(@fingerprint, "
+                          "@fingerprint_count, @dbname, @context, @blockid, @start, "
                           "@end)";
 
         cdb2_client_datetimeus_t start = totimestamp(db.mintime);
         cdb2_client_datetimeus_t end = totimestamp(db.maxtime);
 
+
         cdb2_clearbindings(db.dbconn);
+        FingerprintValue fpv = it.second;
+
         cdb2_bind_param(db.dbconn, "fingerprint", CDB2_CSTRING,
-                        it.first.c_str(), it.first.size());
-        cdb2_bind_param(db.dbconn, "fingerprint_count", CDB2_INTEGER,
-                        &it.second, sizeof(it.second));
+                        fpv.fingerprint.c_str(), fpv.fingerprint.size());
         cdb2_bind_param(db.dbconn, "dbname", CDB2_CSTRING, db.dbname.c_str(),
                         db.dbname.size());
+        cdb2_bind_param(db.dbconn, "context", CDB2_CSTRING,
+                        fpv.context.c_str(), fpv.context.size());
+        cdb2_bind_param(db.dbconn, "fingerprint_count", CDB2_INTEGER,
+                        &fpv.count, sizeof(fpv.count));
         cdb2_bind_param(db.dbconn, "blockid", CDB2_CSTRING, blockid.c_str(),
                         blockid.size());
         cdb2_bind_param(db.dbconn, "start", CDB2_DATETIMEUS, &start,
