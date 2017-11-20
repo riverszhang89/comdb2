@@ -127,8 +127,8 @@ int read_date(char *s) {
     if (rc < 3) {
         return atoi(s);
     }
-    tm.tm_year += 1900;
-    tm.tm_mon++;
+    tm.tm_year -= 1900;
+    tm.tm_mon--;
     return mktime(&tm);
 }
 
