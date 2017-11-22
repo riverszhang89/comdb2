@@ -330,6 +330,7 @@ void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
         cson_object *obj;
         cson_value_fetch_object(v, &obj);
         if (cson_object_get(obj, "type") == nullptr) {
+            /* rolled-up records will not have the property. Don't complain. */
             std::cout << "no type property" << std::endl;
             continue;
         }
@@ -511,13 +512,6 @@ void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
                 UPDATE_STATS(writes, "wrs")
                 UPDATE_STATS(writetime, "wrtm")
             }
-
-#if 0
-            for (auto elem : qsit->second.stats) {
-                if (elem.first == "maxrtm")
-                std::cout << elem.first << " -> " << elem.second << std::endl;
-            }
-#endif
         }
     }
 
@@ -526,7 +520,7 @@ void rollup_block_contents(const std::string &olddata, std::string &newdata_out,
     }
 
     cson_output_opt outopt = { 0, 255, 0, 0, 0, 0 };
-    std::cout << nent << " -> " << events.size() << std::endl;
+    std::cout << " -> " << nent << std::endl;
     std::stringstream s;
     cson_output(newdata, cson_to_string, &s, &outopt);
     cson_free_value(newdata);
@@ -670,10 +664,10 @@ void rollup(int rulenum, const std::string &blockid = "")
                     &rules[rulenum].granularity, sizeof(int64_t));
     rc = cdb2_run_statement(db,
                             "select id, cast(start as int) from blocks where "
-                            "start < now() - cast(@ago as seconds) or end < "
-                            "now() - cast(@ago as seconds) and granularity < "
+                            "start < now() - cast(@ago as seconds) and granularity < "
                             "@granularity order by start");
     if (rc) throw cdb2_exception(rc, db, "find blocks");
+
 
     // We are going to assign each block we found older than the policy age to a
     // group of similarly aged blocks
