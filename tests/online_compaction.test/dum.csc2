@@ -1,1 +1,0 @@
-create table dum { schema { cstring txt[128] } }

@@ -1,3 +1,0 @@
-table book book.csc2
-round_robin_stripes
-enable_snapshot_isolation
