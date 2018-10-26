@@ -245,6 +245,87 @@ int cdb2_init_ssl(int init_libssl, int init_libcrypto);
 int cdb2_is_ssl_encrypted(cdb2_hndl_tp *hndl);
 
 int cdb2_clear_ack(cdb2_hndl_tp *hndl);
+
+/* Hooks */
+#include <stdint.h>
+#include <stdbool.h>
+
+/* Network hooks */
+
+/* Hook to be run before attempting to connect to `host' on `port'.
+   If `override_fd' is set to true by the hook, the API will use
+   the return code of the hook as the file descriptor of the socket. */
+extern int (*cdb2_before_connect_hook)(cdb2_hndl_tp *hndl, const char *host,
+                                       uint16_t port, bool *override_fd,
+                                       const void *caller);
+
+/* Hook to be run before attempting to connect to `host' on `port'.
+   The file descriptor of the socket is `fd'.
+   If `override_fd' is set to true by the hook, the API will instead use
+   the return code of the hook as the file descriptor of the socket. */
+extern int (*cdb2_after_connect_hook)(cdb2_hndl_tp *hndl, const char *host,
+                                      uint16_t port, int fd, bool *override_fd,
+                                      const void *caller);
+
+/* Hook to be run before querying pmux.
+   If `override_port' is set to true by the hook, the API will use
+   the return code of the hook as the port number of the database. */
+extern uint16_t (*cdb2_before_pmux_hook)(cdb2_hndl_tp *hndl,
+                                         bool *override_port,
+                                         const void *caller);
+
+/* Hook to be run after querying pmux.
+   The database port number is `dbport'.
+   If `override_port' is set to true by the hook, the API will instead use
+   the return code of the hook as the port number of the database. */
+extern uint16_t (*cdb2_after_pmux_hook)(cdb2_hndl_tp *hndl, uint16_t dbport,
+                                        bool *override_port,
+                                        const void *caller);
+
+/* Hook to be run before querying dbinfo from `host'.
+   If `override_rc' is set to true by the hook, the API will skip
+   dbinfo query and return the return code of the hook right away. */
+extern int (*cdb2_before_dbinfo_hook)(cdb2_hndl_tp *hndl, const char *host,
+                                      bool *override_rc, const void *caller);
+
+/* Hook to be run after querying dbinfo from `host'.
+   The return code is `rc'.
+   If `override_rc' is set to true by the hook, the API will instead return
+   the return code of the hook. */
+extern int (*cdb2_after_dbinfo_hook)(cdb2_hndl_tp *hndl, const char *host,
+                                     int rc, bool *override_rc,
+                                     const void *caller);
+
+/* Hook to be run before sending `sql'.
+   If `override_rc' is set to true by the hook, the API will skip
+   sending the query and return the return code of the hook right away. */
+extern int (*cdb2_before_send_query_hook)(cdb2_hndl_tp *hndl, const char *sql,
+                                          bool *override_rc,
+                                          const void *caller);
+
+/* Hook to be run after sending `sql'.
+   The return code is `rc'.
+   If `override_rc' is set to true by the hook, the API will instead return
+   the return code of the hook. */
+extern int (*cdb2_after_send_query_hook)(cdb2_hndl_tp *hndl, const char *sql,
+                                         int rc, bool *override_rc,
+                                         const void *caller);
+
+/* Hook to be run before reading a record.
+   If `override_rc' is set to true by the hook, the API will skip
+   reading and return the return code of the hook right away. */
+extern int (*cdb2_before_read_record_hook)(cdb2_hndl_tp *hndl,
+                                           bool *override_rc,
+                                           const void *caller);
+
+/* Hook to be run after reading a record.
+   The return code is `rc'.
+   If `override_rc' is set to true by the hook, the API will instead return
+   the return code of the hook */
+extern int (*cdb2_after_read_record_hook)(cdb2_hndl_tp *hndl, int rc,
+                                          bool *override_rc,
+                                          const void *caller);
+
 #if defined __cplusplus
 }
 #endif
