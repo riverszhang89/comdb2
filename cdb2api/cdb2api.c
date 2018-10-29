@@ -14,6 +14,7 @@
    limitations under the License.
  */
 
+#include <alloca.h>
 #include <sbuf2.h>
 #include <limits.h>
 #include <unistd.h>
@@ -150,35 +151,20 @@ static int log_calls = 0; /* ONE-TIME */
 
 static void reset_sockpool(void);
 
-#if defined(__GNUC__) || defined(__IBMC__)
-#define UNLIKELY(X) __builtin_expect(!!(X), 0)
-#define RETURN_ADDRESS() __builtin_return_address(0)
-#else
-#define UNLIKELY(X) (X)
-#define RETURN_ADDRESS() (NULL)
-#endif
-
-/* Hooks */
-/* Network hooks */
-int (*cdb2_before_connect_hook)(cdb2_hndl_tp *, const char *, uint16_t, bool *,
-                                const void *) = NULL;
-int (*cdb2_after_connect_hook)(cdb2_hndl_tp *, const char *, uint16_t, int,
-                               bool *, const void *) = NULL;
-uint16_t (*cdb2_before_pmux_hook)(cdb2_hndl_tp *, bool *, const void *) = NULL;
-uint16_t (*cdb2_after_pmux_hook)(cdb2_hndl_tp *, uint16_t, bool *,
-                                 const void *) = NULL;
-int (*cdb2_before_dbinfo_hook)(cdb2_hndl_tp *, const char *, bool *,
-                               const void *) = NULL;
-int (*cdb2_after_dbinfo_hook)(cdb2_hndl_tp *, const char *, int, bool *,
-                              const void *) = NULL;
-int (*cdb2_before_send_query_hook)(cdb2_hndl_tp *, const char *, bool *,
-                                   const void *) = NULL;
-int (*cdb2_after_send_query_hook)(cdb2_hndl_tp *, const char *, int, bool *,
-                                  const void *) = NULL;
-int (*cdb2_before_read_record_hook)(cdb2_hndl_tp *, bool *,
-                                    const void *) = NULL;
-int (*cdb2_after_read_record_hook)(cdb2_hndl_tp *, int, bool *,
-                                   const void *) = NULL;
+struct cdb2_event {
+    cdb2_event_type type;
+    cdb2_event_ctrl ctrl;
+    cdb2_event_callback cb;
+    void *user_arg;
+    cdb2_event *next;
+    int argc;
+    cdb2_event_arg argv[1];
+};
+static cdb2_event *cdb2_global_events;
+void (*cdb2_init_hook)(void) = NULL;
+static cdb2_event *cdb2_next_hook_typed(cdb2_hndl_tp *, cdb2_event_type, cdb2_event *, int *);
+static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *, cdb2_event *, int *);
+static void *cdb2_invoke_hook(cdb2_hndl_tp *, cdb2_event *, int, ...);
 
 #define debugprint(fmt, args...)                                               \
     do {                                                                       \
@@ -792,32 +778,33 @@ static int cdb2_tcpconnecth_to(cdb2_hndl_tp *hndl, const char *host, int port,
                                int myport, int timeoutms)
 {
     int rc;
-    int hookfd;
-    bool override_fd;
     struct in_addr in;
 
-    if (UNLIKELY(cdb2_before_connect_hook != NULL)) {
-        override_fd = false;
-        rc = -1;
-        hookfd = (*cdb2_before_connect_hook)(hndl, host, port, &override_fd,
-                                             RETURN_ADDRESS());
-        if (override_fd) {
-            rc = hookfd;
-            goto finish_hook;
+    void *hookrc;
+    int done_global = 0, overwrite_rc = 0;
+    cdb2_event *e = NULL;
+
+    while ((e = cdb2_next_hook_typed(hndl, BEFORE_CONNECT, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 2, HOSTNAME, host, PORT, port);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+            overwrite_rc = 1;
+            rc = (int)(intptr_t)hookrc;
         }
     }
 
+    if (overwrite_rc)
+        goto after_hook;
+
     if ((rc = cdb2_tcpresolve(host, &in, &port)) != 0)
-        goto finish_hook;
+        goto after_hook;
 
     rc = cdb2_do_tcpconnect(in, port, myport, timeoutms);
 
-finish_hook:
-    if (UNLIKELY(cdb2_after_connect_hook != NULL)) {
-        override_fd = false;
-        hookfd = (*cdb2_after_connect_hook)(hndl, host, port, rc, &override_fd,
-                                            RETURN_ADDRESS());
-        return override_fd ? hookfd : rc;
+after_hook:
+    while ((e = cdb2_next_hook_typed(hndl, AFTER_CONNECT, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 3, HOSTNAME, host, PORT, port, RETURN_VALUE, rc);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+            rc = (int)(intptr_t)hookrc;
     }
     return rc;
 }
@@ -946,6 +933,7 @@ struct cdb2_hndl {
     int sent_client_info;
     char stack[MAX_STACK];
     int send_stack;
+    cdb2_event *events;
 };
 
 void cdb2_set_min_retries(int min_retries)
@@ -1999,19 +1987,21 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
     char res[32];
     SBUF2 *ss = NULL;
     int rc, fd, port;
-    uint16_t hook_port;
-    bool override_port;
 
-    if (UNLIKELY(cdb2_before_pmux_hook != NULL)) {
-        port = -1;
-        override_port = false;
-        hook_port =
-            (*cdb2_before_pmux_hook)(hndl, &override_port, RETURN_ADDRESS());
-        if (override_port) {
-            port = hook_port;
-            goto finish_hook;
+    void *hookrc;
+    int done_global = 0, overwrite_rc = 0;
+    cdb2_event *e = NULL;
+
+    while ((e = cdb2_next_hook_typed(hndl, BEFORE_PMUX, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 2, HOSTNAME, remote_host, PORT, CDB2_PORTMUXPORT);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+            overwrite_rc = 1;
+            port = (int)(intptr_t)hookrc;
         }
     }
+
+    if (overwrite_rc)
+        goto after_hook;
 
     rc = snprintf(name, sizeof(name), "%s/%s/%s", app, service, instance);
     if (rc < 1 || rc >= sizeof(name)) {
@@ -2020,7 +2010,7 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
                     "ERROR: can not fit entire string into name '%s/%s/%s'\n",
                     app, service, instance);
         port = -1;
-        goto finish_hook;
+        goto after_hook;
     }
 
     if (debug)
@@ -2040,7 +2030,7 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
             __func__, __LINE__, instance, type, remote_host, CDB2_PORTMUXPORT,
             errno, strerror(errno));
         port = -1;
-        goto finish_hook;
+        goto after_hook;
     }
     ss = sbuf2open(fd, 0);
     if (ss == 0) {
@@ -2050,7 +2040,7 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
         if (debug)
             fprintf(stderr, "sbuf2open returned 0\n");
         port = -1;
-        goto finish_hook;
+        goto after_hook;
     }
     sbuf2settimeout(ss, CDB2_CONNECT_TIMEOUT, CDB2_CONNECT_TIMEOUT);
     sbuf2printf(ss, "get %s\n", name);
@@ -2064,7 +2054,7 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
         snprintf(hndl->errstr, sizeof(hndl->errstr),
                  "%s:%d Invalid response from portmux.\n", __func__, __LINE__);
         port = -1;
-        goto finish_hook;
+        goto after_hook;
     }
     port = atoi(res);
     if (port <= 0) {
@@ -2072,12 +2062,11 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
                  "%s:%d Invalid response from portmux.\n", __func__, __LINE__);
         port = -1;
     }
-finish_hook:
-    if (UNLIKELY(cdb2_after_pmux_hook != NULL)) {
-        override_port = false;
-        hook_port = (*cdb2_after_pmux_hook)(hndl, port, &override_port,
-                                            RETURN_ADDRESS());
-        return override_port ? hook_port : port;
+after_hook:
+    while ((e = cdb2_next_hook_typed(hndl, AFTER_PMUX, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 3, HOSTNAME, remote_host, PORT, CDB2_PORTMUXPORT, RETURN_VALUE, port);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+            port = (int)(intptr_t)hookrc;
     }
     return port;
 }
@@ -2269,20 +2258,22 @@ static int cdb2_read_record(cdb2_hndl_tp *hndl, uint8_t **buf, int *len, int *ty
     SBUF2 *sb = hndl->sb;
     struct newsqlheader hdr;
     int b_read;
-    int rc;
-    int hookrc;
-    bool override_rc;
+    int rc = 0; /* Make compilers happy. */
 
-    if (UNLIKELY(cdb2_before_read_record_hook != NULL)) {
-        rc = 0;
-        override_rc = false;
-        hookrc = (*cdb2_before_read_record_hook)(hndl, &override_rc,
-                                                 RETURN_ADDRESS());
-        if (hookrc != 0) {
-            rc = hookrc;
-            goto finish_hook;
+    void *hookrc;
+    int done_global = 0, overwrite_rc = 0;
+    cdb2_event *e = NULL;
+
+    while ((e = cdb2_next_hook_typed(hndl, BEFORE_READ_RECORD, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 0, NULL);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+            overwrite_rc = 1;
+            rc = (int)(intptr_t)hookrc;
         }
     }
+
+    if (overwrite_rc)
+        goto after_hook;
 
 retry:
     b_read = sbuf2fread((char *)&hdr, 1, sizeof(hdr), sb);
@@ -2292,7 +2283,7 @@ retry:
         debugprint("bad read or numbytes, b_read=%d, sizeof(hdr)=(%lu):\n",
                    b_read, sizeof(hdr));
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
 
     hdr.type = ntohl(hdr.type);
@@ -2305,11 +2296,11 @@ retry:
     if (hdr.type == RESPONSE_HEADER__SQL_RESPONSE_SSL) {
         if (type == NULL) {
             rc = -1;
-            goto finish_hook;
+            goto after_hook;
         }
         *type = hdr.type;
         rc = 0;
-        goto finish_hook;
+        goto after_hook;
     }
 
     if (hdr.length == 0) {
@@ -2325,7 +2316,7 @@ retry:
     if ((*buf) == NULL) {
         fprintf(stderr, "%s: out of memory realloc(%d)\n", __func__, hdr.length);
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
 
     b_read = sbuf2fread((char *)(*buf), 1, hdr.length, sb);
@@ -2337,7 +2328,7 @@ retry:
         debugprint("bad read or numbytes, b_read(%d) != *len(%d) type(%d)\n",
                    b_read, *len, *type);
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
     if (hdr.type == RESPONSE_HEADER__SQL_RESPONSE_TRACE) {
         CDB2SQLRESPONSE *response =
@@ -2373,7 +2364,7 @@ retry:
             free(locbuf);
             if (rc < 0) {
                 rc = -1;
-                goto finish_hook;
+                goto after_hook;
             }
         }
         debugprint("- going to retry\n");
@@ -2381,12 +2372,11 @@ retry:
     }
 
     rc = 0;
-finish_hook:
-    if (UNLIKELY(cdb2_after_read_record_hook != NULL)) {
-        override_rc = false;
-        hookrc = (*cdb2_after_read_record_hook)(hndl, rc, &override_rc,
-                                                RETURN_ADDRESS());
-        return override_rc ? hookrc : rc;
+after_hook:
+    while ((e = cdb2_next_hook_typed(hndl, AFTER_READ_RECORD, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 1, RETURN_VALUE, rc);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+            rc = (int)(intptr_t)hookrc;
     }
     return rc;
 }
@@ -2506,18 +2496,21 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, SBUF2 *sb, const char *dbname,
                            int retries_done, int do_append, int fromline)
 {
     int rc;
-    int hookrc;
-    bool override_rc;
 
-    if (UNLIKELY(cdb2_before_send_query_hook != NULL)) {
-        override_rc = false;
-        hookrc = (*cdb2_before_send_query_hook)(hndl, sql, &override_rc,
-                                                RETURN_ADDRESS());
-        if (override_rc) {
-            rc = hookrc;
-            goto finish_hook;
+    void *hookrc;
+    int done_global = 0, overwrite_rc = 0;
+    cdb2_event *e = NULL;
+
+    while ((e = cdb2_next_hook_typed(hndl, BEFORE_SEND_QUERY, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 0, NULL);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+            overwrite_rc = 1;
+            rc = (int)(intptr_t)hookrc;
         }
     }
+
+    if (overwrite_rc)
+        goto after_hook;
 
     if (log_calls) {
         fprintf(stderr, "td 0x%p %s line %d\n", (void *)pthread_self(),
@@ -2668,7 +2661,7 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, SBUF2 *sb, const char *dbname,
         debugprint("sbuf2flush rc = %d\n", rc);
         free(buf);
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
 
     if (do_append && hndl->in_trans) {
@@ -2693,12 +2686,11 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, SBUF2 *sb, const char *dbname,
 
     rc = 0;
 
-finish_hook:
-    if (UNLIKELY(cdb2_after_send_query_hook != NULL)) {
-        override_rc = false;
-        hookrc = (*cdb2_after_send_query_hook)(hndl, sql, rc, &override_rc,
-                                               RETURN_ADDRESS());
-        return override_rc ? hookrc : rc;
+after_hook:
+    while ((e = cdb2_next_hook_typed(hndl, AFTER_SEND_QUERY, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 1, RETURN_VALUE, rc);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+            rc = (int)(intptr_t)hookrc;
     }
     return rc;
 }
@@ -4816,18 +4808,23 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
 {
     char newsql_typestr[128];
     SBUF2 *sb = NULL;
-    int rc;
-    int hookrc;
-    bool override_rc;
+    int rc = 0; /* Make compilers happy. */
+    int port = 0;
 
-    if (UNLIKELY(cdb2_before_dbinfo_hook != NULL)) {
-        hookrc = (*cdb2_before_dbinfo_hook)(hndl, host, &override_rc,
-                                            RETURN_ADDRESS());
-        if (override_rc) {
-            rc = hookrc;
-            goto finish_hook;
+    void *hookrc;
+    int done_global = 0, overwrite_rc = 0;
+    cdb2_event *e = NULL;
+
+    while ((e = cdb2_next_hook_typed(hndl, BEFORE_DBINFO, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 2, HOSTNAME, host, PORT, -1);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+            overwrite_rc = 1;
+            rc = (int)(intptr_t)hookrc;
         }
     }
+
+    if (overwrite_rc)
+        goto after_hook;
 
     debugprint("entering\n");
 
@@ -4838,15 +4835,14 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
             "ERROR: can not fit entire string 'comdb2/%s/%s/newsql/%s'\n",
             dbname, type, hndl->policy);
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
-    int port = 0;
     int fd = cdb2_socket_pool_get(newsql_typestr, dbnum, NULL);
     debugprint("cdb2_socket_pool_get fd %d, host '%s'\n", fd, host);
     if (fd < 0) {
         if (host == NULL) {
             rc = -1;
-            goto finish_hook;
+            goto after_hook;
         }
 
         if (!cdb2_allow_pmux_route) {
@@ -4858,7 +4854,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
             }
             if (port < 0) {
                 rc = -1;
-                goto finish_hook;
+                goto after_hook;
             }
             fd = cdb2_tcpconnecth_to(hndl, host, port, 0, CDB2_CONNECT_TIMEOUT);
         } else {
@@ -4871,7 +4867,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
                      "%s: Can't connect to portmux host %s port %d", __func__,
                      host, port);
             rc = -1;
-            goto finish_hook;
+            goto after_hook;
         }
         sb = sbuf2open(fd, 0);
         if (sb == 0) {
@@ -4879,7 +4875,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
                      "%s:%d out of memory\n", __func__, __LINE__);
             close(fd);
             rc = -1;
-            goto finish_hook;
+            goto after_hook;
         }
         if (hndl->is_admin)
             sbuf2printf(sb, "@");
@@ -4892,7 +4888,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
                      "%s:%d out of memory\n", __func__, __LINE__);
             close(fd);
             rc = -1;
-            goto finish_hook;
+            goto after_hook;
         }
     }
 
@@ -4924,7 +4920,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
     if (rc != sizeof(hdr)) {
         sbuf2close(sb);
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
 
     hdr.type = ntohl(hdr.type);
@@ -4936,7 +4932,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
         sprintf(hndl->errstr, "%s: out of memory", __func__);
         sbuf2close(sb);
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
 
     rc = sbuf2fread(p, 1, hdr.length, sb);
@@ -4947,7 +4943,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
         sbuf2close(sb);
         free(p);
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
     CDB2DBINFORESPONSE *dbinfo_response = cdb2__dbinforesponse__unpack(
         NULL, hdr.length, (const unsigned char *)p);
@@ -4958,7 +4954,7 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
         sbuf2close(sb);
         free(p);
         rc = -1;
-        goto finish_hook;
+        goto after_hook;
     }
 
     parse_dbresponse(dbinfo_response, valid_hosts, valid_ports, master_node,
@@ -4981,12 +4977,11 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
 
     rc = ((*num_valid_hosts) <= 0);
 
-finish_hook:
-    if (UNLIKELY(cdb2_after_dbinfo_hook != NULL)) {
-        override_rc = false;
-        hookrc = (*cdb2_after_dbinfo_hook)(hndl, host, rc, &override_rc,
-                                           RETURN_ADDRESS());
-        return override_rc ? hookrc : rc;
+after_hook:
+    while ((e = cdb2_next_hook_typed(hndl, AFTER_DBINFO, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 3, HOSTNAME, host, PORT, port, RETURN_VALUE, rc);
+        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+            rc = (int)(intptr_t)hookrc;
     }
     return rc;
 }
@@ -5767,4 +5762,171 @@ int cdb2_clear_ack(cdb2_hndl_tp* hndl)
         hndl->ack = 0;
     }
     return 0;
+}
+
+cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type type, cdb2_event_ctrl ctrl, cdb2_event_callback cb, void *user_arg, int nargs, ...)
+{
+    cdb2_event *ret;
+    cdb2_event *curr;
+    int i;
+
+    /* Allocate an event object. */
+    ret = malloc(sizeof(cdb2_event) + nargs * sizeof(cdb2_event_arg));
+    if (ret == NULL)
+        return NULL;
+
+    ret->type = type;
+    ret->ctrl = ctrl;
+    ret->cb = cb;
+    ret->user_arg = user_arg;
+    ret->next = NULL;
+    ret->argc = nargs;
+
+    /* Copy over argument types. */
+    va_list ap;
+    va_start(ap, nargs);
+    for (i = 0; i != nargs; ++i)
+        ret->argv[i] = va_arg(ap, cdb2_event_arg);
+    va_end(ap);
+
+    /* If handle is NULL, we want to register to the global events. */
+    if (hndl == NULL) {
+        if (cdb2_global_events == NULL)
+            cdb2_global_events = ret;
+        else {
+            for (curr = cdb2_global_events; curr->next != NULL; curr = curr->next);
+            curr->next = ret;
+        }
+    } else {
+        if (hndl->events == NULL)
+            hndl->events = ret;
+        else {
+            for (curr = hndl->events; curr->next != NULL; curr = curr->next);
+            curr->next = ret;
+        }
+    }
+    return ret;
+}
+
+int cdb2_unregister_event(cdb2_hndl_tp *hndl, cdb2_event *event)
+{
+    cdb2_event *curr, *prev;
+
+    if (hndl == NULL) {
+        for (prev = NULL, curr = cdb2_global_events; curr != NULL && curr != event && curr->next != NULL; prev = curr, curr = curr->next);
+        if (curr != event)
+            return EINVAL;
+        else if (prev == NULL)
+            cdb2_global_events = curr->next;
+        else
+            prev->next = curr->next;
+    } else {
+        for (prev = NULL, curr = hndl->events; curr != NULL && curr != event && curr->next != NULL; prev = curr, curr = curr->next);
+        if (curr != event)
+            return EINVAL;
+        else if (prev == NULL)
+            hndl->events = curr->next;
+        else
+            prev->next = curr->next;
+    }
+    free(event);
+    return 0;
+}
+
+static cdb2_event *cdb2_next_hook_typed(cdb2_hndl_tp *hndl, cdb2_event_type type, cdb2_event *e, int *done_global)
+{
+    while ((e = cdb2_next_hook(hndl, e, done_global)) != NULL) {
+        if (e->type & type)
+            break;
+    }
+    return e;
+}
+
+static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *hndl, cdb2_event *e, int *done_global)
+{
+    if (!*done_global) {
+        if (e == NULL)
+            return cdb2_global_events;
+        else if (e->next != NULL)
+            return e->next;
+        else {
+            *done_global = 1;
+            return hndl->events;
+        }
+    } else if (hndl != NULL) {
+        return (e == NULL) ? hndl->events : e->next;
+    }
+    return NULL;
+}
+
+static void *cdb2_invoke_hook(cdb2_hndl_tp *hndl, cdb2_event *e, int argc, ...)
+{
+    int i;
+    va_list ap;
+    cdb2_event_arg which;
+    void **argv;
+
+    const char *hostname;
+    int port;
+    const char *sql;
+    void *rc;
+
+    if (e->argc == 0)
+        return e->cb(hndl, e->user_arg, 0, NULL);
+
+    if (hndl == NULL || hndl->connected_host < 0) {
+        hostname = NULL;
+        port = -1;
+        sql = NULL;
+    } else {
+        hostname = hndl->hosts[hndl->connected_host];
+        port = hndl->ports[hndl->connected_host];
+        sql = hndl->sql;
+    }
+    rc = 0;
+
+    va_start(ap, argc);
+    for (i = 0; i < argc; ++i) {
+        which = va_arg(ap, cdb2_event_arg);
+        switch (which) {
+        case HOSTNAME:
+            hostname = va_arg(ap, char *);
+            break;
+        case PORT:
+            port = va_arg(ap, int);
+            break;
+        case SQL:
+            sql = va_arg(ap, char *);
+            break;
+        case RETURN_VALUE:
+            rc = va_arg(ap, void *);
+            break;
+        default:
+            (void)va_arg(ap, void *);
+            break;
+        }
+    }
+    va_end(ap);
+
+    argv = alloca(sizeof(void *) * e->argc);
+    for (i = 0; i != e->argc; ++i) {
+        switch (e->argv[i]) {
+        case HOSTNAME:
+            argv[i] = (void *)hostname;
+            break;
+        case PORT:
+            argv[i] = (void *)(intptr_t)port;
+            break;
+        case SQL:
+            argv[i] = (void *)sql;
+            break;
+        case RETURN_VALUE:
+            argv[i] = (void *)rc;
+            break;
+        default:
+            break;
+        }
+    }
+
+    return e->cb(hndl, e->user_arg, e->argc, argv);
 }

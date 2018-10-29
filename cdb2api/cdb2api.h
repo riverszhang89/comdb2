@@ -246,86 +246,38 @@ int cdb2_is_ssl_encrypted(cdb2_hndl_tp *hndl);
 
 int cdb2_clear_ack(cdb2_hndl_tp *hndl);
 
-/* Hooks */
-#include <stdint.h>
-#include <stdbool.h>
+typedef enum cdb2_event_ctrl {
+    /* Network events */
+    OVERWRITE_RETURN_VALUE = 1
+} cdb2_event_ctrl;
 
-/* Network hooks */
+typedef enum cdb2_event_type {
+    /* Network events */
+    BEFORE_CONNECT = 1,
+    AFTER_CONNECT = 2,
+    BEFORE_PMUX = 4,
+    AFTER_PMUX = 8,
+    BEFORE_DBINFO = 16,
+    AFTER_DBINFO = 32,
+    BEFORE_SEND_QUERY = 64,
+    AFTER_SEND_QUERY = 128,
+    BEFORE_READ_RECORD = 256,
+    AFTER_READ_RECORD = 512
+} cdb2_event_type;
 
-/* Hook to be run before attempting to connect to `host' on `port'.
-   If `override_fd' is set to true by the hook, the API will use
-   the return code of the hook as the file descriptor of the socket. */
-extern int (*cdb2_before_connect_hook)(cdb2_hndl_tp *hndl, const char *host,
-                                       uint16_t port, bool *override_fd,
-                                       const void *caller);
+typedef enum cdb2_event_arg {
+    HOSTNAME,
+    PORT,
+    SQL,
+    RETURN_VALUE
+} cdb2_event_arg;
 
-/* Hook to be run before attempting to connect to `host' on `port'.
-   The file descriptor of the socket is `fd'.
-   If `override_fd' is set to true by the hook, the API will instead use
-   the return code of the hook as the file descriptor of the socket. */
-extern int (*cdb2_after_connect_hook)(cdb2_hndl_tp *hndl, const char *host,
-                                      uint16_t port, int fd, bool *override_fd,
-                                      const void *caller);
+typedef struct cdb2_event cdb2_event;
 
-/* Hook to be run before querying pmux.
-   If `override_port' is set to true by the hook, the API will use
-   the return code of the hook as the port number of the database. */
-extern uint16_t (*cdb2_before_pmux_hook)(cdb2_hndl_tp *hndl,
-                                         bool *override_port,
-                                         const void *caller);
+typedef void *(*cdb2_event_callback)(cdb2_hndl_tp *, void *user_arg, int argc, void **argv);
 
-/* Hook to be run after querying pmux.
-   The database port number is `dbport'.
-   If `override_port' is set to true by the hook, the API will instead use
-   the return code of the hook as the port number of the database. */
-extern uint16_t (*cdb2_after_pmux_hook)(cdb2_hndl_tp *hndl, uint16_t dbport,
-                                        bool *override_port,
-                                        const void *caller);
-
-/* Hook to be run before querying dbinfo from `host'.
-   If `override_rc' is set to true by the hook, the API will skip
-   dbinfo query and return the return code of the hook right away. */
-extern int (*cdb2_before_dbinfo_hook)(cdb2_hndl_tp *hndl, const char *host,
-                                      bool *override_rc, const void *caller);
-
-/* Hook to be run after querying dbinfo from `host'.
-   The return code is `rc'.
-   If `override_rc' is set to true by the hook, the API will instead return
-   the return code of the hook. */
-extern int (*cdb2_after_dbinfo_hook)(cdb2_hndl_tp *hndl, const char *host,
-                                     int rc, bool *override_rc,
-                                     const void *caller);
-
-/* Hook to be run before sending `sql'.
-   If `override_rc' is set to true by the hook, the API will skip
-   sending the query and return the return code of the hook right away. */
-extern int (*cdb2_before_send_query_hook)(cdb2_hndl_tp *hndl, const char *sql,
-                                          bool *override_rc,
-                                          const void *caller);
-
-/* Hook to be run after sending `sql'.
-   The return code is `rc'.
-   If `override_rc' is set to true by the hook, the API will instead return
-   the return code of the hook. */
-extern int (*cdb2_after_send_query_hook)(cdb2_hndl_tp *hndl, const char *sql,
-                                         int rc, bool *override_rc,
-                                         const void *caller);
-
-/* Hook to be run before reading a record.
-   If `override_rc' is set to true by the hook, the API will skip
-   reading and return the return code of the hook right away. */
-extern int (*cdb2_before_read_record_hook)(cdb2_hndl_tp *hndl,
-                                           bool *override_rc,
-                                           const void *caller);
-
-/* Hook to be run after reading a record.
-   The return code is `rc'.
-   If `override_rc' is set to true by the hook, the API will instead return
-   the return code of the hook */
-extern int (*cdb2_after_read_record_hook)(cdb2_hndl_tp *hndl, int rc,
-                                          bool *override_rc,
-                                          const void *caller);
-
+cdb2_event *cdb2_register_event(cdb2_hndl_tp *, cdb2_event_type, cdb2_event_ctrl, cdb2_event_callback, void *, int, ...);
+int cdb2_unregister_event(cdb2_hndl_tp *, cdb2_event *);
 #if defined __cplusplus
 }
 #endif
