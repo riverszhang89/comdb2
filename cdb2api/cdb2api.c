@@ -165,7 +165,11 @@ static cdb2_event *cdb2_global_events;
 static cdb2_event *cdb2_next_hook_typed(cdb2_hndl_tp *, cdb2_event_type, cdb2_event *, int *);
 static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *, cdb2_event *, int *);
 static void *cdb2_invoke_hook(cdb2_hndl_tp *, cdb2_event *, int, ...);
-void (*cdb2_init_events)(void) = NULL;
+
+#ifndef CDB2_INIT_EVENTS
+#define CDB2_INIT_EVENTS NULL
+#endif
+void (*cdb2_init_events)(void) = CDB2_INIT_EVENTS;
 
 #define debugprint(fmt, args...)                                               \
     do {                                                                       \

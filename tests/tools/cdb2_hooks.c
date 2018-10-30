@@ -98,7 +98,8 @@ int main(int argc, char **argv)
 
     puts("====== INIT ONCE REGISTRATION ======");
     rc = init_once_registration(argv[1], tier);
-    getchar();
+    if (rc != 0)
+        return rc;
 
     if (conf != NULL) {
         cdb2_set_comdb2db_config(conf);
@@ -107,10 +108,12 @@ int main(int argc, char **argv)
 
     puts("====== SIMPLE REGISTRATION AND UNREGISTRATION ======");
     rc = simple_register_unregister(argv[1], tier);
-    getchar();
+    if (rc != 0)
+        return rc;
 
     puts("====== EVENT WITH ADDITIONAL INFORMATION ======");
     rc = arg_events(argv[1], tier);
-    getchar();
-    return rc;
+    if (rc != 0)
+        return rc;
+    return 0;
 }
