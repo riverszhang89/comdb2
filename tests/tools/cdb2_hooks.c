@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -18,11 +19,19 @@ static void *my_arg_hook(cdb2_hndl_tp *hndl, void *user_arg, int argc, void **ar
     return NULL;
 }
 
+static void *my_fake_pmux_port_hook(cdb2_hndl_tp *hndl, void *user_arg, int argc, void **argv)
+{
+    int port = (int)(intptr_t)argv[0];
+    if (port > 0)
+        puts("Got a valid port");
+    return (void*)(intptr_t)(-1);
+}
+
 static cdb2_event *init_once_event;
 
 static void register_once(void)
 {
-    init_once_event = cdb2_register_event(NULL, BEFORE_SEND_QUERY, 0, my_simple_hook, "INIT ONCE", 0);
+    init_once_event = cdb2_register_event(NULL, CDB2_BEFORE_SEND_QUERY, 0, my_simple_hook, "INIT ONCE", 0);
 }
 
 static int init_once_registration(const char *db, const char *tier)
@@ -49,11 +58,11 @@ static int simple_register_unregister(const char *db, const char *tier)
     cdb2_event *e1, *e2, *e3, *e4;
     cdb2_hndl_tp *hndl = NULL;
 
-    e1 = cdb2_register_event(NULL, BEFORE_SEND_QUERY, 0, my_simple_hook, "1", 0);
-    e2 = cdb2_register_event(NULL, BEFORE_SEND_QUERY, 0, my_simple_hook, "2", 0);
+    e1 = cdb2_register_event(NULL, CDB2_BEFORE_SEND_QUERY, 0, my_simple_hook, "1", 0);
+    e2 = cdb2_register_event(NULL, CDB2_BEFORE_SEND_QUERY, 0, my_simple_hook, "2", 0);
     cdb2_open(&hndl, db, tier, 0);
-    e3 = cdb2_register_event(hndl, BEFORE_SEND_QUERY, 0, my_simple_hook, "3", 0);
-    e4 = cdb2_register_event(hndl, BEFORE_SEND_QUERY, 0, my_simple_hook, "4", 0);
+    e3 = cdb2_register_event(hndl, CDB2_BEFORE_SEND_QUERY, 0, my_simple_hook, "3", 0);
+    e4 = cdb2_register_event(hndl, CDB2_BEFORE_SEND_QUERY, 0, my_simple_hook, "4", 0);
 
     puts("Should see 1 2 3 4");
 
@@ -80,13 +89,28 @@ static int arg_events(const char *db, const char *tier)
     cdb2_event *e;
     cdb2_hndl_tp *hndl = NULL;
 
-    e = cdb2_register_event(NULL, BEFORE_SEND_QUERY, 0, my_arg_hook, NULL, 3, SQL, HOSTNAME, PORT);
     cdb2_open(&hndl, db, tier, 0);
+    e = cdb2_register_event(hndl, CDB2_BEFORE_SEND_QUERY, 0, my_arg_hook, NULL, 3, CDB2_SQL, CDB2_HOSTNAME, CDB2_PORT);
     cdb2_run_statement(hndl, "SELECT 1");
     while ((rc = cdb2_next_record(hndl)) == CDB2_OK);
     cdb2_close(hndl);
     if (rc != CDB2_OK_DONE)
         return 1;
+    return 0;
+}
+
+static int modify_rc_event(const char *db, const char *tier)
+{
+    int rc;
+    cdb2_event *e;
+    cdb2_hndl_tp *hndl = NULL;
+
+    e = cdb2_register_event(NULL, CDB2_BEFORE_PMUX, CDB2_OVERWRITE_RETURN_VALUE, my_fake_pmux_port_hook, NULL, 1, CDB2_RETURN_VALUE);
+    cdb2_open(&hndl, db, tier, 0);
+    rc = cdb2_run_statement(hndl, "SELECT 1");
+    if (rc == 0)
+        return 1;
+    puts(cdb2_errstr(hndl));
     return 0;
 }
 
@@ -113,6 +137,11 @@ int main(int argc, char **argv)
 
     puts("====== EVENT WITH ADDITIONAL INFORMATION ======");
     rc = arg_events(argv[1], tier);
+    if (rc != 0)
+        return rc;
+
+    puts("====== EVENT THAT INTERCEPTS AND OVERWRITES THE RETURN VALUE ======");
+    rc = modify_rc_event(argv[1], tier);
     if (rc != 0)
         return rc;
     return 0;

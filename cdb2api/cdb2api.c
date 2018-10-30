@@ -792,9 +792,9 @@ static int cdb2_tcpconnecth_to(cdb2_hndl_tp *hndl, const char *host, int port,
     int done_global = 0, overwrite_rc = 0;
     cdb2_event *e = NULL;
 
-    while ((e = cdb2_next_hook_typed(hndl, BEFORE_CONNECT, e, &done_global)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 2, HOSTNAME, host, PORT, port);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_BEFORE_CONNECT, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, host, CDB2_PORT, port);
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE) {
             overwrite_rc = 1;
             rc = (int)(intptr_t)hookrc;
         }
@@ -809,9 +809,9 @@ static int cdb2_tcpconnecth_to(cdb2_hndl_tp *hndl, const char *host, int port,
     rc = cdb2_do_tcpconnect(in, port, myport, timeoutms);
 
 after_hook:
-    while ((e = cdb2_next_hook_typed(hndl, AFTER_CONNECT, e, &done_global)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 3, HOSTNAME, host, PORT, port, RETURN_VALUE, rc);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_AFTER_CONNECT, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, host, CDB2_PORT, port, CDB2_RETURN_VALUE, rc);
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE)
             rc = (int)(intptr_t)hookrc;
     }
     return rc;
@@ -2000,9 +2000,9 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
     int done_global = 0, overwrite_rc = 0;
     cdb2_event *e = NULL;
 
-    while ((e = cdb2_next_hook_typed(hndl, BEFORE_PMUX, e, &done_global)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 2, HOSTNAME, remote_host, PORT, CDB2_PORTMUXPORT);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_BEFORE_PMUX, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, remote_host, CDB2_PORT, CDB2_PORTMUXPORT);
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE) {
             overwrite_rc = 1;
             port = (int)(intptr_t)hookrc;
         }
@@ -2071,9 +2071,9 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
         port = -1;
     }
 after_hook:
-    while ((e = cdb2_next_hook_typed(hndl, AFTER_PMUX, e, &done_global)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 3, HOSTNAME, remote_host, PORT, CDB2_PORTMUXPORT, RETURN_VALUE, port);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_AFTER_PMUX, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, remote_host, CDB2_PORT, CDB2_PORTMUXPORT, CDB2_RETURN_VALUE, port);
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE)
             port = (int)(intptr_t)hookrc;
     }
     return port;
@@ -2272,9 +2272,9 @@ static int cdb2_read_record(cdb2_hndl_tp *hndl, uint8_t **buf, int *len, int *ty
     int done_global = 0, overwrite_rc = 0;
     cdb2_event *e = NULL;
 
-    while ((e = cdb2_next_hook_typed(hndl, BEFORE_READ_RECORD, e, &done_global)) != NULL) {
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_BEFORE_READ_RECORD, e, &done_global)) != NULL) {
         hookrc = cdb2_invoke_hook(hndl, e, 0, NULL);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE) {
             overwrite_rc = 1;
             rc = (int)(intptr_t)hookrc;
         }
@@ -2381,9 +2381,9 @@ retry:
 
     rc = 0;
 after_hook:
-    while ((e = cdb2_next_hook_typed(hndl, AFTER_READ_RECORD, e, &done_global)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 1, RETURN_VALUE, rc);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_AFTER_READ_RECORD, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 1, CDB2_RETURN_VALUE, rc);
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE)
             rc = (int)(intptr_t)hookrc;
     }
     return rc;
@@ -2509,9 +2509,9 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, SBUF2 *sb, const char *dbname,
     int done_global = 0, overwrite_rc = 0;
     cdb2_event *e = NULL;
 
-    while ((e = cdb2_next_hook_typed(hndl, BEFORE_SEND_QUERY, e, &done_global)) != NULL) {
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_BEFORE_SEND_QUERY, e, &done_global)) != NULL) {
         hookrc = cdb2_invoke_hook(hndl, e, 0, NULL);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE) {
             overwrite_rc = 1;
             rc = (int)(intptr_t)hookrc;
         }
@@ -2695,9 +2695,9 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, SBUF2 *sb, const char *dbname,
     rc = 0;
 
 after_hook:
-    while ((e = cdb2_next_hook_typed(hndl, AFTER_SEND_QUERY, e, &done_global)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 1, RETURN_VALUE, rc);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_AFTER_SEND_QUERY, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 1, CDB2_RETURN_VALUE, rc);
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE)
             rc = (int)(intptr_t)hookrc;
     }
     return rc;
@@ -3104,7 +3104,7 @@ static int cdb2_query_with_hint(cdb2_hndl_tp *hndl, const char *sqlquery,
        */
     *hint = malloc(fw_end + SQLCACHEHINTLENGTH + 4 + len_id + 1);
     strncpy(*hint, sqlstr, fw_end);
-    /* Add the SQL HINT */
+    /* Add the CDB2_SQL HINT */
     strncpy(*hint + fw_end, SQLCACHEHINT, SQLCACHEHINTLENGTH);
     strncpy(*hint + fw_end + SQLCACHEHINTLENGTH, short_identifier, len_id);
     strncpy(*hint + fw_end + SQLCACHEHINTLENGTH + len_id, " */ ", 5);
@@ -4833,9 +4833,9 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
     int done_global = 0, overwrite_rc = 0;
     cdb2_event *e = NULL;
 
-    while ((e = cdb2_next_hook_typed(hndl, BEFORE_DBINFO, e, &done_global)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 2, HOSTNAME, host, PORT, -1);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE) {
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_BEFORE_DBINFO, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, host, CDB2_PORT, -1);
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE) {
             overwrite_rc = 1;
             rc = (int)(intptr_t)hookrc;
         }
@@ -4996,9 +4996,9 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
     rc = ((*num_valid_hosts) <= 0);
 
 after_hook:
-    while ((e = cdb2_next_hook_typed(hndl, AFTER_DBINFO, e, &done_global)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 3, HOSTNAME, host, PORT, port, RETURN_VALUE, rc);
-        if (e->ctrl & OVERWRITE_RETURN_VALUE)
+    while ((e = cdb2_next_hook_typed(hndl, CDB2_AFTER_DBINFO, e, &done_global)) != NULL) {
+        hookrc = cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, host, CDB2_PORT, port, CDB2_RETURN_VALUE, rc);
+        if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE)
             rc = (int)(intptr_t)hookrc;
     }
     return rc;
@@ -5905,16 +5905,16 @@ static void *cdb2_invoke_hook(cdb2_hndl_tp *hndl, cdb2_event *e, int argc, ...)
     va_start(ap, argc);
     for (i = 0; i < argc; ++i) {
         switch (va_arg(ap, cdb2_event_arg)) {
-        case HOSTNAME:
+        case CDB2_HOSTNAME:
             hostname = va_arg(ap, char *);
             break;
-        case PORT:
+        case CDB2_PORT:
             port = va_arg(ap, int);
             break;
-        case SQL:
+        case CDB2_SQL:
             sql = va_arg(ap, char *);
             break;
-        case RETURN_VALUE:
+        case CDB2_RETURN_VALUE:
             rc = va_arg(ap, void *);
             break;
         default:
@@ -5927,16 +5927,16 @@ static void *cdb2_invoke_hook(cdb2_hndl_tp *hndl, cdb2_event *e, int argc, ...)
     argv = alloca(sizeof(void *) * e->argc);
     for (i = 0; i != e->argc; ++i) {
         switch (e->argv[i]) {
-        case HOSTNAME:
+        case CDB2_HOSTNAME:
             argv[i] = (void *)hostname;
             break;
-        case PORT:
+        case CDB2_PORT:
             argv[i] = (void *)(intptr_t)port;
             break;
-        case SQL:
+        case CDB2_SQL:
             argv[i] = (void *)sql;
             break;
-        case RETURN_VALUE:
+        case CDB2_RETURN_VALUE:
             argv[i] = (void *)rc;
             break;
         default:
