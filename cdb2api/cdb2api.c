@@ -15,6 +15,7 @@
  */
 
 #include <alloca.h>
+#include <stdarg.h>
 #include <sbuf2.h>
 #include <limits.h>
 #include <unistd.h>
@@ -161,10 +162,10 @@ struct cdb2_event {
     cdb2_event_arg argv[1];
 };
 static cdb2_event *cdb2_global_events;
-void (*cdb2_init_hook)(void) = NULL;
 static cdb2_event *cdb2_next_hook_typed(cdb2_hndl_tp *, cdb2_event_type, cdb2_event *, int *);
 static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *, cdb2_event *, int *);
 static void *cdb2_invoke_hook(cdb2_hndl_tp *, cdb2_event *, int, ...);
+void (*cdb2_init_events)(void) = NULL;
 
 #define debugprint(fmt, args...)                                               \
     do {                                                                       \
@@ -332,6 +333,9 @@ static void do_init_once(void)
     _PID = getpid();
     _MACHINE_ID = gethostid();
     _ARGV0 = getargv0();
+
+    if (cdb2_init_events != NULL)
+        (*cdb2_init_events)();
 }
 
 /* if sqlstr is a read stmt will return 1 otherwise return 0
@@ -2953,6 +2957,8 @@ int cdb2_get_effects(cdb2_hndl_tp *hndl, cdb2_effects_tp *effects)
 
 int cdb2_close(cdb2_hndl_tp *hndl)
 {
+    cdb2_event *curr = NULL, *prev = NULL;
+
     if (log_calls)
         fprintf(stderr, "%p> cdb2_close(%p)\n", (void *)pthread_self(), hndl);
 
@@ -3031,6 +3037,14 @@ int cdb2_close(cdb2_hndl_tp *hndl)
         hndl->sess_list->ref = 0;
     }
 #endif
+
+    /* Free handle-specific event hooks, if any. */
+    curr = hndl->events;
+    while (curr != NULL) {
+        prev = curr;
+        curr = curr->next;
+        free(prev);
+    }
 
     free(hndl);
     return 0;
@@ -5768,6 +5782,7 @@ cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type type, cdb2_e
 {
     cdb2_event *ret;
     cdb2_event *curr;
+    va_list ap;
     int i;
 
     /* Allocate an event object. */
@@ -5783,7 +5798,6 @@ cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type type, cdb2_e
     ret->argc = nargs;
 
     /* Copy over argument types. */
-    va_list ap;
     va_start(ap, nargs);
     for (i = 0; i != nargs; ++i)
         ret->argv[i] = va_arg(ap, cdb2_event_arg);
@@ -5863,7 +5877,6 @@ static void *cdb2_invoke_hook(cdb2_hndl_tp *hndl, cdb2_event *e, int argc, ...)
 {
     int i;
     va_list ap;
-    cdb2_event_arg which;
     void **argv;
 
     const char *hostname;
@@ -5887,8 +5900,7 @@ static void *cdb2_invoke_hook(cdb2_hndl_tp *hndl, cdb2_event *e, int argc, ...)
 
     va_start(ap, argc);
     for (i = 0; i < argc; ++i) {
-        which = va_arg(ap, cdb2_event_arg);
-        switch (which) {
+        switch (va_arg(ap, cdb2_event_arg)) {
         case HOSTNAME:
             hostname = va_arg(ap, char *);
             break;
