@@ -166,7 +166,8 @@ struct cdb2_event {
 static pthread_mutex_t cdb2_event_mutex = PTHREAD_MUTEX_INITIALIZER;
 static cdb2_event cdb2_gbl_events;
 static int cdb2_gbl_event_version;
-static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *, cdb2_event_type, cdb2_event *);
+static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *, cdb2_event_type,
+                                  cdb2_event *);
 static void *cdb2_invoke_hook(cdb2_hndl_tp *, cdb2_event *, int, ...);
 static int refresh_gbl_events_on_hndl(cdb2_hndl_tp *);
 
@@ -797,7 +798,8 @@ static int cdb2_tcpconnecth_to(cdb2_hndl_tp *hndl, const char *host, int port,
     cdb2_event *e = NULL;
 
     while ((e = cdb2_next_hook(hndl, CDB2_BEFORE_CONNECT, e)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, host, CDB2_PORT, port);
+        hookrc =
+            cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, host, CDB2_PORT, port);
         if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE) {
             overwrite_rc = 1;
             rc = (int)(intptr_t)hookrc;
@@ -814,7 +816,8 @@ static int cdb2_tcpconnecth_to(cdb2_hndl_tp *hndl, const char *host, int port,
 
 after_hook:
     while ((e = cdb2_next_hook(hndl, CDB2_AFTER_CONNECT, e)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, host, CDB2_PORT, port, CDB2_RETURN_VALUE, rc);
+        hookrc = cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, host, CDB2_PORT,
+                                  port, CDB2_RETURN_VALUE, rc);
         if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE)
             rc = (int)(intptr_t)hookrc;
     }
@@ -2006,7 +2009,8 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
     cdb2_event *e = NULL;
 
     while ((e = cdb2_next_hook(hndl, CDB2_BEFORE_PMUX, e)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, remote_host, CDB2_PORT, CDB2_PORTMUXPORT);
+        hookrc = cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, remote_host,
+                                  CDB2_PORT, CDB2_PORTMUXPORT);
         if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE) {
             overwrite_rc = 1;
             port = (int)(intptr_t)hookrc;
@@ -2077,7 +2081,9 @@ static int cdb2portmux_get(cdb2_hndl_tp *hndl, const char *type,
     }
 after_hook:
     while ((e = cdb2_next_hook(hndl, CDB2_AFTER_PMUX, e)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, remote_host, CDB2_PORT, CDB2_PORTMUXPORT, CDB2_RETURN_VALUE, port);
+        hookrc =
+            cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, remote_host, CDB2_PORT,
+                             CDB2_PORTMUXPORT, CDB2_RETURN_VALUE, port);
         if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE)
             port = (int)(intptr_t)hookrc;
     }
@@ -4838,7 +4844,8 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
     cdb2_event *e = NULL;
 
     while ((e = cdb2_next_hook(hndl, CDB2_BEFORE_DBINFO, e)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, host, CDB2_PORT, -1);
+        hookrc =
+            cdb2_invoke_hook(hndl, e, 2, CDB2_HOSTNAME, host, CDB2_PORT, -1);
         if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE) {
             overwrite_rc = 1;
             rc = (int)(intptr_t)hookrc;
@@ -5001,7 +5008,8 @@ static int cdb2_dbinfo_query(cdb2_hndl_tp *hndl, const char *type,
 
 after_hook:
     while ((e = cdb2_next_hook(hndl, CDB2_AFTER_DBINFO, e)) != NULL) {
-        hookrc = cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, host, CDB2_PORT, port, CDB2_RETURN_VALUE, rc);
+        hookrc = cdb2_invoke_hook(hndl, e, 3, CDB2_HOSTNAME, host, CDB2_PORT,
+                                  port, CDB2_RETURN_VALUE, rc);
         if (e->ctrl & CDB2_OVERWRITE_RETURN_VALUE)
             rc = (int)(intptr_t)hookrc;
     }
@@ -5789,7 +5797,9 @@ int cdb2_clear_ack(cdb2_hndl_tp* hndl)
     return 0;
 }
 
-cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type type, cdb2_event_ctrl ctrl, cdb2_event_callback cb, void *user_arg, int nargs, ...)
+cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type type,
+                                cdb2_event_ctrl ctrl, cdb2_event_callback cb,
+                                void *user_arg, int nargs, ...)
 {
     cdb2_event *ret;
     cdb2_event *curr;
@@ -5818,14 +5828,16 @@ cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type type, cdb2_e
         /* handle is NULL. We want to register to the global events. */
         ret->global = 1;
         pthread_mutex_lock(&cdb2_event_mutex);
-        for (curr = &cdb2_gbl_events; curr->next != NULL; curr = curr->next);
-            curr->next = ret;
+        for (curr = &cdb2_gbl_events; curr->next != NULL; curr = curr->next)
+            ;
+        curr->next = ret;
         /* Increment global version so handles are aware of the new event. */
         ++cdb2_gbl_event_version;
         pthread_mutex_unlock(&cdb2_event_mutex);
     } else {
         ret->global = 0;
-        for (curr = &hndl->events; curr->next != NULL; curr = curr->next);
+        for (curr = &hndl->events; curr->next != NULL; curr = curr->next)
+            ;
         curr->next = ret;
     }
     return ret;
@@ -5837,14 +5849,18 @@ int cdb2_unregister_event(cdb2_hndl_tp *hndl, cdb2_event *event)
 
     if (hndl == NULL) {
         pthread_mutex_lock(&cdb2_event_mutex);
-        for (prev = &cdb2_gbl_events, curr = prev->next; curr != NULL && curr != event; prev = curr, curr = curr->next);
+        for (prev = &cdb2_gbl_events, curr = prev->next;
+             curr != NULL && curr != event; prev = curr, curr = curr->next)
+            ;
         if (curr != event)
             return EINVAL;
         prev->next = curr->next;
         ++cdb2_gbl_event_version;
         pthread_mutex_unlock(&cdb2_event_mutex);
     } else {
-        for (prev = &hndl->events, curr = prev->next; curr != NULL && curr != event; prev = curr, curr = curr->next);
+        for (prev = &hndl->events, curr = prev->next;
+             curr != NULL && curr != event; prev = curr, curr = curr->next)
+            ;
         if (curr != event)
             return EINVAL;
         prev->next = curr->next;
@@ -5853,7 +5869,8 @@ int cdb2_unregister_event(cdb2_hndl_tp *hndl, cdb2_event *event)
     return 0;
 }
 
-static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *hndl, cdb2_event_type type, cdb2_event *e)
+static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *hndl, cdb2_event_type type,
+                                  cdb2_event *e)
 {
     if (e != NULL)
         e = e->next;
@@ -5863,7 +5880,8 @@ static cdb2_event *cdb2_next_hook(cdb2_hndl_tp *hndl, cdb2_event_type type, cdb2
             return NULL;
         e = hndl->events.next;
     }
-    for (; e != NULL && !(e->type & type); e = e->next);
+    for (; e != NULL && !(e->type & type); e = e->next)
+        ;
     return e;
 }
 
@@ -5964,7 +5982,8 @@ static int refresh_gbl_events_on_hndl(cdb2_hndl_tp *hndl)
     knot = gbl;
 
     /* Clone and append global events to the handle. */
-    for (gbl = cdb2_gbl_events.next, lcl = &hndl->events; gbl != NULL; gbl = gbl->next) {
+    for (gbl = cdb2_gbl_events.next, lcl = &hndl->events; gbl != NULL;
+         gbl = gbl->next) {
         elen = sizeof(cdb2_event) + gbl->argc * sizeof(cdb2_event_arg);
         tmp = malloc(elen);
         if (tmp == NULL) {
