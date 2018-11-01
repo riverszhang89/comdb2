@@ -274,11 +274,11 @@ typedef enum cdb2_event_arg {
 
 typedef struct cdb2_event cdb2_event;
 
-typedef void *(*cdb2_event_callback)(cdb2_hndl_tp *, void *user_arg, int argc,
-                                     void **argv);
+typedef void *(*cdb2_event_callback)(cdb2_hndl_tp *hndl, void *user_arg,
+                                     int argc, void **argv);
 
-cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type type,
-                                cdb2_event_ctrl ctrl, cdb2_event_callback cb,
+cdb2_event *cdb2_register_event(cdb2_hndl_tp *hndl, cdb2_event_type types,
+                                cdb2_event_ctrl ctrls, cdb2_event_callback cb,
                                 void *user_arg, int argc, ...);
 int cdb2_unregister_event(cdb2_hndl_tp *hndl, cdb2_event *e);
 #if defined __cplusplus
