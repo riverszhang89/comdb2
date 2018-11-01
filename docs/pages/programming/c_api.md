@@ -497,8 +497,8 @@ Description:
 The function registers an event with a callback `cb`.
 The function returns an opaque structure which can be used to unregister the event using `cdb2_unregister_event()`.
 
-If `hndl` is NULL, the event will be registered globally and will be applied to all the handles created afterwards.
-Otherwise, the event will be registered locally to the handle, thus will be applied to the handle only.
+If `hndl` is NULL, the event will be registered globally and thus will be inherited by all handles created afterwards.
+Otherwise, the event will be registered locally to the handle, thus will be visible to the handle only.
 
 `types` specifies when the callback should be called. It can be set to a bitwise OR'd combination of the following values.
 
@@ -528,7 +528,7 @@ Otherwise, the event will be registered locally to the handle, thus will be appl
 typedef void *(*cdb2_event_callback)(cdb2_hndl_tp *cb_hndl, void *user_arg, int argc, void **argv);
 ```
 
-where `cb_hndl` is the handle where the event is fired upon.
+where `cb_hndl` is the handle upon which the event is fired.
 
 `user_arg` will be passed along to `cb`.
 
@@ -547,22 +547,23 @@ Besides the user argument, one can request additional arguments by setting `argc
 | `CDB2_BEFORE_READ_RECORD` | The server hostname | The database port | The SQL query | N/A |
 | `CDB2_AFTER_READ_RECORD` | The server hostname | The database port | The SQL query | 0 on success; Non-zero on failure |
 
-Return Values:
+Return Value:
 
 The function returns an opaque structure which can be used to unregister the event using `cdb2_unregister_event()`.
 
-### cdb2_register_event
+### cdb2_unregister_event
 ```
 int cdb2_unregister_event(cdb2_hndl_tp *hndl, cdb2_event *e);
 ```
 
 Description:
 
-The function unregisters an event.
+The function unregisters and destroys an event.
 If `hndl` is NULL, the function unregisters the event from all handles. Any handle created afterwards will not inherit the event either.
 Otherwise, the function unregisters the event from the handle.
 
-Return Values:
+Return Value:
+
 The function returns 0 on success, and returns EINVAL if the event could not be found.
 
 ## Errors
