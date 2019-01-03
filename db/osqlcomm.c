@@ -7387,10 +7387,13 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     } break;
     case OSQL_QBLOB: {
         osql_qblob_t dt;
-        unsigned char *blob = NULL;
+        uint8_t *blob = NULL;
         const uint8_t *p_buf_end = p_buf + sizeof(osql_qblob_t);
 
         blob = (uint8_t *)osqlcomm_qblob_type_get(&dt, p_buf, p_buf_end);
+
+        int odhready = IS_ODHREADY(dt.id);
+        dt.id &= ~OSQL_BLOB_ODH_BIT;
 
         if (logsb) {
             int jj = 0;
@@ -7418,6 +7421,8 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             blobs[dt.id].collected = 1;
             blobs[dt.id].javasp_bytearray = NULL;
         } else {
+            if (odhready)
+                blobs[dt.id].odhind = (dt.id | OSQL_BLOB_ODH_BIT);
             blobs[dt.id].length = dt.bloblen;
 
             if (dt.bloblen >= 0) {

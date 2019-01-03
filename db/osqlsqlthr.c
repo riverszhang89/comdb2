@@ -1434,7 +1434,10 @@ static int osql_send_qblobs_logic(struct BtCursor *pCur, osqlstate_t *osql,
             }
         }
 
-        rc = osql_send_qblob(osql->host, osql->rqid, osql->uuid, i, pCur->genid,
+
+        osql_odhfy_blob(pCur->db, blobs + i, i);
+
+        rc = osql_send_qblob(osql->host, osql->rqid, osql->uuid, blobs[i].odhind, pCur->genid,
                              nettype, blobs[i].data, blobs[i].length,
                              osql->logsb);
         if (rc)

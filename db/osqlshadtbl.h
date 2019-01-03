@@ -192,4 +192,5 @@ int osql_shadtbl_empty(struct sqlclntstate *clnt);
  */
 int osql_shadtbl_usedb_only(struct sqlclntstate *clnt);
 
+void osql_odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind);
 #endif

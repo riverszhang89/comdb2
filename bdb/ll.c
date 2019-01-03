@@ -194,7 +194,7 @@ int add_snapisol_logging(bdb_state_type *bdb_state, tran_type *tran)
    file to write to, and I don't want to clone it here. */
 int ll_dta_add(bdb_state_type *bdb_state, unsigned long long genid, DB *dbp,
                tran_type *tran, int dtafile, int dtastripe, DBT *dbt_key,
-               DBT *dbt_data, int flags)
+               DBT *dbt_data, int flags, int odhready)
 {
     int outrc = 0, rc;
     int tran_flags;
@@ -225,7 +225,7 @@ int ll_dta_add(bdb_state_type *bdb_state, unsigned long long genid, DB *dbp,
 
         outrc = bdb_put_pack(bdb_state, dtafile > 0 ? 1 : 0, dbp,
                              tran ? tran->tid : NULL, dbt_key, dbt_data,
-                             tran_flags);
+                             tran_flags, odhready);
 
         if (!outrc && add_snapisol_logging(bdb_state, tran)) {
             tran_type *parent = (tran->parent) ? tran->parent : tran;
@@ -257,7 +257,7 @@ int ll_dta_add(bdb_state_type *bdb_state, unsigned long long genid, DB *dbp,
 
     case TRANCLASS_LOGICAL:
         outrc = phys_dta_add(bdb_state, tran, genid, dbp, dtafile, dtastripe,
-                             dbt_key, dbt_data);
+                             dbt_key, dbt_data, odhready);
         break;
 
     default:
@@ -901,7 +901,7 @@ static int ll_dta_upd_int(bdb_state_type *bdb_state, int rrn,
                           int participantstripid, int use_new_genid,
                           DBT *verify_dta, DBT *dta, DBT *old_dta_out,
                           int is_blob, int has_blob_update_optimization,
-                          int keep_genid_intact)
+                          int keep_genid_intact, int odhready)
 {
     int rc = 0;
     int inplace = 0;
@@ -1174,8 +1174,6 @@ static int ll_dta_upd_int(bdb_state_type *bdb_state, int rrn,
             /* Zap odh. */
             bzero(&odh, sizeof(odh));
 
-            init_odh(bdb_state, &odh, dta->data, dta->size, is_blob);
-
             /* Allocate space for new record if it is small. */
             if (dta->size + ODH_SIZE_RESERVE < 16 * 1024) {
                 formatted_record = alloca(dta->size + ODH_SIZE_RESERVE);
@@ -1190,9 +1188,11 @@ static int ll_dta_upd_int(bdb_state_type *bdb_state, int rrn,
              * which we can't handle under page-order tablescan.  */
 
             /* Format the payload. */
-            rc = bdb_pack(bdb_state, &odh, formatted_record,
-                          dta->size + ODH_SIZE_RESERVE, &recptr,
-                          &formatted_record_len, &freedtaptr);
+            DBT dta2;
+            rc = bdb_prepare_put_pack_updateid(bdb_state, is_blob,
+                    dta, &dta2, -1, &freedtaptr, formatted_record, odhready);
+            recptr = dta2.data;
+            formatted_record_len = dta2.size;
 
             /* Fall back to delete/add. */
             if (inplace && !is_blob &&
@@ -1385,7 +1385,7 @@ static int ll_dta_upd_int(bdb_state_type *bdb_state, int rrn,
     case TRANCLASS_LOGICAL:
 
         rc = phys_dta_upd(bdb_state, rrn, oldgenid, newgenid, dbp, tran,
-                          dtafile, dtastripe, verify_dta, dta);
+                          dtafile, dtastripe, verify_dta, dta, odhready);
         break;
     default:
         break;
@@ -1405,28 +1405,28 @@ int ll_dta_upd_blob_w_opt(bdb_state_type *bdb_state, int rrn,
 {
     return ll_dta_upd_int(bdb_state, rrn, oldgenid, newgenid, dbp, tran,
                           dtafile, dtastripe, participantstripid, use_new_genid,
-                          verify_dta, dta, old_dta_out, 1, 1, 0);
+                          verify_dta, dta, old_dta_out, 1, 1, 0, 0);
 }
 
 int ll_dta_upd(bdb_state_type *bdb_state, int rrn, unsigned long long oldgenid,
                unsigned long long *newgenid, DB *dbp, tran_type *tran,
                int dtafile, int dtastripe, int participantstripid,
-               int use_new_genid, DBT *verify_dta, DBT *dta, DBT *old_dta_out)
+               int use_new_genid, DBT *verify_dta, DBT *dta, DBT *old_dta_out, int odhready)
 {
     return ll_dta_upd_int(bdb_state, rrn, oldgenid, newgenid, dbp, tran,
                           dtafile, dtastripe, participantstripid, use_new_genid,
-                          verify_dta, dta, old_dta_out, (dtafile != 0), 0, 0);
+                          verify_dta, dta, old_dta_out, (dtafile != 0), 0, 0, odhready);
 }
 
 int ll_dta_upd_blob(bdb_state_type *bdb_state, int rrn,
                     unsigned long long oldgenid, unsigned long long newgenid,
                     DB *dbp, tran_type *tran, int dtafile, int dtastripe,
-                    int participantstripid, DBT *dta)
+                    int participantstripid, DBT *dta, int odhready)
 {
     unsigned long long ngenid = newgenid;
     return ll_dta_upd_int(bdb_state, rrn, oldgenid, &ngenid, dbp, tran, dtafile,
                           dtastripe, participantstripid, 1, NULL, dta, NULL, 1,
-                          0, 0);
+                          0, 0, odhready);
 }
 
 int ll_dta_upgrade(bdb_state_type *bdb_state, int rrn, unsigned long long genid,
@@ -1435,7 +1435,7 @@ int ll_dta_upgrade(bdb_state_type *bdb_state, int rrn, unsigned long long genid,
 {
     unsigned long long newgenid = 0ULL;
     return ll_dta_upd_int(bdb_state, rrn, genid, &newgenid, dbp, tran, dtafile,
-                          dtastripe, 0, 0, NULL, dta, NULL, 0, 0, 1);
+                          dtastripe, 0, 0, NULL, dta, NULL, 0, 0, 1, 0);
 }
 
 int ll_commit_bench(bdb_state_type *bdb_state, tran_type *tran, int op,

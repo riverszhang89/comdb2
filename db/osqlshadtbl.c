@@ -38,11 +38,13 @@ extern int gbl_expressions_indexes;
 typedef struct blob_key {
     unsigned long long seq; /* tbl->seq identifying the owning row */
     unsigned long long id;  /* blob index in the row */
+    int odh;                /* ODH-ready or not */
 } blob_key_t;
 
 typedef struct updCols_key {
     unsigned long long seq; /* thd->seq identifying the owning row */
     unsigned long long id;  /* -1 to differentiate from blobs */
+    int odh;                /* Unused */
 } updCols_key_t;
 
 struct rec_dirty_keys {
@@ -590,6 +592,9 @@ int osql_fetch_shadblobs_by_genid(BtCursor *pCur, int *blobnum,
     /* key gets set into cur->key, and is freed when a new key is
        submitted or when the cursor is closed */
     blob_key_t *key = (blob_key_t *)malloc(sizeof(blob_key_t));
+    void *tmptblblb;
+    blob_key_t *tmptblkey;
+    int tmptblblblen;
 
     if (!(tbl = open_shadtbl(pCur)) || !tbl->blb_cur) {
         logmsg(LOGMSG_ERROR, "%s: error getting shadtbl for \'%s\'\n", __func__,
@@ -602,8 +607,8 @@ int osql_fetch_shadblobs_by_genid(BtCursor *pCur, int *blobnum,
     key->seq = pCur->genid;
     key->id = *blobnum - 1;
 
-    rc = bdb_temp_table_find_exact(tbl->env->bdb_env, tbl->blb_cur, key,
-                                   sizeof(*key), bdberr);
+    rc = bdb_temp_table_find(tbl->env->bdb_env, tbl->blb_cur, key,
+            sizeof(*key), NULL, bdberr);
     if (rc != IX_FND)
         free(key);
 
@@ -613,9 +618,18 @@ int osql_fetch_shadblobs_by_genid(BtCursor *pCur, int *blobnum,
         blobs->blobptrs[0] = NULL;
         rc = 0;
     } else if (!rc) {
-        blobs->bloblens[0] = bdb_temp_table_datasize(tbl->blb_cur);
+        tmptblkey = bdb_temp_table_key(tbl->blb_cur);
+        tmptblblb = bdb_temp_table_data(tbl->blb_cur);
+        tmptblblblen = bdb_temp_table_datasize(tbl->blb_cur);
+
+        if (tmptblkey->odh) {
+            rc = bdb_unpack_shad_blob(pCur->db->handle, tmptblblb, tmptblblblen, (void **)blobs->blobptrs, blobs->bloblens);
+        } else {
+            blobs->bloblens[0] = tmptblblblen;
+            blobs->blobptrs[0] = tmptblblb;
+        }
+
         blobs->bloboffs[0] = 0;
-        blobs->blobptrs[0] = bdb_temp_table_data(tbl->blb_cur);
 
         /* reset data pointer in cursor; blob will be freed when blobs is freed
          */
@@ -1399,6 +1413,7 @@ int osql_save_qblobs(struct BtCursor *pCur, struct sql_thread *thd,
 
         if (blobs[i].exists == 1) {
 
+            osql_odhfy_blob(pCur->db, blobs + i, i);
             blob_key_t key;
 
             key.id = i;
@@ -1406,6 +1421,7 @@ int osql_save_qblobs(struct BtCursor *pCur, struct sql_thread *thd,
                if it is an insert, we index blobs using temptable seq number
              */
             key.seq = tmp;
+            key.odh = IS_ODHREADY(blobs[i].odhind);
 
             rc = bdb_temp_table_put(tbl->env->bdb_env, tbl->blb_tbl->table,
                                     &key, sizeof(key), blobs[i].data,
@@ -1786,10 +1802,10 @@ static int process_local_shadtbl_qblob(struct sqlclntstate *clnt,
     int idx;
     int ncols;
     int osql_nettype = tran2netrpl(clnt->dbtran.mode);
+    blob_key_t *key;
 
     /* identify the number of blobs */
     for (i = 0; i < tbl->nblobs; i++) {
-        blob_key_t *key;
 
         if (updCols && gbl_osql_blob_optimization) {
             idx = get_schema_blob_field_idx(tbl->tablename, ".ONDISK", i);
@@ -1810,23 +1826,27 @@ static int process_local_shadtbl_qblob(struct sqlclntstate *clnt,
         key->seq = seq;
         key->id = i;
 
-        rc = bdb_temp_table_find_exact(tbl->env->bdb_env, tbl->blb_cur, key,
-                                       sizeof(*key), bdberr);
+        rc = bdb_temp_table_find(tbl->env->bdb_env, tbl->blb_cur, key,
+                                       sizeof(*key), NULL, bdberr);
         if (rc != IX_FND)
             free(key);
 
+        idx = i;
         if (rc == IX_EMPTY || rc == IX_NOTFND) {
             /* null blob */
             data = NULL;
             ldata = -1;
         } else if (rc == IX_FND) {
+            key = bdb_temp_table_key(tbl->blb_cur);
+            if (key->odh)
+                idx |= OSQL_BLOB_ODH_BIT;
             data = bdb_temp_table_data(tbl->blb_cur);
             ldata = bdb_temp_table_datasize(tbl->blb_cur);
         } else {
             return SQLITE_INTERNAL;
         }
 
-        rc = osql_send_qblob(osql->host, osql->rqid, osql->uuid, i, seq,
+        rc = osql_send_qblob(osql->host, osql->rqid, osql->uuid, idx, seq,
                              osql_nettype, data, ldata, osql->logsb);
 
         if (rc) {
@@ -3294,4 +3314,29 @@ int osql_shadtbl_usedb_only(struct sqlclntstate *clnt)
             return 0;
     }
     return 1;
+}
+
+void osql_odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
+{
+    void *out;
+    size_t len;
+    int rc;
+
+    if (IS_ODHREADY(blob->odhind))
+        return;
+
+    if (!gbl_osql_odh_blob || db->ix_partial) {
+        blob->odhind = blobind;
+        return;
+    }
+
+    rc = bdb_pack_shad_blob(db->handle, blob->data, blob->length, &out, &len);
+    if (rc != 0) {
+        blob->odhind = blobind;
+        return;
+    }
+    free(blob->data);
+    blob->data = out;
+    blob->length = len;
+    blob->odhind = (blobind | OSQL_BLOB_ODH_BIT);
 }

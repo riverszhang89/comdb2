@@ -25,6 +25,8 @@
 #include "comdb2uuid.h"
 #include "schemachange.h"
 
+#define OSQL_BLOB_ODH_BIT (1 << 31)
+#define IS_ODHREADY(x) (!!((x) & OSQL_BLOB_ODH_BIT))
 #define OSQL_SEND_ERROR_WRONGMASTER (-1234)
 /**
  * Initializes this node for osql communication

@@ -133,6 +133,8 @@ typedef struct blob_buffer {
     /* This is used by javasp.c to keep track of our reference to the byte
      * array object that this blob came from. */
     void *javasp_bytearray;
+
+    int odhind;
 } blob_buffer_t;
 
 /* Options used to control conversion from/to this field. */
