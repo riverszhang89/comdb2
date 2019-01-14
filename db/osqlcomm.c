@@ -6564,7 +6564,7 @@ int start_schema_change_tran_wrapper(const char *tblname,
  *
  */
 int osql_process_schemachange(struct ireq *iq, unsigned long long rqid,
-                              uuid_t uuid, void *trans, char *msg, int msglen,
+                              uuid_t uuid, void *trans, char **pmsg, int msglen,
                               int *flags, int **updCols,
                               blob_buffer_t blobs[MAXBLOBS], int step,
                               struct block_err *err, int *receivedrows,
@@ -6575,6 +6575,7 @@ int osql_process_schemachange(struct ireq *iq, unsigned long long rqid,
     int rc = 0;
     int type;
     uuidstr_t us;
+    char *msg = *pmsg;
 
     if (rqid == OSQL_RQID_USE_UUID) {
         osql_uuid_rpl_t rpl;
@@ -6705,7 +6706,7 @@ int osql_get_replicant_numops(const char *rpl, int has_uuid)
  *
  */
 int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
-                        void *trans, char *msg, int msglen, int *flags,
+                        void *trans, char **pmsg, int msglen, int *flags,
                         int **updCols, blob_buffer_t blobs[MAXBLOBS], int step,
                         struct block_err *err, int *receivedrows, SBUF2 *logsb)
 {
@@ -6717,6 +6718,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     const size_t tag_name_ondisk_len = 8 /*includes NUL*/;
     int type;
     unsigned long long id;
+    char *msg = *pmsg;
 
     if (rqid == OSQL_RQID_USE_UUID) {
         osql_uuid_rpl_t rpl;
@@ -7387,10 +7389,13 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     } break;
     case OSQL_QBLOB: {
         osql_qblob_t dt;
-        unsigned char *blob = NULL;
+        uint8_t *blob = NULL;
         const uint8_t *p_buf_end = p_buf + sizeof(osql_qblob_t);
 
         blob = (uint8_t *)osqlcomm_qblob_type_get(&dt, p_buf, p_buf_end);
+
+        int odhready = IS_ODH_READY(dt.id);
+        dt.id &= ~OSQL_BLOB_ODH_BIT;
 
         if (logsb) {
             int jj = 0;
@@ -7418,30 +7423,18 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             blobs[dt.id].collected = 1;
             blobs[dt.id].javasp_bytearray = NULL;
         } else {
+            if (odhready)
+                blobs[dt.id].odhind = (dt.id | OSQL_BLOB_ODH_BIT);
             blobs[dt.id].length = dt.bloblen;
 
             if (dt.bloblen >= 0) {
                 blobs[dt.id].exists = 1;
                 if (dt.bloblen > 0) {
-                    if (dt.bloblen > gbl_blob_sz_thresh_bytes)
-                        blobs[dt.id].data = comdb2_bmalloc(blobmem, dt.bloblen);
-                    else
-                        blobs[dt.id].data = malloc(dt.bloblen);
-                    if (!blobs[dt.id].data) {
-                        logmsg(LOGMSG_ERROR,
-                               "%s failed to allocated a new blob, size %zu\n",
-                               __func__, blobs[dt.id].length);
-                        return conv_rc_sql2blkop(iq, step, -1, ERR_INTERNAL,
-                                                 err, NULL, 0);
-                    }
-
-                    /* finally copy the blob */
-                    memcpy(blobs[dt.id].data, blob, dt.bloblen);
-
+                    blobs[dt.id].qblob = msg;
+                    blobs[dt.id].data = (char *)blob;
                     blobs[dt.id].collected = dt.bloblen;
-
+                    *pmsg = NULL;
                 } else {
-
                     blobs[dt.id].collected = 1;
                 }
 

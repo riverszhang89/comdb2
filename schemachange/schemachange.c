@@ -646,6 +646,14 @@ int live_sc_post_add_int(struct ireq *iq, void *trans, unsigned long long genid,
         return 0;
     }
 
+    for (int i = 0, rc; i != maxblobs; ++i) {
+        if (!blobs[i].exists)
+            continue;
+        rc = unodhfy_blob(iq->usedb, blobs + i, i);
+        if (rc != 0)
+            return rc;
+    }
+
     int stripe = get_dtafile_from_genid(genid);
     if (stripe < 0 || stripe >= gbl_dtastripe) {
         logmsg(LOGMSG_ERROR,
@@ -673,7 +681,7 @@ int live_sc_post_add(struct ireq *iq, void *trans, unsigned long long genid,
                      blob_buffer_t *blobs, size_t maxblobs, int origflags,
                      int *rrn)
 {
-    int rc = 0;
+    int rc;
 
     if (gbl_test_scindex_deadlock) {
         logmsg(LOGMSG_INFO, "%s: sleeping for 30s\n", __func__);
@@ -743,6 +751,14 @@ int live_sc_post_update_int(struct ireq *iq, void *trans,
 
     if (iq->usedb->sc_live_logical) {
         return 0;
+    }
+
+    for (int i = 0, rc; i != maxblobs; ++i) {
+        if (!blobs[i].exists)
+            continue;
+        rc = unodhfy_blob(iq->usedb, blobs + i, i);
+        if (rc != 0)
+            return rc;
     }
 
     int stripe = get_dtafile_from_genid(oldgenid);
@@ -826,7 +842,8 @@ int live_sc_post_update(struct ireq *iq, void *trans,
                         int rrn, int deferredAdd, blob_buffer_t *oldblobs,
                         blob_buffer_t *newblobs)
 {
-    int rc = 0;
+    int rc;
+
     Pthread_rwlock_rdlock(&iq->usedb->sc_live_lk);
 
     rc = live_sc_post_update_int(iq, trans, oldgenid, old_dta, newgenid,

@@ -5989,7 +5989,7 @@ void free_blob_buffers(blob_buffer_t *blobs, int nblobs)
     int ii;
     for (ii = 0; ii < nblobs; ii++) {
         if (blobs[ii].exists && blobs[ii].data)
-            free(blobs[ii].data);
+            free((blobs[ii].qblob != NULL) ? blobs[ii].qblob : blobs[ii].data);
     }
     bzero(blobs, sizeof(blob_buffer_t) * nblobs);
 }

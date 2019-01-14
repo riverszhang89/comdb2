@@ -1067,6 +1067,20 @@ done:
     return rc;
 }
 
+void **bdb_temp_table_data_addr(struct temp_cursor *cur)
+{
+    void **rc = NULL;
+    if (!cur->valid)
+        goto done;
+    if (cur->data != NULL)
+        rc = &cur->data;
+done:
+    if (rc)
+        dbghexdump(3, cur->data, cur->datalen);
+    dbgtrace(3, "temp_table_data(cursor %d) = %p\n", cur->curid, rc);
+    return rc;
+}
+
 /* berkeley extension/kludge */
 extern long long __db_filesz(DB *dbp);
 

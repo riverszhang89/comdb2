@@ -101,7 +101,7 @@ typedef struct oplog_key {
 static int apply_changes(struct ireq *iq, blocksql_tran_t *tran, void *iq_tran,
                          int *nops, struct block_err *err, SBUF2 *logsb,
                          int (*func)(struct ireq *, unsigned long long, uuid_t,
-                                     void *, char *, int, int *, int **,
+                                     void *, char **, int, int *, int **,
                                      blob_buffer_t blobs[MAXBLOBS], int,
                                      struct block_err *, int *, SBUF2 *));
 static int req2blockop(int reqtype);
@@ -1175,14 +1175,14 @@ static inline int init_ins_tbl(struct reqlogger *reqlogger,
  */
 static inline void get_tmptbl_data_and_len(struct temp_cursor *dbc,
                                            struct temp_cursor *dbc_ins,
-                                           bool drain_adds, char **data_p,
+                                           bool drain_adds, char ***data_p,
                                            int *datalen_p)
 {
     if (drain_adds) {
-        *data_p = bdb_temp_table_data(dbc_ins);
+        *data_p = (char **)bdb_temp_table_data_addr(dbc_ins);
         *datalen_p = bdb_temp_table_datasize(dbc_ins);
     } else {
-        *data_p = bdb_temp_table_data(dbc);
+        *data_p = (char **)bdb_temp_table_data_addr(dbc);
         *datalen_p = bdb_temp_table_datasize(dbc);
     }
 }
@@ -1266,7 +1266,7 @@ static int process_this_session(
     struct ireq *iq, void *iq_tran, osql_sess_t *sess, int *bdberr, int *nops,
     struct block_err *err, SBUF2 *logsb, struct temp_cursor *dbc,
     struct temp_cursor *dbc_ins,
-    int (*func)(struct ireq *, unsigned long long, uuid_t, void *, char *, int,
+    int (*func)(struct ireq *, unsigned long long, uuid_t, void *, char **, int,
                 int *, int **, blob_buffer_t blobs[MAXBLOBS], int,
                 struct block_err *, int *, SBUF2 *))
 {
@@ -1327,7 +1327,7 @@ static int process_this_session(
         return rc;
 
     while (!rc && !rc_out) {
-        char *data = NULL;
+        char **data = NULL;
         int datalen = 0;
         // fetch the data from the appropriate temp table -- based on drain_adds
         get_tmptbl_data_and_len(dbc, dbc_ins, drain_adds, &data, &datalen);
@@ -1408,7 +1408,7 @@ int osql_bplog_reqlog_queries(struct ireq *iq)
 static int apply_changes(struct ireq *iq, blocksql_tran_t *tran, void *iq_tran,
                          int *nops, struct block_err *err, SBUF2 *logsb,
                          int (*func)(struct ireq *, unsigned long long, uuid_t,
-                                     void *, char *, int, int *, int **,
+                                     void *, char **, int, int *, int **,
                                      blob_buffer_t blobs[MAXBLOBS], int,
                                      struct block_err *, int *, SBUF2 *))
 {

@@ -191,5 +191,4 @@ int osql_shadtbl_empty(struct sqlclntstate *clnt);
  * or if it only contains usedb record
  */
 int osql_shadtbl_usedb_only(struct sqlclntstate *clnt);
-
 #endif
