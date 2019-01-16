@@ -2751,12 +2751,9 @@ int odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
         return rc;
     }
 
-    if (blob->qblob == NULL)
+    if (blob->freedata)
         free(blob->data);
-    else {
-        free(blob->qblob);
-        blob->qblob = NULL;
-    }
+    blob->data = NULL;
 
     blob->data = out;
     blob->length = len;
@@ -2767,21 +2764,27 @@ int odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
 int unodhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
 {
     int rc;
+    void *out;
+    size_t len;
+
+    if (!blob->exists)
+        return 0;
 
     if (!IS_ODH_READY(blob->odhind))
         return 0;
 
-    rc = bdb_unpack_shad_blob(db->handle, blob->data, blob->length, (void **)&blob->data, &blob->length);
+    rc = bdb_unpack_shad_blob(db->handle, blob->data, blob->length, &out, &len);
     if (rc != 0)
         return rc;
 
-    if (blob->qblob == NULL)
+    if (blob->freedata)
         free(blob->data);
-    else {
-        free(blob->qblob);
-        blob->qblob = NULL;
-    }
+    blob->data = NULL;
 
+    /* We can't free blob->qblob yet as add_idx_blobs might reference it. */
+
+    blob->data = out;
+    blob->length = len;
     blob->odhind = blobind;
     return 0;
 }

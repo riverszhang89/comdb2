@@ -647,8 +647,6 @@ int live_sc_post_add_int(struct ireq *iq, void *trans, unsigned long long genid,
     }
 
     for (int i = 0, rc; i != maxblobs; ++i) {
-        if (!blobs[i].exists)
-            continue;
         rc = unodhfy_blob(iq->usedb, blobs + i, i);
         if (rc != 0)
             return rc;
@@ -754,8 +752,6 @@ int live_sc_post_update_int(struct ireq *iq, void *trans,
     }
 
     for (int i = 0, rc; i != maxblobs; ++i) {
-        if (!blobs[i].exists)
-            continue;
         rc = unodhfy_blob(iq->usedb, blobs + i, i);
         if (rc != 0)
             return rc;
