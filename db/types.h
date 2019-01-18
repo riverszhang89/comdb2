@@ -137,7 +137,7 @@ typedef struct blob_buffer {
     int odhind;
 
     char *qblob;
-    int freedata;
+    void *freeptr;
 } blob_buffer_t;
 
 /* Options used to control conversion from/to this field. */

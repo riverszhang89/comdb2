@@ -1982,9 +1982,7 @@ static int unpack_blob_record(struct convert_record_data *data, void *blb_buf,
                __LINE__, rc);
         return rc;
     }
-    blb->bloblens[blbix] = data->odh.length;
-    blb->bloboffs[blbix] = 0;
-    blb->blobptrs[blbix] = NULL;
+
     if (blb->blobptrs[blbix]) {
         logmsg(LOGMSG_ERROR,
                "%s:%d attempted to overwrite blob data that is currently in "
@@ -1994,6 +1992,11 @@ static int unpack_blob_record(struct convert_record_data *data, void *blb_buf,
             free(unpackbuf);
         return -1;
     }
+
+    blb->bloblens[blbix] = data->odh.length;
+    blb->bloboffs[blbix] = 0;
+    blb->blobptrs[blbix] = NULL;
+
     if (unpackbuf) {
         blb->blobptrs[blbix] = data->odh.recptr;
     } else if (data->odh.length) {

@@ -2342,6 +2342,7 @@ static int check_blob_buffers(struct ireq *iq, blob_buffer_t *blobs,
             else
                 inconsistent = blobs[cblob].exists;
             if (inconsistent) {
+                abort();
                 if (iq->debug) {
                     reqprintf(iq, "INCONSISTENT BLOB BUFFERS FOR BLOB %d",
                               cblob);
@@ -2745,15 +2746,18 @@ int odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
         return -1;
     }
 
-    rc = bdb_pack_shad_blob(db->handle, blob->data, blob->length, &out, &len);
-    if (rc != 0) {
+    if (blob->length == -2) {
         blob->odhind = blobind;
-        return rc;
+        return -1;
     }
 
-    if (blob->freedata)
-        free(blob->data);
-    blob->data = NULL;
+    rc = bdb_pack_shad_blob(db->handle, blob->data, blob->length, &out, &len, &blob->freeptr);
+    if (rc != 0) {
+        blob->odhind = blobind;
+        if (blob->freeptr != blob->data)
+            free(blob->freeptr);
+        return rc;
+    }
 
     blob->data = out;
     blob->length = len;
@@ -2773,13 +2777,12 @@ int unodhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
     if (!IS_ODH_READY(blob->odhind))
         return 0;
 
-    rc = bdb_unpack_shad_blob(db->handle, blob->data, blob->length, &out, &len);
-    if (rc != 0)
+    rc = bdb_unpack_shad_blob(db->handle, blob->data, blob->length, &out, &len, &blob->freeptr);
+    if (rc != 0) {
+        if (blob->freeptr != blob->data)
+            free(blob->freeptr);
         return rc;
-
-    if (blob->freedata)
-        free(blob->data);
-    blob->data = NULL;
+    }
 
     /* We can't free blob->qblob yet as add_idx_blobs might reference it. */
 

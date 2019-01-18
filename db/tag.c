@@ -5992,8 +5992,7 @@ void free_blob_buffers(blob_buffer_t *blobs, int nblobs)
         blob = blobs + ii;
         if (blob->exists) {
             free(blob->qblob);
-            if (blob->freedata)
-                free(blob->data);
+            free(blob->freeptr);
         }
     }
     bzero(blobs, sizeof(blob_buffer_t) * nblobs);

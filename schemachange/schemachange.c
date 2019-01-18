@@ -635,6 +635,8 @@ int live_sc_post_add_int(struct ireq *iq, void *trans, unsigned long long genid,
                          blob_buffer_t *blobs, size_t maxblobs, int origflags,
                          int *rrn)
 {
+    int i, rc, odh, reccompr, oldcompr, newcompr;
+
     if (iq->usedb->sc_downgrading)
         return ERR_NOMASTER;
 
@@ -646,10 +648,18 @@ int live_sc_post_add_int(struct ireq *iq, void *trans, unsigned long long genid,
         return 0;
     }
 
-    for (int i = 0, rc; i != maxblobs; ++i) {
-        rc = unodhfy_blob(iq->usedb, blobs + i, i);
-        if (rc != 0)
-            return rc;
+    for (i = 0; i != maxblobs; ++i) {
+        bdb_get_compr_flags(iq->usedb->sc_from->handle, &odh, &reccompr, &oldcompr);
+        bdb_get_compr_flags(iq->usedb->sc_to->handle, &odh, &reccompr, &newcompr);
+        (void)odh;
+        (void)reccompr;
+
+        /* If compression doesn't change, don't unodhfy the blobs. */
+        if (reccompr != newcompr) {
+            rc = unodhfy_blob(iq->usedb, blobs + i, i);
+            if (rc != 0)
+                return rc;
+        }
     }
 
     int stripe = get_dtafile_from_genid(genid);
@@ -740,6 +750,8 @@ int live_sc_post_update_int(struct ireq *iq, void *trans,
                             int origflags, int rrn, int deferredAdd,
                             blob_buffer_t *oldblobs, blob_buffer_t *newblobs)
 {
+    int i, rc, odh, reccompr, oldcompr, newcompr;
+
     if (iq->usedb->sc_downgrading)
         return ERR_NOMASTER;
 
@@ -751,10 +763,18 @@ int live_sc_post_update_int(struct ireq *iq, void *trans,
         return 0;
     }
 
-    for (int i = 0, rc; i != maxblobs; ++i) {
-        rc = unodhfy_blob(iq->usedb, blobs + i, i);
-        if (rc != 0)
-            return rc;
+    for (i = 0; i != maxblobs; ++i) {
+        bdb_get_compr_flags(iq->usedb->sc_from->handle, &odh, &reccompr, &oldcompr);
+        bdb_get_compr_flags(iq->usedb->sc_to->handle, &odh, &reccompr, &newcompr);
+        (void)odh;
+        (void)reccompr;
+
+        /* If compression doesn't change, don't unodhfy the blobs. */
+        if (reccompr != newcompr) {
+            rc = unodhfy_blob(iq->usedb, blobs + i, i);
+            if (rc != 0)
+                return rc;
+        }
     }
 
     int stripe = get_dtafile_from_genid(oldgenid);
@@ -784,7 +804,7 @@ int live_sc_post_update_int(struct ireq *iq, void *trans,
         iq->usedb->handle, oldgenid, sc_genids[stripe]);
     int is_newgen_gt_scptr = is_genid_right_of_stripe_pointer(
         iq->usedb->handle, newgenid, sc_genids[stripe]);
-    int rc = 0;
+    rc = 0;
 
     // spelling this out for legibility, various situations:
     if (is_newgen_gt_scptr &&

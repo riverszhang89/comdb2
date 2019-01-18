@@ -595,6 +595,7 @@ int osql_fetch_shadblobs_by_genid(BtCursor *pCur, int *blobnum,
     void *tmptblblb;
     blob_key_t *tmptblkey;
     int tmptblblblen;
+    void *freeptr;
 
     if (!(tbl = open_shadtbl(pCur)) || !tbl->blb_cur) {
         logmsg(LOGMSG_ERROR, "%s: error getting shadtbl for \'%s\'\n", __func__,
@@ -624,7 +625,20 @@ int osql_fetch_shadblobs_by_genid(BtCursor *pCur, int *blobnum,
         tmptblblblen = bdb_temp_table_datasize(tbl->blb_cur);
 
         if (tmptblkey->odh) {
-            rc = bdb_unpack_shad_blob(pCur->db->handle, tmptblblb, tmptblblblen, (void **)blobs->blobptrs, blobs->bloblens);
+            rc = bdb_unpack_shad_blob(pCur->db->handle, tmptblblb, tmptblblblen, (void **)blobs->blobptrs, blobs->bloblens, &freeptr);
+            if (rc != 0) {
+                free(freeptr);
+                return rc;
+            }
+
+            if (freeptr == NULL) {
+                freeptr = malloc(blobs->bloblens[0]);
+                memcpy(freeptr, blobs->blobptrs[0], blobs->bloblens[0]);
+                blobs->blobptrs[0] = freeptr;
+            }
+
+            free(tmptblblb);
+
         } else {
             blobs->bloblens[0] = tmptblblblen;
             blobs->blobptrs[0] = tmptblblb;

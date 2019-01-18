@@ -1381,32 +1381,29 @@ inline void bdb_clear_logical_live_sc(bdb_state_type *bdb_state)
     bdb_state->logical_live_sc = 0;
 }
 
-int bdb_unpack_shad_blob(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen)
+int bdb_unpack_shad_blob(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen, void **freeptr)
 {
     struct odh odh;
-    void *malloced;
-    int rc = bdb_unpack(bdb_state, in, inlen, NULL, 0, &odh, &malloced);
+    int rc;
+    char odhd = bdb_state->ondisk_header;
+
+    /* Force compression in case that the new schema disables ODH. */
+    bdb_state->ondisk_header = 1;
+    rc = bdb_unpack(bdb_state, in, inlen, NULL, 0, &odh, freeptr);
+    bdb_state->ondisk_header = odhd;
 
     if (rc != 0) {
         *out = NULL;
-        free(malloced);
+        free(*freeptr);
     } else {
         *outlen = odh.length;
-        if (malloced != NULL)
-            *out = malloced;
-        else if ((malloced = malloc(odh.length)) == NULL) {
-            rc = ENOMEM;
-            logmsg(LOGMSG_ERROR, "%s: malloc: %s %d\n", __func__, strerror(rc), odh.length);
-        } else {
-            memcpy(malloced, odh.recptr, odh.length);
-            *out = malloced;
-        }
+        *out = odh.recptr;
     }
 
     return rc;
 }
 
-int bdb_pack_shad_blob(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen)
+int bdb_pack_shad_blob(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen, void **freeptr)
 {
     uint32_t recsz;
     int rc;
@@ -1415,7 +1412,7 @@ int bdb_pack_shad_blob(bdb_state_type *bdb_state, void *in, size_t inlen, void *
         return -1;
     struct odh odh;
     init_odh(bdb_state, &odh, in, inlen, 1);
-    rc = bdb_pack(bdb_state, &odh, NULL, odh.length + ODH_SIZE_RESERVE, out, &recsz, out);
+    rc = bdb_pack(bdb_state, &odh, NULL, odh.length + ODH_SIZE_RESERVE, out, &recsz, freeptr);
     if (rc == 0)
         *outlen = recsz;
     return rc;
