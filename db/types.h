@@ -2098,6 +2098,6 @@ int get_type(struct param_data *out, void *in, int inlen, int intype,
 
 int intv_to_str(const intv_t *, char *, int, int *);
 
-int odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind);
-int unodhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind);
+int odhfy_blob_buffer(struct dbtable *db, blob_buffer_t *blob, int blobind);
+int unodhfy_blob_buffer(struct dbtable *db, blob_buffer_t *blob, int blobind);
 #endif

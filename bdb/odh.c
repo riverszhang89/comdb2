@@ -296,6 +296,8 @@ int bdb_pack(bdb_state_type *bdb_state, const struct odh *odh, void *to,
     int rc;
 
     *freeptr = NULL;
+    printf("fromlen is %d\n", odh->length);
+
 
     if (bdb_state->ondisk_header) {
         void *mallocmem = NULL;
@@ -484,6 +486,8 @@ static int bdb_unpack_updateid(bdb_state_type *bdb_state, const void *from,
     if (freeptr) {
         *freeptr = NULL;
     }
+
+    printf("fromlen is %zu\n", fromlen);
 
     if (bdb_state->ondisk_header) {
 
@@ -1381,7 +1385,7 @@ inline void bdb_clear_logical_live_sc(bdb_state_type *bdb_state)
     bdb_state->logical_live_sc = 0;
 }
 
-int bdb_unpack_shad_blob(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen, void **freeptr)
+int bdb_unpack_heap(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen, void **freeptr)
 {
     struct odh odh;
     int rc;
@@ -1403,7 +1407,7 @@ int bdb_unpack_shad_blob(bdb_state_type *bdb_state, void *in, size_t inlen, void
     return rc;
 }
 
-int bdb_pack_shad_blob(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen, void **freeptr)
+int bdb_pack_heap(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen, void **freeptr)
 {
     uint32_t recsz;
     int rc;

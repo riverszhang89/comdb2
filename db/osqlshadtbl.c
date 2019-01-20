@@ -625,7 +625,7 @@ int osql_fetch_shadblobs_by_genid(BtCursor *pCur, int *blobnum,
         tmptblblblen = bdb_temp_table_datasize(tbl->blb_cur);
 
         if (tmptblkey->odh) {
-            rc = bdb_unpack_shad_blob(pCur->db->handle, tmptblblb, tmptblblblen, (void **)blobs->blobptrs, blobs->bloblens, &freeptr);
+            rc = bdb_unpack_heap(pCur->db->handle, tmptblblb, tmptblblblen, (void **)blobs->blobptrs, blobs->bloblens, &freeptr);
             if (rc != 0) {
                 free(freeptr);
                 return rc;
@@ -1428,7 +1428,7 @@ int osql_save_qblobs(struct BtCursor *pCur, struct sql_thread *thd,
 
         if (blobs[i].exists == 1) {
 
-            (void)odhfy_blob(pCur->db, blobs + i, i);
+            (void)odhfy_blob_buffer(pCur->db, blobs + i, i);
             blob_key_t key;
 
             key.id = i;

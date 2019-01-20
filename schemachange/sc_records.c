@@ -1976,6 +1976,7 @@ static int unpack_blob_record(struct convert_record_data *data, void *blb_buf,
 {
     int rc = 0;
     void *unpackbuf = NULL;
+    printf("blb len is %d\n", dtalen);
     if ((rc = bdb_unpack(data->from->handle, blb_buf, dtalen, NULL, 0,
                          &data->odh, &unpackbuf)) != 0) {
         logmsg(LOGMSG_ERROR, "%s:%d error unpacking buf rc=%d\n", __func__,

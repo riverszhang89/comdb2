@@ -656,7 +656,7 @@ int live_sc_post_add_int(struct ireq *iq, void *trans, unsigned long long genid,
 
         /* If compression doesn't change, don't unodhfy the blobs. */
         if (reccompr != newcompr) {
-            rc = unodhfy_blob(iq->usedb, blobs + i, i);
+            rc = unodhfy_blob_buffer(iq->usedb, blobs + i, i);
             if (rc != 0)
                 return rc;
         }
@@ -771,7 +771,7 @@ int live_sc_post_update_int(struct ireq *iq, void *trans,
 
         /* If compression doesn't change, don't unodhfy the blobs. */
         if (reccompr != newcompr) {
-            rc = unodhfy_blob(iq->usedb, blobs + i, i);
+            rc = unodhfy_blob_buffer(iq->usedb, blobs + i, i);
             if (rc != 0)
                 return rc;
         }

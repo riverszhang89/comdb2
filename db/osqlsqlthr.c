@@ -1435,7 +1435,7 @@ static int osql_send_qblobs_logic(struct BtCursor *pCur, osqlstate_t *osql,
         }
 
 
-        (void)odhfy_blob(pCur->db, blobs + i, i);
+        (void)odhfy_blob_buffer(pCur->db, blobs + i, i);
 
         rc = osql_send_qblob(osql->host, osql->rqid, osql->uuid, blobs[i].odhind, pCur->genid,
                              nettype, blobs[i].data, blobs[i].length,

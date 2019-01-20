@@ -2732,7 +2732,7 @@ done:
     free(stuff);
 }
 
-int odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
+int odhfy_blob_buffer(struct dbtable *db, blob_buffer_t *blob, int blobind)
 {
     void *out;
     size_t len;
@@ -2746,12 +2746,12 @@ int odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
         return -1;
     }
 
-    if (blob->length == -2) {
+    if (blob->length <= 0) {
         blob->odhind = blobind;
         return -1;
     }
 
-    rc = bdb_pack_shad_blob(db->handle, blob->data, blob->length, &out, &len, &blob->freeptr);
+    rc = bdb_pack_heap(db->handle, blob->data, blob->length, &out, &len, &blob->freeptr);
     if (rc != 0) {
         blob->odhind = blobind;
         if (blob->freeptr != blob->data)
@@ -2765,7 +2765,7 @@ int odhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
     return 0;
 }
 
-int unodhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
+int unodhfy_blob_buffer(struct dbtable *db, blob_buffer_t *blob, int blobind)
 {
     int rc;
     void *out;
@@ -2777,7 +2777,7 @@ int unodhfy_blob(struct dbtable *db, blob_buffer_t *blob, int blobind)
     if (!IS_ODH_READY(blob->odhind))
         return 0;
 
-    rc = bdb_unpack_shad_blob(db->handle, blob->data, blob->length, &out, &len, &blob->freeptr);
+    rc = bdb_unpack_heap(db->handle, blob->data, blob->length, &out, &len, &blob->freeptr);
     if (rc != 0) {
         if (blob->freeptr != blob->data)
             free(blob->freeptr);

@@ -7449,7 +7449,7 @@ int create_key_from_ondisk_sch_blobs(
     int rc = 0;
 
     for (int i = 0; i != maxblobs; ++i) {
-        rc = unodhfy_blob(db, inblobs + i, i);
+        rc = unodhfy_blob_buffer(db, inblobs + i, i);
         if (rc != 0)
             return rc;
     }

@@ -7427,6 +7427,8 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                 blobs[dt.id].odhind = (dt.id | OSQL_BLOB_ODH_BIT);
             blobs[dt.id].length = dt.bloblen;
 
+            printf("ODH READY? %d, %d\n", odhready, dt.bloblen);
+
             if (dt.bloblen >= 0) {
                 blobs[dt.id].exists = 1;
                 if (dt.bloblen > 0) {

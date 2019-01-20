@@ -113,7 +113,7 @@ int local_replicant_log_add(struct ireq *iq, void *trans, void *od_dta,
         if (fld->blob_index == -1)
             sz += fld->len;
         else {
-            rc = unodhfy_blob(iq->usedb, blobs + fld->blob_index, fld->blob_index);
+            rc = unodhfy_blob_buffer(iq->usedb, blobs + fld->blob_index, fld->blob_index);
             if (rc != 0)
                 goto err;
             /* vutf8 and fits in inline portion */
