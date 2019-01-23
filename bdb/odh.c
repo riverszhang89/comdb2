@@ -333,7 +333,7 @@ int bdb_pack(bdb_state_type *bdb_state, const struct odh *odh, void *to,
             to = mallocmem;
         }
 
-        alg = odh->length ? (flags & ODH_FLAG_COMPR_MASK) : BDB_COMPRESS_NONE;
+        alg = (odh->length) ? flags & ODH_FLAG_COMPR_MASK : BDB_COMPRESS_NONE;
 
         switch (alg) {
         case BDB_COMPRESS_ZLIB: {
