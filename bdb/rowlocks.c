@@ -329,11 +329,13 @@ static int get_next_addrem_buffer(bdb_state_type *bdb_state, DB_LSN *lsn,
                             M_32_SWAP(ov->tlen);
                         }
                         *outlen = ov->tlen;
+                        printf("%d: %d\n", __LINE__, *outlen);
                         off = ov->tlen;
                     } else if (B_TYPE(kd) == B_KEYDATA) {
                         /* we don't have off-page duplicates, so this is a real
                          * entry */
                         *outlen = kd->len;
+                        printf("%d: %d\n", __LINE__, *outlen);
                         if (buf && (kd->len > len)) {
                             /* huh? */
                             logmsg(LOGMSG_ERROR, "no record: len %d expected %d %d\n",

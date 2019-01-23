@@ -296,7 +296,7 @@ int bdb_pack(bdb_state_type *bdb_state, const struct odh *odh, void *to,
     int rc;
 
     *freeptr = NULL;
-    printf("fromlen is %d\n", odh->length);
+    printf("pack fromlen is %d\n", odh->length);
 
 
     if (bdb_state->ondisk_header) {
@@ -425,6 +425,7 @@ int bdb_pack(bdb_state_type *bdb_state, const struct odh *odh, void *to,
             *recsize = odh->length + ODH_SIZE;
             flags &= ~ODH_FLAG_COMPR_MASK;
         }
+        printf("pack tolen is %d\n", *recsize);
         write_odh(to, odh, flags);
         *recptr = to;
         *freeptr = mallocmem;
@@ -487,7 +488,7 @@ static int bdb_unpack_updateid(bdb_state_type *bdb_state, const void *from,
         *freeptr = NULL;
     }
 
-    printf("fromlen is %zu\n", fromlen);
+    printf("unpack fromlen is %zu\n", fromlen);
 
     if (bdb_state->ondisk_header) {
 
