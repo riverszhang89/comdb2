@@ -2342,7 +2342,6 @@ static int check_blob_buffers(struct ireq *iq, blob_buffer_t *blobs,
             else
                 inconsistent = blobs[cblob].exists;
             if (inconsistent) {
-                abort();
                 if (iq->debug) {
                     reqprintf(iq, "INCONSISTENT BLOB BUFFERS FOR BLOB %d",
                               cblob);
@@ -2784,7 +2783,7 @@ int unodhfy_blob_buffer(struct dbtable *db, blob_buffer_t *blob, int blobind)
         return rc;
     }
 
-    /* We can't free blob->qblob yet as add_idx_blobs might reference it. */
+    /* We can't free blob->qblob yet as add_idx_blobs might still reference it. */
 
     blob->data = out;
     blob->length = len;

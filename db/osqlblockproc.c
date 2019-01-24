@@ -1173,14 +1173,14 @@ static inline int init_ins_tbl(struct reqlogger *reqlogger,
  */
 static inline void get_tmptbl_data_and_len(struct temp_cursor *dbc,
                                            struct temp_cursor *dbc_ins,
-                                           bool drain_adds, char ***data_p,
+                                           bool drain_adds, char **data_p,
                                            int *datalen_p)
 {
     if (drain_adds) {
-        *data_p = (char **)bdb_temp_table_data_addr(dbc_ins);
+        *data_p = bdb_temp_table_data(dbc_ins);
         *datalen_p = bdb_temp_table_datasize(dbc_ins);
     } else {
-        *data_p = (char **)bdb_temp_table_data_addr(dbc);
+        *data_p = bdb_temp_table_data(dbc);
         *datalen_p = bdb_temp_table_datasize(dbc);
     }
 }
@@ -1325,10 +1325,12 @@ static int process_this_session(
         return rc;
 
     while (!rc && !rc_out) {
-        char **data = NULL;
+        char *data = NULL;
         int datalen = 0;
         // fetch the data from the appropriate temp table -- based on drain_adds
         get_tmptbl_data_and_len(dbc, dbc_ins, drain_adds, &data, &datalen);
+        /* Reset temp cursor data - it will be freed after the callback. */
+        bdb_temp_table_reset_datapointers(drain_adds ? dbc_ins : dbc);
         DEBUG_PRINT_TMPBL_READ();
 
         if (bdb_lock_desired(thedb->bdb_env)) {
@@ -1344,8 +1346,9 @@ static int process_this_session(
         lastrcv = receivedrows;
 
         /* this locks pages */
-        rc_out = func(iq, rqid, uuid, iq_tran, data, datalen, &flags, &updCols,
+        rc_out = func(iq, rqid, uuid, iq_tran, &data, datalen, &flags, &updCols,
                       blobs, step, err, &receivedrows, logsb);
+        free(data);
 
         if (rc_out != 0 && rc_out != OSQL_RC_DONE) {
             reqlog_set_error(iq->reqlogger, "Error processing", rc_out);

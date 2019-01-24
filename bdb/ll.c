@@ -1188,11 +1188,11 @@ static int ll_dta_upd_int(bdb_state_type *bdb_state, int rrn,
              * which we can't handle under page-order tablescan.  */
 
             /* Format the payload. */
-            DBT dta2;
+            DBT packeddta;
             rc = bdb_prepare_put_pack_updateid(bdb_state, is_blob,
-                    dta, &dta2, -1, &freedtaptr, formatted_record, odhready);
-            recptr = dta2.data;
-            formatted_record_len = dta2.size;
+                    dta, &packeddta, -1, &freedtaptr, formatted_record, odhready);
+            recptr = packeddta.data;
+            formatted_record_len = packeddta.size;
 
             /* Fall back to delete/add. */
             if (inplace && !is_blob &&

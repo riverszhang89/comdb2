@@ -7397,12 +7397,10 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     } break;
     case OSQL_QBLOB: {
         osql_qblob_t dt;
-        uint8_t *blob = NULL;
-        const uint8_t *p_buf_end = p_buf + sizeof(osql_qblob_t);
-
-        blob = (uint8_t *)osqlcomm_qblob_type_get(&dt, p_buf, p_buf_end);
-
+        const uint8_t *p_buf_end = p_buf + sizeof(osql_qblob_t),
+              *blob  = osqlcomm_qblob_type_get(&dt, p_buf, p_buf_end);
         int odhready = IS_ODH_READY(dt.id);
+
         dt.id &= ~OSQL_BLOB_ODH_BIT;
 
         if (logsb) {
@@ -7435,14 +7433,13 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                 blobs[dt.id].odhind = (dt.id | OSQL_BLOB_ODH_BIT);
             blobs[dt.id].length = dt.bloblen;
 
-            printf("ODH READY? %d, %d\n", odhready, dt.bloblen);
-
             if (dt.bloblen >= 0) {
                 blobs[dt.id].exists = 1;
                 if (dt.bloblen > 0) {
                     blobs[dt.id].qblob = msg;
                     blobs[dt.id].data = (char *)blob;
                     blobs[dt.id].collected = dt.bloblen;
+                    /* Take ownership. It will be freed in free_blob_buffers(). */
                     *pmsg = NULL;
                 } else {
                     blobs[dt.id].collected = 1;

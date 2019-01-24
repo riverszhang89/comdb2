@@ -296,8 +296,6 @@ int bdb_pack(bdb_state_type *bdb_state, const struct odh *odh, void *to,
     int rc;
 
     *freeptr = NULL;
-    printf("pack fromlen is %d\n", odh->length);
-
 
     if (bdb_state->ondisk_header) {
         void *mallocmem = NULL;
@@ -425,7 +423,6 @@ int bdb_pack(bdb_state_type *bdb_state, const struct odh *odh, void *to,
             *recsize = odh->length + ODH_SIZE;
             flags &= ~ODH_FLAG_COMPR_MASK;
         }
-        printf("pack tolen is %d\n", *recsize);
         write_odh(to, odh, flags);
         *recptr = to;
         *freeptr = mallocmem;
@@ -487,8 +484,6 @@ static int bdb_unpack_updateid(bdb_state_type *bdb_state, const void *from,
     if (freeptr) {
         *freeptr = NULL;
     }
-
-    printf("unpack fromlen is %zu\n", fromlen);
 
     if (bdb_state->ondisk_header) {
 
@@ -1106,6 +1101,7 @@ int bdb_prepare_put_pack_updateid(bdb_state_type *bdb_state, int is_blob,
     memcpy(data2, data, sizeof(DBT));
 
     if (odhready) {
+        /* If the record is preprocessed on a replicant, use it as is. */
         assert(is_blob);
         *freeptr = NULL;
         rc = 0;
@@ -1392,7 +1388,8 @@ int bdb_unpack_heap(bdb_state_type *bdb_state, void *in, size_t inlen, void **ou
     int rc;
     char odhd = bdb_state->ondisk_header;
 
-    /* Force compression in case that the new schema disables ODH. */
+    /* Force ODH in case that a schema change
+       is removing the ODH from the table. */
     bdb_state->ondisk_header = 1;
     rc = bdb_unpack(bdb_state, in, inlen, NULL, 0, &odh, freeptr);
     bdb_state->ondisk_header = odhd;
@@ -1417,7 +1414,7 @@ int bdb_pack_heap(bdb_state_type *bdb_state, void *in, size_t inlen, void **out,
         return -1;
     struct odh odh;
     init_odh(bdb_state, &odh, in, inlen, 1);
-    rc = bdb_pack(bdb_state, &odh, NULL, odh.length + ODH_SIZE_RESERVE, out, &recsz, freeptr);
+    rc = bdb_pack(bdb_state, &odh, NULL, 0, out, &recsz, freeptr);
     if (rc == 0)
         *outlen = recsz;
     return rc;

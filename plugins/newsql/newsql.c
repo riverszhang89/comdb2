@@ -2065,7 +2065,6 @@ retry_read:
         return NULL;
     }
 #endif
-    puts(query->sqlquery->sql_query);
     return query;
 }
 

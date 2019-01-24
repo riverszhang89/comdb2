@@ -1195,7 +1195,6 @@ int bdb_temp_table_keysize(struct temp_cursor *cursor);
 int bdb_temp_table_datasize(struct temp_cursor *cursor);
 void *bdb_temp_table_key(struct temp_cursor *cursor);
 void *bdb_temp_table_data(struct temp_cursor *cursor);
-void **bdb_temp_table_data_addr(struct temp_cursor *cursor);
 
 typedef int (*tmptbl_cmp)(void *, int, const void *, int, const void *);
 void bdb_temp_table_set_cmp_func(struct temp_table *table, tmptbl_cmp);
@@ -2125,6 +2124,8 @@ int truncate_asof_pglogs(bdb_state_type *bdb_state, int file, int offset);
 void bdb_set_logical_live_sc(bdb_state_type *bdb_state);
 void bdb_clear_logical_live_sc(bdb_state_type *bdb_state);
 
+/* Pack the payload into heap memory */
 int bdb_pack_heap(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen, void **freeptr);
+/* If the payload is uncompressed, point `out' to where the record starts; Otherwise unpack the payload into heap memory. */
 int bdb_unpack_heap(bdb_state_type *bdb_state, void *in, size_t inlen, void **out, size_t *outlen, void **freeptr);
 #endif

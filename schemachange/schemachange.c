@@ -620,7 +620,7 @@ int live_sc_post_add_int(struct ireq *iq, void *trans, unsigned long long genid,
                          blob_buffer_t *blobs, size_t maxblobs, int origflags,
                          int *rrn)
 {
-    int i, rc, odh, reccompr, oldcompr, newcompr;
+    int i, rc, oldodh, newodh, reccompr, oldcompr, newcompr;
 
     if (iq->usedb->sc_downgrading)
         return ERR_NOMASTER;
@@ -639,8 +639,9 @@ int live_sc_post_add_int(struct ireq *iq, void *trans, unsigned long long genid,
         (void)odh;
         (void)reccompr;
 
-        /* If compression doesn't change, don't unodhfy the blobs. */
-        if (reccompr != newcompr) {
+        /* If we're removing the ODH, or changing the compression algorithm,
+           unpack the blobs. */
+        if ((oldodh && !newodh) || oldcompr != newcompr) {
             rc = unodhfy_blob_buffer(iq->usedb, blobs + i, i);
             if (rc != 0)
                 return rc;
@@ -722,7 +723,7 @@ int live_sc_post_update_int(struct ireq *iq, void *trans,
                             int origflags, int rrn, int deferredAdd,
                             blob_buffer_t *oldblobs, blob_buffer_t *newblobs)
 {
-    int i, rc, odh, reccompr, oldcompr, newcompr;
+    int i, rc, oldodh, newodh, reccompr, oldcompr, newcompr;
 
     if (iq->usedb->sc_downgrading)
         return ERR_NOMASTER;
@@ -741,8 +742,9 @@ int live_sc_post_update_int(struct ireq *iq, void *trans,
         (void)odh;
         (void)reccompr;
 
-        /* If compression doesn't change, don't unodhfy the blobs. */
-        if (reccompr != newcompr) {
+        /* If we're removing the ODH, or changing the compression algorithm,
+           unpack the blobs. */
+        if ((oldodh && !newodh) || oldcompr != newcompr) {
             rc = unodhfy_blob_buffer(iq->usedb, blobs + i, i);
             if (rc != 0)
                 return rc;

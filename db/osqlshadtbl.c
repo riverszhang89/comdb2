@@ -608,14 +608,14 @@ int osql_fetch_shadblobs_by_genid(BtCursor *pCur, int *blobnum,
     key->seq = pCur->genid;
     key->id = *blobnum - 1;
 
+    /* We don't know the ODH-ness of the blob, so we search using bdb_temp_table_find(). */
     rc = bdb_temp_table_find(tbl->env->bdb_env, tbl->blb_cur, key,
             sizeof(*key), NULL, bdberr);
     if (rc != IX_FND)
         free(key);
 
     tmptblkey = bdb_temp_table_key(tbl->blb_cur);
-    if (rc == IX_EMPTY || rc == IX_NOTFND ||
-            blb_tbl_cmp(NULL, sizeof(blob_key_t), key, sizeof(blob_key_t), tmptblkey) != 0) {
+    if (rc == IX_EMPTY || rc == IX_NOTFND || key->seq != tmptblkey->seq || key->id != tmptblkey->id) {
         blobs->bloblens[0] = 0;
         blobs->bloboffs[0] = 0;
         blobs->blobptrs[0] = NULL;
@@ -632,6 +632,10 @@ int osql_fetch_shadblobs_by_genid(BtCursor *pCur, int *blobnum,
             }
 
             if (freeptr == NULL) {
+                /* Always Make a copy here. blobptrs[0] will become Mem.z
+                   after being fetched into SQLite. VDBE may call MemGrow
+                   on Mem.z so we need to make sure blobptrs[0] is a malloc'd
+                   pointer. */
                 freeptr = malloc(blobs->bloblens[0]);
                 memcpy(freeptr, blobs->blobptrs[0], blobs->bloblens[0]);
                 blobs->blobptrs[0] = freeptr;
@@ -1842,6 +1846,7 @@ static int process_local_shadtbl_qblob(struct sqlclntstate *clnt,
         key->seq = seq;
         key->id = i;
 
+        /* We don't know the ODH-ness of the blob, so we search using bdb_temp_table_find(). */
         rc = bdb_temp_table_find(tbl->env->bdb_env, tbl->blb_cur, key,
                                        sizeof(*key), NULL, bdberr);
         if (rc != IX_FND)
@@ -1849,8 +1854,7 @@ static int process_local_shadtbl_qblob(struct sqlclntstate *clnt,
 
         tmptblkey = bdb_temp_table_key(tbl->blb_cur);
         idx = i;
-        if (rc == IX_EMPTY || rc == IX_NOTFND ||
-                blb_tbl_cmp(NULL, sizeof(blob_key_t), key, sizeof(blob_key_t), tmptblkey) != 0) {
+        if (rc == IX_EMPTY || rc == IX_NOTFND || key->seq != tmptblkey->seq || key->id != tmptblkey->id) {
             /* null blob */
             data = NULL;
             ldata = -1;
@@ -3333,4 +3337,3 @@ int osql_shadtbl_usedb_only(struct sqlclntstate *clnt)
     }
     return 1;
 }
-

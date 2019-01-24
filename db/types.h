@@ -120,6 +120,8 @@ typedef struct {
  * An array of these also supplements */
 typedef struct blob_buffer {
     int exists; /* to differentiate 0 length from null */
+
+    /* Where the blob lives within either `qblob' or `freeptr'. */
     char *data;
     size_t length;
 
@@ -134,9 +136,15 @@ typedef struct blob_buffer {
      * array object that this blob came from. */
     void *javasp_bytearray;
 
+    /* The index of the blob.
+       An ODH'd blob has OSQL_BLOB_ODH_BIT set,
+       which can be tested using IS_ODH_READY(). */
     int odhind;
-
+    /* The QBLOB msg from bplog. */
     char *qblob;
+    /* The heap memory used by bdb_unpack(). This is not null
+       IFF a schema change is modifying the blob compression algorithm,
+       or adding an expressional index on the blob column. */
     void *freeptr;
 } blob_buffer_t;
 
