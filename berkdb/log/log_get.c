@@ -478,6 +478,7 @@ __log_c_get_int(logc, alsn, dbt, flags)
 
 	dbenv = logc->dbenv;
 	dblp = dbenv->lg_handle;
+
 	lp = dblp->reginfo.primary;
 	is_hmac = 0;
 

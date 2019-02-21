@@ -26,6 +26,8 @@
 #include "memory_sync.h"
 #include "autoanalyze.h"
 #include "logmsg.h"
+#include "lockmacros.h"
+#include "thrman.h"
 
 extern int db_is_stopped(void);
 extern int send_myseqnum_to_master_udp(bdb_state_type *bdb_state);
@@ -94,8 +96,17 @@ void *memp_trickle_thread(void *arg)
     int nwrote;
     int rc;
 
+    int has_pvt_blkseq;
+    int nstripes;
+    int stripe;
+    size_t len;
+    int *blkseqpools;
+    int mainpool[2] = {0};
+
     if (try_set(&memp_trickle_thread_running) == 0)
         return NULL;
+
+    thrman_register(THRTYPE_MEMP_TRICKLE);
 
     bdb_state = (bdb_state_type *)arg;
 
@@ -112,24 +123,38 @@ void *memp_trickle_thread(void *arg)
     while (!bdb_state->passed_dbenv_open)
         sleep(1);
 
+    has_pvt_blkseq = bdb_state->attr->private_blkseq_enabled;
+    nstripes = bdb_state->pvt_blkseq_stripes;
+    len = sizeof(int) * nstripes * 2;
+    blkseqpools = alloca(len);
+    memset(blkseqpools, 0, len);
+
     while (!db_is_stopped()) {
-        BDB_READLOCK("memp_trickle_thread");
 
         /* time is in usecs, memptricklemsecs is in msecs */
         time = bdb_state->attr->memptricklemsecs * 1000;
 
-    again:
+        if (has_pvt_blkseq) {
+            for (stripe = 0; stripe < nstripes; ++stripe) {
+                if (pthread_mutex_trylock(&bdb_state->blkseq_lk[stripe]) == 0) {
+                    (void)bdb_state->dbenv->memp_trickle(
+                        bdb_state->blkseq_env[stripe],
+                        bdb_state->attr->memptricklepercent, &nwrote, 1,
+                        &blkseqpools[stripe], &blkseqpools[stripe + nstripes]);
+                    Pthread_mutex_unlock(&bdb_state->blkseq_lk[stripe]);
+                }
+            }
+        }
+
+        BDB_READLOCK("memp_trickle_thread");
+
         rc = bdb_state->dbenv->memp_trickle(
-            bdb_state->dbenv, bdb_state->attr->memptricklepercent, &nwrote, 1);
+            bdb_state->dbenv, bdb_state->attr->memptricklepercent, &nwrote, 1,
+            &mainpool[0], &mainpool[1]);
         if (rc == DB_LOCK_DESIRED) {
             BDB_RELLOCK();
             sleep(1);
-            BDB_READLOCK("memp_trickle_thread");
-            goto again;
-        } else if (rc == 0) {
-            if (nwrote != 0) {
-                goto again;
-            }
+            continue;
         }
 
         BDB_RELLOCK();

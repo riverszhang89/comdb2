@@ -124,7 +124,7 @@ DEF_ATTR(DIRECTIO, directio, BOOLEAN, 1,
 DEF_ATTR(MEMPTRICKLEPERCENT, memptricklepercent, PERCENT, 99,
          "Try to keep at least this percentage of the buffer pool clean. Write "
          "pages periodically until that's achieved.")
-DEF_ATTR(MEMPTRICKLEMSECS, memptricklemsecs, MSECS, 1000,
+DEF_ATTR(MEMPTRICKLEMSECS, memptricklemsecs, MSECS, 200,
          "Pause for this many ms between runs of the cache flusher.")
 DEF_ATTR(CHECKSUMS, checksums, BOOLEAN, 1,
          "Checksum data pages. Turning this off is highly discouraged.")
@@ -531,9 +531,9 @@ DEF_ATTR(
     "Don't cache query plans for statements with foreign table references.")
 DEF_ATTR(FDB_SQLSTATS_CACHE_LOCK_WAITTIME_NSEC,
          fdb_sqlstats_cache_waittime_nsec, QUANTITY, 1000, NULL)
-DEF_ATTR(PRIVATE_BLKSEQ_CACHESZ, private_blkseq_cachesz, BYTES, 4194304,
+DEF_ATTR(PRIVATE_BLKSEQ_CACHESZ, private_blkseq_cachesz, BYTES, 1048576,
          "Cache size of the blkseq table.")
-DEF_ATTR(PRIVATE_BLKSEQ_MAXAGE, private_blkseq_maxage, SECS, 600,
+DEF_ATTR(PRIVATE_BLKSEQ_MAXAGE, private_blkseq_maxage, SECS, 300,
          "Maximum time in seconds to let 'old' transactions live.")
 DEF_ATTR(PRIVATE_BLKSEQ_MAXTRAVERSE, private_blkseq_maxtraverse, QUANTITY, 4,
          NULL)
