@@ -23,6 +23,7 @@ static const char revid[] = "$Id: mp_trickle.c,v 11.30 2003/09/13 19:20:41 bosti
 #include "dbinc/mp.h"
 
 #include <time.h>
+#include <logmsg.h>
 
 static int __memp_trickle __P((DB_ENV *, int, int *, int));
 
@@ -67,6 +68,15 @@ __memp_trickle(dbenv, pct, nwrotep, lru)
 	u_int32_t dirty, i, total, dtmp;
 	int n, ret, wrote;
 
+	u_int32_t alloc, diff_alloc;
+	static u_int32_t smooth_alloc = 0, last_alloc = 0;
+	int smooth = dbenv->attr.trickle_smooth;
+	int trickle_smooth_factor = dbenv->attr.trickle_smooth_factor;
+	int trickle_smooth_multiplier = dbenv->attr.trickle_smooth_multiplier;
+	int trickle_min = dbenv->attr.trickle_min;
+	int trickle_max = dbenv->attr.trickle_max;
+
+
 	dbmp = dbenv->mp_handle;
 	mp = dbmp->reginfo[0].primary;
 
@@ -92,20 +102,39 @@ __memp_trickle(dbenv, pct, nwrotep, lru)
 	 *
 	 * Loop through the caches counting total/dirty buffers.
 	 */
-	for (ret = 0, i = dirty = total = 0; i < mp->nreg; ++i) {
+	for (ret = 0, i = dirty = total = alloc = 0; i < mp->nreg; ++i) {
 		c_mp = dbmp->reginfo[i].primary;
 		total += c_mp->stat.st_pages;
+		if (smooth)
+			alloc += c_mp->stat.st_alloc;
 		__memp_stat_hash(&dbmp->reginfo[i], c_mp, &dtmp);
 		dirty += dtmp;
 	}
 
-	/*
-	 * !!!
-	 * Be careful in modifying this calculation, total may be 0.
-	 */
-	n = ((total * pct) / 100) - (total - dirty);
+	if (smooth && trickle_smooth_factor > 0) {
+		diff_alloc = alloc - last_alloc;
+		if (diff_alloc > smooth_alloc)
+			smooth_alloc = diff_alloc;
+		else
+			smooth_alloc = smooth_alloc * (trickle_smooth_factor - 1) / trickle_smooth_factor + diff_alloc / trickle_smooth_factor;
+		n = smooth_alloc * trickle_smooth_multiplier;
+		if (trickle_max > 0 && n > trickle_max)
+			n = trickle_max;
+		else if (n < trickle_min)
+			n = trickle_min;
+
+		logmsg(LOGMSG_DEBUG, "%s: alloc +%u, n %u.\n", __func__, diff_alloc, n);
+		last_alloc = alloc;
+	} else {
+		/*
+		 * !!!
+		 * Be careful in modifying this calculation, total may be 0.
+		 */
+		n = ((total * pct) / 100) - (total - dirty);
+	}
 	if (dirty == 0 || n <= 0)
 		goto done;
+
 
 	if (nwrotep == NULL)
 		nwrotep = &wrote;
