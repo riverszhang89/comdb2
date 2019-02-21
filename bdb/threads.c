@@ -118,18 +118,12 @@ void *memp_trickle_thread(void *arg)
         /* time is in usecs, memptricklemsecs is in msecs */
         time = bdb_state->attr->memptricklemsecs * 1000;
 
-    again:
         rc = bdb_state->dbenv->memp_trickle(
             bdb_state->dbenv, bdb_state->attr->memptricklepercent, &nwrote, 1);
         if (rc == DB_LOCK_DESIRED) {
             BDB_RELLOCK();
             sleep(1);
-            BDB_READLOCK("memp_trickle_thread");
-            goto again;
-        } else if (rc == 0) {
-            if (nwrote != 0) {
-                goto again;
-            }
+            continue;
         }
 
         BDB_RELLOCK();
