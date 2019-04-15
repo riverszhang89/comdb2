@@ -85,7 +85,7 @@ void bdb_cleanup_private_blkseq(bdb_state_type *bdb_state)
 {
     if (!bdb_state) 
         return;
-    for (int stripe = 0; stripe < bdb_state->attr->private_blkseq_stripes;
+    for (int stripe = 0; stripe < bdb_state->pvt_blkseq_stripes;
          stripe++) {
         DB_ENV *env = bdb_state->blkseq_env[stripe];
         if (env) {
@@ -130,27 +130,26 @@ void bdb_cleanup_private_blkseq(bdb_state_type *bdb_state)
 int bdb_create_private_blkseq(bdb_state_type *bdb_state)
 {
     DB_ENV *env;
-    int rc;
+    int rc, nstripes;
+
+    nstripes = bdb_state->pvt_blkseq_stripes = bdb_state->attr->private_blkseq_stripes;
 
     bdb_state->blkseq_env =
-        malloc(bdb_state->attr->private_blkseq_stripes * sizeof(DB_ENV *));
-    bdb_state->blkseq_lk = malloc(bdb_state->attr->private_blkseq_stripes *
+        malloc(nstripes * sizeof(DB_ENV *));
+    bdb_state->blkseq_lk = malloc(nstripes *
                                   sizeof(pthread_mutex_t));
     bdb_state->blkseq[0] =
-        malloc(bdb_state->attr->private_blkseq_stripes * sizeof(DB *));
+        malloc(nstripes * sizeof(DB *));
     bdb_state->blkseq[1] =
-        malloc(bdb_state->attr->private_blkseq_stripes * sizeof(DB *));
+        malloc(nstripes * sizeof(DB *));
     bdb_state->blkseq_last_lsn[0] =
-        malloc(bdb_state->attr->private_blkseq_stripes * sizeof(DB_LSN));
+        malloc(nstripes * sizeof(DB_LSN));
     bdb_state->blkseq_last_lsn[1] =
-        malloc(bdb_state->attr->private_blkseq_stripes * sizeof(DB_LSN));
+        malloc(nstripes * sizeof(DB_LSN));
 
-    listc_init(&bdb_state->blkseq_log_list[0],
-               offsetof(struct seen_blkseq, lnk));
-    listc_init(&bdb_state->blkseq_log_list[1],
-               offsetof(struct seen_blkseq, lnk));
+    bdb_state->blkseq_log_list = malloc(nstripes * sizeof(listc_t));
 
-    for (int stripe = 0; stripe < bdb_state->attr->private_blkseq_stripes;
+    for (int stripe = 0; stripe < nstripes;
          stripe++) {
         rc = db_env_create(&env, 0);
         if (rc) {
@@ -182,6 +181,8 @@ int bdb_create_private_blkseq(bdb_state_type *bdb_state)
                 return -1;
             bzero(&bdb_state->blkseq_last_lsn[i][stripe], sizeof(DB_LSN));
         }
+        listc_init(&bdb_state->blkseq_log_list[stripe],
+                offsetof(struct seen_blkseq, lnk));
     }
     bdb_state->blkseq_last_roll_time = comdb2_time_epoch();
 
@@ -197,7 +198,7 @@ static uint8_t get_stripe(bdb_state_type *bdb_state, uint8_t *bytes, int len)
         stripe ^= *bytes;
         bytes++;
     }
-    return stripe % bdb_state->attr->private_blkseq_stripes;
+    return stripe % bdb_state->pvt_blkseq_stripes;
 }
 
 /* recovery callback from berkeley (through bdb_apprec) */
@@ -701,7 +702,7 @@ int bdb_recover_blkseq(bdb_state_type *bdb_state)
                 if (lsn.file != last_log_filenum && oldest_blkseq != INT_MAX) {
                     /* if we just switched a file, remember the oldest blkseq we
                      * saw in the current file */
-                    for (int i = 0; i < 2; i++) {
+                    for (int i = 0; i < bdb_state->pvt_blkseq_stripes; i++) {
                         logseq = malloc(sizeof(struct seen_blkseq));
                         logseq->logfile = lsn.file;
                         logseq->timestamp = oldest_blkseq;
@@ -739,7 +740,7 @@ int bdb_recover_blkseq(bdb_state_type *bdb_state)
      * eventually be not the only log, and we need information about its
      * blkseq ages */
     if (nblkseq > 0) {
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < bdb_state->pvt_blkseq_stripes; i++) {
             if (bdb_state->blkseq_log_list[i].count == 0) {
                 logseq = malloc(sizeof(struct seen_blkseq));
                 logseq->logfile = lsn.file;
@@ -772,7 +773,7 @@ int bdb_blkseq_dumplogs(bdb_state_type *bdb_state)
 {
     struct seen_blkseq *logseq;
 
-    for (int stripe = 0; stripe < bdb_state->attr->private_blkseq_stripes;
+    for (int stripe = 0; stripe < bdb_state->pvt_blkseq_stripes;
          stripe++) {
         Pthread_mutex_lock(&bdb_state->blkseq_lk[stripe]);
         LISTC_FOR_EACH(&bdb_state->blkseq_log_list[stripe], logseq, lnk)
@@ -791,7 +792,7 @@ int bdb_blkseq_can_delete_log(bdb_state_type *bdb_state, int lognum)
     int found = 0;
     int now = comdb2_time_epoch();
 
-    for (int stripe = 0; stripe < bdb_state->attr->private_blkseq_stripes;
+    for (int stripe = 0; stripe < bdb_state->pvt_blkseq_stripes;
          stripe++) {
         Pthread_mutex_lock(&bdb_state->blkseq_lk[stripe]);
         LISTC_FOR_EACH(&bdb_state->blkseq_log_list[stripe], logseq, lnk)
@@ -811,7 +812,7 @@ int bdb_blkseq_can_delete_log(bdb_state_type *bdb_state, int lognum)
      * bdb_blkseq_can_delete_log will still succeed (because no
      * entries will be found) */
     if (found == num_ok) {
-        for (int stripe = 0; stripe < bdb_state->attr->private_blkseq_stripes;
+        for (int stripe = 0; stripe < bdb_state->pvt_blkseq_stripes;
              stripe++) {
             Pthread_mutex_lock(&bdb_state->blkseq_lk[stripe]);
             LISTC_FOR_EACH_SAFE(&bdb_state->blkseq_log_list[stripe], logseq,
