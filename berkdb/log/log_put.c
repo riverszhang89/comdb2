@@ -261,14 +261,22 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 
 	ZERO_LSN(old_lsn);
 
-    Pthread_mutex_lock(&gbl_logput_lk);
+	int nwaiters;
+	extern int gbl_txn_log_nwaiters;
+	Pthread_mutex_lock(&gbl_logput_lk);
+	nwaiters = gbl_txn_log_nwaiters;
+	Pthread_mutex_unlock(&gbl_logput_lk);
+
 	if ((ret =
 		__log_put_next(dbenv, lsnp, contextp, dbt, udbt, &hdr, &old_lsn,
 		    off_context, key, flags)) != 0)
 		goto panic_check;
 
-    Pthread_cond_broadcast(&gbl_logput_cond);
-    Pthread_mutex_unlock(&gbl_logput_lk);
+	if (nwaiters) {
+		Pthread_mutex_lock(&gbl_logput_lk);
+		Pthread_cond_broadcast(&gbl_logput_cond);
+		Pthread_mutex_unlock(&gbl_logput_lk);
+	}
 
 	lsn = *lsnp;
 

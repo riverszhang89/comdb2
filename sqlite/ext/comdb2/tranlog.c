@@ -116,6 +116,7 @@ extern pthread_mutex_t gbl_logput_lk;
 extern pthread_cond_t gbl_logput_cond;
 extern pthread_mutex_t gbl_durable_lsn_lk;
 extern pthread_cond_t gbl_durable_lsn_cond;
+int gbl_txn_log_nwaiters = 0;
 
 /*
 ** Advance a tranlog cursor to the next log entry
@@ -211,7 +212,9 @@ static int tranlogNext(sqlite3_vtab_cursor *cur){
               clock_gettime(CLOCK_REALTIME, &ts);
               ts.tv_nsec += (200 * 1000000);
               Pthread_mutex_lock(&gbl_logput_lk);
+              ++gbl_txn_log_nwaiters;
               pthread_cond_timedwait(&gbl_logput_cond, &gbl_logput_lk, &ts);
+              --gbl_txn_log_nwaiters;
               Pthread_mutex_unlock(&gbl_logput_lk);
 
               int sleepms = 100;
