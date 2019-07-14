@@ -59,8 +59,7 @@ void add_fingerprint(const char *zSql, const char *zNormSql, int64_t cost,
     struct fingerprint_track *t = hash_find(gbl_fingerprint_hash, fingerprint);
     if (t == NULL) {
         /* make sure we haven't generated an unreasonable number of these */
-        int nents;
-        hash_info(gbl_fingerprint_hash, NULL, NULL, NULL, NULL, &nents, NULL, NULL);
+        int nents = hash_get_num_entries(gbl_fingerprint_hash);
         if (nents >= gbl_fingerprint_max_queries) {
             static int complain_once = 1;
             if (complain_once) {
@@ -82,6 +81,8 @@ void add_fingerprint(const char *zSql, const char *zNormSql, int64_t cost,
         t->zNormSql = strdup(zNormSql);
         t->nNormSql = nNormSql;
         hash_add(gbl_fingerprint_hash, t);
+
+        Pthread_mutex_unlock(&gbl_fingerprint_hash_mu);
 
         char fp[FINGERPRINTSZ*2+1]; /* 16 ==> 33 */
         util_tohex(fp, (char *)t->fingerprint, FINGERPRINTSZ);
@@ -108,13 +109,14 @@ void add_fingerprint(const char *zSql, const char *zNormSql, int64_t cost,
         assert( t->zNormSql!=zNormSql );
         assert( t->nNormSql==nNormSql );
         assert( strncmp(t->zNormSql,zNormSql,t->nNormSql)==0 );
+        Pthread_mutex_unlock(&gbl_fingerprint_hash_mu);
     }
     if (logger != NULL) {
         reqlog_set_fingerprint(
             logger, (const char*)fingerprint, FINGERPRINTSZ
         );
     }
-    Pthread_mutex_unlock(&gbl_fingerprint_hash_mu);
+    reqlog_set_fingerprint(logger, (const char*)fingerprint, FINGERPRINTSZ);
 done:
     if (fingerprint_out)
         memcpy(fingerprint_out, fingerprint, FINGERPRINTSZ);
