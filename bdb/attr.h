@@ -242,7 +242,7 @@ DEF_ATTR(SKIPDELAYBASE, skipdelaybase, MSECS, 100, "Delay commits by at least "
 DEF_ATTR(REPMETHODMAXSLEEP, repmethodmaxsleep, SECS, 300,
          "Delay commits by at most this much if forced to delay by incoherent "
          "nodes.")
-DEF_ATTR(TEMPTABLE_MEM_THRESHOLD, temptable_mem_threshold, QUANTITY, 512,
+DEF_ATTR(TEMPTABLE_MEM_THRESHOLD, temptable_mem_threshold, QUANTITY, 8192,
          "If in-memory temp tables contain more than this many entries, spill "
          "them to disk.")
 DEF_ATTR(TEMPTABLE_CACHESZ, temptable_cachesz, BYTES, 262144,
