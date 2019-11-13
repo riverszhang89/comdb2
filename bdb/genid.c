@@ -229,8 +229,6 @@ unsigned long long get_genid_counter48(unsigned long long genid)
     iptr = (uint32_t *)&genid;
     sptr = (uint16_t *)&genid;
     
-    printf("%d: genid %llx\n", __LINE__, genid);
-
 #if defined(_LINUX_SOURCE)
     counter = ntohl(iptr[0]);
     counter <<= 16;
@@ -239,7 +237,7 @@ unsigned long long get_genid_counter48(unsigned long long genid)
     counter = genid >> 16;
 #endif
 
-    printf("%d: counter %llx\n", __LINE__, counter);
+    printf("%d: counter %016llx\n", __LINE__, counter);
     return counter;
 }
 
@@ -310,8 +308,21 @@ static inline void set_gblcontext_int(bdb_state_type *bdb_state,
             logmsg(LOGMSG_ERROR, "Blocked attempt to set lower gblcontext\n");
             cheap_stack_trace();
         }
+    } else if (bdb_state->genid_format != LLMETA_GENID_48BIT) {
+        bdb_state->gblcontext = gblcontext;
     } else {
         bdb_state->gblcontext = gblcontext;
+
+#ifdef _LINUX_SOURCE
+        bdb_state->high16bits = htons(gblcontext >> 48);
+        bdb_state->low48bits = flibc_htonll(gblcontext) >> 16;
+        printf("??? wtf %d %x %016llx\n", __LINE__, bdb_state->high16bits, (unsigned long long)bdb_state->low48bits);
+
+        unsigned long long predict;
+        predict = (bdb_state->low48bits << 16) | bdb_state->high16bits;
+        predict = flibc_ntohll(predict);
+#else
+#endif
     }
 }
 
@@ -383,6 +394,7 @@ static inline void set_commit_genid_lsn_gen(bdb_state_type *bdb_state,
 {
     if (bdb_state->parent)
         bdb_state = bdb_state->parent;
+
     if (bdb_cmp_genids(genid, commit_genid) < 0) {
 
         /* This can occur legitamately after a rep_verify_match */
@@ -395,8 +407,6 @@ static inline void set_commit_genid_lsn_gen(bdb_state_type *bdb_state,
     commit_genid = genid;
     if (lsn) commit_lsn = *lsn;
     if (generation) commit_generation = *generation;
-
-    set_gblcontext_int(bdb_state, genid);
 }
 
 static unsigned long long get_genid_48bit(bdb_state_type *bdb_state,
@@ -427,7 +437,7 @@ static unsigned long long get_genid_48bit(bdb_state_type *bdb_state,
     }
 
     seed48++;
-    printf("%d: seed %llx\n", __LINE__, seed48);
+    printf("%d: dtafile %u seed %016llx\n", __LINE__, dtafile, seed48);
 
     if (bdb_state->attr->genid48_warn_threshold &&
             (0x0000ffffffffffffULL - seed48) <=
@@ -448,12 +458,16 @@ static unsigned long long get_genid_48bit(bdb_state_type *bdb_state,
     iptr[0] = htonl(highorder);
     iptr[1] = htonl(loworder);
 
-    printf("%d: seed %llx\n", __LINE__, genid);
-    bdb_state->gblcontext = genid;
+    ++bdb_state->low48bits;
+    unsigned long long predict;
+    predict = (bdb_state->low48bits << 16) | dtafile;
+    predict = flibc_ntohll(predict);
+    printf("!!! wtf %d I predict  %016llx\n", __LINE__, predict);
 
-    if (lsn) {
+    set_gblcontext_int(bdb_state, genid);
+
+    if (lsn)
         set_commit_genid_lsn_gen(bdb_state, genid, lsn, &generation);
-    }
 
     Pthread_mutex_unlock(&(bdb_state->gblcontext_lock));
     if (prwarn && (now = time(NULL)) > lastwarn) {
@@ -462,6 +476,8 @@ static unsigned long long get_genid_48bit(bdb_state_type *bdb_state,
                __func__, 0x0000ffffffffffffULL - seed48);
         lastwarn = now;
     }
+
+    printf("!!!!!!!!!! %d: I return %016llx\n", __LINE__, genid);
     return genid;
 }
 
@@ -545,12 +561,11 @@ try_again:
     iptr[0] = htonl(epoch);
     iptr[1] = htonl(munged_seed);
 
-    bdb_state->gblcontext = genid;
+    set_gblcontext_int(bdb_state, genid);
 
     /* this limps at a different speed compare to gblcontext */
-    if (lsn) {
+    if (lsn)
         set_commit_genid_lsn_gen(bdb_state, genid, lsn, &generation);
-    }
 
     Pthread_mutex_unlock(&(bdb_state->gblcontext_lock));
     return genid;
@@ -1067,8 +1082,8 @@ void bdb_set_commit_genid( bdb_state_type *bdb_state, unsigned long long context
 
     Pthread_mutex_lock(&(bdb_state->gblcontext_lock));
 
-    set_commit_genid_lsn_gen(bdb_state, context, (const DB_LSN *)plsn,
-                             (const uint32_t *)generation);
+    set_commit_genid_lsn_gen(bdb_state, context, (const DB_LSN *)plsn, generation);
+    set_gblcontext_int(bdb_state, context);
 
     Pthread_mutex_unlock(&(bdb_state->gblcontext_lock));
 }

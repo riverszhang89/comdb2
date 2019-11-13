@@ -894,6 +894,8 @@ struct bdb_state_tag {
     pthread_mutex_t pending_broadcast_lock;
 
     unsigned long long gblcontext;
+    uint16_t high16bits;
+    uint64_t low48bits;
 
     void (*signal_rtoff)(void);
 
@@ -1307,8 +1309,6 @@ extern void __db_cprint(DB *db);
 #endif
 
 void bdb_queue_init_priv(bdb_state_type *bdb_state);
-
-unsigned long long bdb_get_gblcontext(bdb_state_type *bdb_state);
 
 int bdb_apprec(DB_ENV *dbenv, DBT *log_rec, DB_LSN *lsn, db_recops op);
 
