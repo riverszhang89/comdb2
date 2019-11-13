@@ -228,6 +228,8 @@ unsigned long long get_genid_counter48(unsigned long long genid)
     unsigned long long counter;
     iptr = (uint32_t *)&genid;
     sptr = (uint16_t *)&genid;
+    
+    printf("%d: genid %llx\n", __LINE__, genid);
 
 #if defined(_LINUX_SOURCE)
     counter = ntohl(iptr[0]);
@@ -237,6 +239,7 @@ unsigned long long get_genid_counter48(unsigned long long genid)
     counter = genid >> 16;
 #endif
 
+    printf("%d: counter %llx\n", __LINE__, counter);
     return counter;
 }
 
@@ -424,6 +427,7 @@ static unsigned long long get_genid_48bit(bdb_state_type *bdb_state,
     }
 
     seed48++;
+    printf("%d: seed %llx\n", __LINE__, seed48);
 
     if (bdb_state->attr->genid48_warn_threshold &&
             (0x0000ffffffffffffULL - seed48) <=
@@ -444,6 +448,7 @@ static unsigned long long get_genid_48bit(bdb_state_type *bdb_state,
     iptr[0] = htonl(highorder);
     iptr[1] = htonl(loworder);
 
+    printf("%d: seed %llx\n", __LINE__, genid);
     bdb_state->gblcontext = genid;
 
     if (lsn) {
