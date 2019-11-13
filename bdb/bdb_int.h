@@ -894,8 +894,8 @@ struct bdb_state_tag {
     pthread_mutex_t pending_broadcast_lock;
 
     unsigned long long gblcontext;
-    uint16_t high16bits;
-    uint64_t low48bits;
+    uint16_t hi16;
+    uint64_t lo48;
 
     void (*signal_rtoff)(void);
 

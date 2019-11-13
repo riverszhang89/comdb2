@@ -4571,23 +4571,8 @@ deadlock_again:
         bdb_state->master_cmpcontext = bdb_increment_slot(bdb_state, maxgenid);
         master_cmpcontext = bdb_state->master_cmpcontext;
 
-        if (maxgenid) {
-            if (bdb_state->parent)
-                bdb_state = bdb_state->parent;
-
-            if (bdb_state->gblcontext == -1ULL) {
-                logmsg(LOGMSG_ERROR, "ENV STATE IS -1\n");
-                cheap_stack_trace();
-            }
-
-            if (bdb_cmp_genids(master_cmpcontext, bdb_state->gblcontext) > 0) {
-                bdb_state->got_gblcontext = 1;
-                bdb_state->gblcontext = master_cmpcontext;
-
-                logmsg(LOGMSG_INFO, "setting gblcontext to  0x%08llx\n",
-                        bdb_state->gblcontext);
-            }
-        }
+        if (maxgenid)
+            set_gblcontext(bdb_state, master_cmpcontext);
     }
 
     return 0;
@@ -4775,11 +4760,10 @@ static void fix_context(bdb_state_type *bdb_state)
         sleep(1);
 
         correct_context = bdb_get_cmp_context(bdb_state);
-
-        bdb_state->gblcontext = correct_context;
+        set_gblcontext(bdb_state, correct_context);
 
         logmsg(LOGMSG_ERROR, "%s: FIXING context to %llx\n", __func__,
-                bdb_state->gblcontext);
+               correct_context);
     }
 }
 

@@ -237,7 +237,6 @@ unsigned long long get_genid_counter48(unsigned long long genid)
     counter = genid >> 16;
 #endif
 
-    printf("%d: counter %016llx\n", __LINE__, counter);
     return counter;
 }
 
@@ -311,16 +310,10 @@ static inline void set_gblcontext_int(bdb_state_type *bdb_state,
     } else if (bdb_state->genid_format != LLMETA_GENID_48BIT) {
         bdb_state->gblcontext = gblcontext;
     } else {
-        bdb_state->gblcontext = gblcontext;
 
 #ifdef _LINUX_SOURCE
-        bdb_state->high16bits = htons(gblcontext >> 48);
-        bdb_state->low48bits = flibc_htonll(gblcontext) >> 16;
-        printf("??? wtf %d %x %016llx\n", __LINE__, bdb_state->high16bits, (unsigned long long)bdb_state->low48bits);
-
-        unsigned long long predict;
-        predict = (bdb_state->low48bits << 16) | bdb_state->high16bits;
-        predict = flibc_ntohll(predict);
+        bdb_state->hi16 = gblcontext >> 48;
+        bdb_state->lo48 = flibc_ntohll(gblcontext) >> 16;
 #else
 #endif
     }
@@ -347,7 +340,10 @@ unsigned long long get_gblcontext(bdb_state_type *bdb_state)
         bdb_state = bdb_state->parent;
 
     Pthread_mutex_lock(&(bdb_state->gblcontext_lock));
-    gblcontext = bdb_state->gblcontext;
+    if (bdb_state->genid_format != LLMETA_GENID_48BIT)
+        gblcontext = bdb_state->gblcontext;
+    else
+        gblcontext = flibc_htonll((bdb_state->lo48 << 16) | bdb_state->hi16);
     Pthread_mutex_unlock(&(bdb_state->gblcontext_lock));
 
     return gblcontext;
@@ -413,21 +409,19 @@ static unsigned long long get_genid_48bit(bdb_state_type *bdb_state,
                                           unsigned int dtafile, DB_LSN *lsn,
                                           uint32_t generation, uint64_t seed)
 {
-    unsigned int *iptr;
     unsigned long long genid;
     unsigned long long seed48;
     static time_t lastwarn = 0;
     time_t now;
-    uint32_t highorder = 0, loworder = 0;
-    uint16_t *s48ptr;
-    int prwarn = 0;
+
+    dtafile &= 0xf;
 
     Pthread_mutex_lock(&(bdb_state->gblcontext_lock));
-    if (!seed)
-        seed48 = get_genid_counter48(bdb_state->gblcontext);
-    else
-        seed48 = seed;
 
+    if (seed)
+        bdb_state->lo48 = seed;
+    bdb_state->hi16 = dtafile;
+    seed48 = ++bdb_state->lo48;
     while (seed48 >= 0x0000ffffffffffffULL) {
         /* This database needs a clean dump & load (or we need to expand our
          * genids */
@@ -436,41 +430,15 @@ static unsigned long long get_genid_48bit(bdb_state_type *bdb_state,
         sleep(1);
     }
 
-    seed48++;
-    printf("%d: dtafile %u seed %016llx\n", __LINE__, dtafile, seed48);
-
-    if (bdb_state->attr->genid48_warn_threshold &&
-            (0x0000ffffffffffffULL - seed48) <=
-            bdb_state->attr->genid48_warn_threshold)
-        prwarn = 1;
-
-    s48ptr = (uint16_t *)&seed48;
-    iptr = (unsigned int *)&genid;
-
-#if defined(_LINUX_SOURCE)
-    memcpy(&highorder, &s48ptr[1], 4);
-    loworder = s48ptr[0] << 16;
-#else
-    memcpy(&highorder, &s48ptr[1], 4);
-    memcpy(&loworder, &s48ptr[3], 2);
-#endif
-    loworder |= (dtafile & 0x0000000f);
-    iptr[0] = htonl(highorder);
-    iptr[1] = htonl(loworder);
-
-    ++bdb_state->low48bits;
-    unsigned long long predict;
-    predict = (bdb_state->low48bits << 16) | dtafile;
-    predict = flibc_ntohll(predict);
-    printf("!!! wtf %d I predict  %016llx\n", __LINE__, predict);
-
-    set_gblcontext_int(bdb_state, genid);
-
+    genid = flibc_htonll((seed48 << 16) | dtafile);
     if (lsn)
         set_commit_genid_lsn_gen(bdb_state, genid, lsn, &generation);
 
     Pthread_mutex_unlock(&(bdb_state->gblcontext_lock));
-    if (prwarn && (now = time(NULL)) > lastwarn) {
+
+    if (bdb_state->attr->genid48_warn_threshold &&
+            (0x0000ffffffffffffULL - seed48) <=
+            bdb_state->attr->genid48_warn_threshold && (now = time(NULL)) > lastwarn) {
         logmsg(LOGMSG_WARN, "%s: low-genid warning: this database has only "
                             "%llu genids remaining\n",
                __func__, 0x0000ffffffffffffULL - seed48);
