@@ -25,18 +25,18 @@ static const char revid[] = "$Id: mp_trickle.c,v 11.30 2003/09/13 19:20:41 bosti
 #include <time.h>
 #include <logmsg.h>
 
-static int __memp_trickle __P((DB_ENV *, int, int *, int));
+static int __memp_trickle __P((DB_ENV *, int, int *, int, int *, int *));
 
 /*
  * __memp_trickle_pp --
  *	DB_ENV->memp_trickle pre/post processing.
  *
- * PUBLIC: int __memp_trickle_pp __P((DB_ENV *, int, int *, int));
+ * PUBLIC: int __memp_trickle_pp __P((DB_ENV *, int, int *, int, int *, int *));
  */
 int
-__memp_trickle_pp(dbenv, pct, nwrotep, lru)
+__memp_trickle_pp(dbenv, pct, nwrotep, lru, pn, plast)
 	DB_ENV *dbenv;
-	int pct, *nwrotep, lru;
+	int pct, *nwrotep, lru, *pn, *plast;
 {
 	int rep_check, ret;
 
@@ -47,7 +47,7 @@ __memp_trickle_pp(dbenv, pct, nwrotep, lru)
 	rep_check = IS_ENV_REPLICATED(dbenv) ? 1 : 0;
 	if (rep_check)
 		__env_rep_enter(dbenv);
-	ret = __memp_trickle(dbenv, pct, nwrotep, lru);
+	ret = __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast);
 	if (rep_check)
 		__env_rep_exit(dbenv);
 	return (ret);
@@ -58,9 +58,9 @@ __memp_trickle_pp(dbenv, pct, nwrotep, lru)
  *	DB_ENV->memp_trickle.
  */
 static int
-__memp_trickle(dbenv, pct, nwrotep, lru)
+__memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 	DB_ENV *dbenv;
-	int pct, *nwrotep, lru;
+	int pct, *nwrotep, lru, *pn, *plast;
 {
 	DB_MPOOL *dbmp;
 	MPOOL *c_mp, *mp;
@@ -69,7 +69,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru)
 	int n, ret, wrote;
 
 	u_int32_t alloc, diff_alloc;
-	static u_int32_t smooth_alloc = 0, last_alloc = 0;
+	int smooth_alloc = *pn, last_alloc = *plast;
 	int smooth = dbenv->attr.trickle_smooth;
 	int trickle_smooth_factor = dbenv->attr.trickle_smooth_factor;
 	int trickle_smooth_multiplier = dbenv->attr.trickle_smooth_multiplier;
@@ -86,8 +86,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru)
 	if (pct < 1 || pct > 100)
 		return (EINVAL);
 
-	__log_get_last_lsn(dbenv, &last_lsn);
-	if (log_compare(&last_lsn, &mp->trickle_lsn) <= 0)
+	if (__log_get_last_lsn(dbenv, &last_lsn) == 0 && log_compare(&last_lsn, &mp->trickle_lsn) <= 0)
 		return (0);
 
 	/*
@@ -150,6 +149,9 @@ __memp_trickle(dbenv, pct, nwrotep, lru)
 	mp->stat.st_page_trickle += *nwrotep;
 
 done:	memcpy(&mp->trickle_lsn, &last_lsn, sizeof(DB_LSN));
+
+	*pn = smooth_alloc;
+    *plast = last_alloc;
 
 	return (ret);
 }

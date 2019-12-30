@@ -94,6 +94,9 @@ void *memp_trickle_thread(void *arg)
     int nwrote;
     int rc;
 
+    int blkseq[20];
+    int mainpool[2];
+
     if (try_set(&memp_trickle_thread_running) == 0)
         return NULL;
 
@@ -118,13 +121,27 @@ void *memp_trickle_thread(void *arg)
         /* time is in usecs, memptricklemsecs is in msecs */
         time = bdb_state->attr->memptricklemsecs * 1000;
 
+        if (bdb_state->attr->private_blkseq_enabled) {
+            int nstripes = bdb_state->pvt_blkseq_stripes;
+            for (int ii = 0; ii < nstripes; ++ii) {
+                rc = bdb_state->dbenv->memp_trickle(
+                        bdb_state->blkseq_env[ii], bdb_state->attr->memptricklepercent, &nwrote, 1, &blkseq[ii], &blkseq[ii+1]);
+                if (rc == DB_LOCK_DESIRED) {
+                    BDB_RELLOCK();
+                    sleep(1);
+                    continue;
+                }
+            }
+        }
+
         rc = bdb_state->dbenv->memp_trickle(
-            bdb_state->dbenv, bdb_state->attr->memptricklepercent, &nwrote, 1);
+            bdb_state->dbenv, bdb_state->attr->memptricklepercent, &nwrote, 1, &mainpool[0], &mainpool[1]);
         if (rc == DB_LOCK_DESIRED) {
             BDB_RELLOCK();
             sleep(1);
             continue;
         }
+
 
         BDB_RELLOCK();
 
