@@ -1510,7 +1510,7 @@ void clean_exit(void)
     if (rc != 0) {
         logmsg(LOGMSG_ERROR, "error backend_close() rc %d\n", rc);
     }
-    bdb_cleanup_private_blkseq(thedb->bdb_env);
+    //bdb_cleanup_private_blkseq(thedb->bdb_env);
 
     eventlog_stop();
 

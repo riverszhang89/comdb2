@@ -13,7 +13,7 @@
 /* replace berkeley's shalloc code.  we never use shared memory regions,
    so we don't need it */
 
-int __gbl_use_malloc_for_regions = 1;
+int __gbl_use_malloc_for_regions = 0;
 
 /* this can only be called BEFORE any environments are created */
 void
