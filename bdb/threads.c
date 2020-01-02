@@ -94,8 +94,8 @@ void *memp_trickle_thread(void *arg)
     int nwrote;
     int rc;
 
-    int blkseq[20];
-    int mainpool[2];
+    int blkseq[20] = {0};
+    int mainpool[2] = {0};
 
     if (try_set(&memp_trickle_thread_running) == 0)
         return NULL;

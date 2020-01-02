@@ -100,31 +100,29 @@ void bdb_cleanup_private_blkseq(bdb_state_type *bdb_state)
         }
     }
 
-    if (bdb_state->blkseq_env) {
-        free(bdb_state->blkseq_env);
-        bdb_state->blkseq_env = NULL;
-    }
+    free(bdb_state->blkseq_env);
+    bdb_state->blkseq_env = NULL;
 
-    if (bdb_state->blkseq_lk) {
-        free(bdb_state->blkseq_lk);
-        bdb_state->blkseq_lk = NULL;
-    }
-    if (bdb_state->blkseq[0]) {
-        free(bdb_state->blkseq[0]);
-        bdb_state->blkseq[0] = NULL;
-    }
-    if (bdb_state->blkseq[1]) {
-        free(bdb_state->blkseq[1]);
-        bdb_state->blkseq[1] = NULL;
-    }
-    if (bdb_state->blkseq_last_lsn[0]) {
-        free(bdb_state->blkseq_last_lsn[0]);
-        bdb_state->blkseq_last_lsn[0] = NULL;
-    }
-    if (bdb_state->blkseq_last_lsn[1]) {
-        free(bdb_state->blkseq_last_lsn[1]);
-        bdb_state->blkseq_last_lsn[1] = NULL;
-    }
+    free(bdb_state->blkseq_lk);
+    bdb_state->blkseq_lk = NULL;
+
+    free(bdb_state->blkseq[0]);
+    bdb_state->blkseq[0] = NULL;
+
+    free(bdb_state->blkseq[1]);
+    bdb_state->blkseq[1] = NULL;
+
+    free(bdb_state->blkseq_last_lsn[0]);
+    bdb_state->blkseq_last_lsn[0] = NULL;
+
+    free(bdb_state->blkseq_last_lsn[1]);
+    bdb_state->blkseq_last_lsn[1] = NULL;
+
+    free(bdb_state->blkseq_log_list);
+    bdb_state->blkseq_log_list = NULL;
+
+    free(bdb_state->blkseq_last_roll_time);
+    bdb_state->blkseq_last_roll_time = NULL;
 }
 
 int bdb_create_private_blkseq(bdb_state_type *bdb_state)
@@ -143,6 +141,7 @@ int bdb_create_private_blkseq(bdb_state_type *bdb_state)
     bdb_state->blkseq_last_lsn[1] = malloc(nstripes * sizeof(DB_LSN));
 
     bdb_state->blkseq_log_list = malloc(nstripes * sizeof(listc_t));
+    bdb_state->blkseq_last_roll_time = malloc(nstripes * sizeof(time_t));
 
     for (int stripe = 0; stripe < nstripes; stripe++) {
         rc = db_env_create(&env, 0);
@@ -177,8 +176,8 @@ int bdb_create_private_blkseq(bdb_state_type *bdb_state)
         }
         listc_init(&bdb_state->blkseq_log_list[stripe],
                    offsetof(struct seen_blkseq, lnk));
+        bdb_state->blkseq_last_roll_time[stripe] = comdb2_time_epoch();
     }
-    bdb_state->blkseq_last_roll_time = comdb2_time_epoch();
 
     return 0;
 }
@@ -429,7 +428,7 @@ int bdb_blkseq_clean(bdb_state_type *bdb_state, uint8_t stripe)
 
     Pthread_mutex_lock(&bdb_state->blkseq_lk[stripe]);
 
-    last = bdb_state->blkseq_last_roll_time;
+    last = bdb_state->blkseq_last_roll_time[stripe];
 
     /* Not yet time?  Do nothing. */
     if ((now - last) < bdb_state->attr->private_blkseq_maxage)
@@ -479,7 +478,7 @@ int bdb_blkseq_clean(bdb_state_type *bdb_state, uint8_t stripe)
     bdb_state->blkseq[0][stripe] = newdb;
     bdb_state->blkseq_last_lsn[1][stripe] = bdb_state->blkseq_last_lsn[0][stripe];
 
-    bdb_state->blkseq_last_roll_time = now;
+    bdb_state->blkseq_last_roll_time[stripe] = now;
 
     /* Clean up the old blkseq file. Get its name, close it, delete it. */
     rc =
@@ -494,19 +493,10 @@ int bdb_blkseq_clean(bdb_state_type *bdb_state, uint8_t stripe)
     to_be_deleted->close(to_be_deleted, DB_NOSYNC);
 
     if (oldname) {
-        DB *db;
         env = bdb_state->blkseq_env[stripe];
-
-        rc = db_create(&db, env, 0);
+        rc = env->dbremove(env, NULL, oldname, NULL, 0);
         if (rc) {
-            logmsg(LOGMSG_ERROR, "blkseq create rc %d\n", rc);
-            rc = BDBERR_MISC;
-            goto done;
-        }
-
-        rc = db->remove(db, oldname, NULL, 0);
-        if (rc) {
-            logmsg(LOGMSG_ERROR, "db->remove %s rc %d\n", oldname, rc);
+            logmsg(LOGMSG_ERROR, "DBENV->dbremove %s rc %d\n", oldname, rc);
             rc = BDBERR_MISC;
             goto done;
         }
