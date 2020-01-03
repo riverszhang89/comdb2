@@ -533,7 +533,7 @@ DEF_ATTR(FDB_SQLSTATS_CACHE_LOCK_WAITTIME_NSEC,
          fdb_sqlstats_cache_waittime_nsec, QUANTITY, 1000, NULL)
 DEF_ATTR(PRIVATE_BLKSEQ_CACHESZ, private_blkseq_cachesz, BYTES, 4194304,
          "Cache size of the blkseq table.")
-DEF_ATTR(PRIVATE_BLKSEQ_MAXAGE, private_blkseq_maxage, SECS, 600,
+DEF_ATTR(PRIVATE_BLKSEQ_MAXAGE, private_blkseq_maxage, SECS, 10,
          "Maximum time in seconds to let 'old' transactions live.")
 DEF_ATTR(PRIVATE_BLKSEQ_MAXTRAVERSE, private_blkseq_maxtraverse, QUANTITY, 4,
          NULL)
