@@ -128,11 +128,10 @@ void *memp_trickle_thread(void *arg)
                 rc = bdb_state->dbenv->memp_trickle(
                         bdb_state->blkseq_env[ii], bdb_state->attr->memptricklepercent, &nwrote, 1, &blkseq[ii], &blkseq[ii+1]);
                 pthread_mutex_unlock(&bdb_state->blkseq_lk[ii]);
-                if (rc == DB_LOCK_DESIRED) {
-                    BDB_RELLOCK();
-                    sleep(1);
-                }
                 BDB_RELLOCK();
+                if (rc) {
+                    printf("HUH??? ii %d rc %d\n", ii, rc);
+                }
             }
         }
 
