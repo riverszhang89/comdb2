@@ -123,12 +123,10 @@ void *memp_trickle_thread(void *arg)
         if (bdb_state->attr->private_blkseq_enabled) {
             int nstripes = bdb_state->pvt_blkseq_stripes;
             for (int ii = 0; ii < nstripes; ++ii) {
-                BDB_READLOCK("memp_trickle_thread");
                 pthread_mutex_lock(&bdb_state->blkseq_lk[ii]);
                 rc = bdb_state->dbenv->memp_trickle(
                         bdb_state->blkseq_env[ii], bdb_state->attr->memptricklepercent, &nwrote, 1, &blkseq[ii], &blkseq[ii+1]);
                 pthread_mutex_unlock(&bdb_state->blkseq_lk[ii]);
-                BDB_RELLOCK();
                 if (rc) {
                     printf("HUH??? ii %d rc %d\n", ii, rc);
                 }
