@@ -117,7 +117,9 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 		else
 			smooth_alloc = smooth_alloc * (trickle_smooth_factor - 1) / trickle_smooth_factor + diff_alloc / trickle_smooth_factor;
 		n = smooth_alloc * trickle_smooth_multiplier;
-		if (trickle_max > 0 && n > trickle_max)
+        if (trickle_max <= 0)
+            trickle_max = total;
+		if (n > trickle_max)
 			n = trickle_max;
 		else if (n < trickle_min)
 			n = trickle_min;
