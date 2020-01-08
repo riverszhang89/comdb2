@@ -74,7 +74,6 @@ static DB *create_blkseq(bdb_state_type *bdb_state, int stripe, int num)
                   0666);
     /* we don't need the descriptor mkstemp creates, just need a unique name */
     close(fd);
-    printf("blkseq stripe %d file %d %s %p\n", stripe, num, fname, db);
     if (rc) {
         logmsg(LOGMSG_ERROR, "blkseq->open rc %d\n", rc);
         return NULL;
@@ -161,7 +160,7 @@ int bdb_create_private_blkseq(bdb_state_type *bdb_state)
         }
         /* no locking around blkseq - we'll lock around them ourselves */
         rc = env->open(env, bdb_state->tmpdir,
-                       DB_PRIVATE | DB_INIT_MPOOL | DB_CREATE, 0666);
+                       DB_PRIVATE | DB_THREAD | DB_INIT_MPOOL | DB_CREATE, 0666);
         if (rc) {
             logmsg(LOGMSG_ERROR, "blkseq->open rc %d\n", rc);
             return rc;
@@ -498,6 +497,7 @@ int bdb_blkseq_clean(bdb_state_type *bdb_state, uint8_t stripe)
         if (rc) {
             logmsg(LOGMSG_ERROR, "DBENV->dbremove %s rc %d\n", oldname, rc);
             rc = BDBERR_MISC;
+            abort();
             goto done;
         }
     }
