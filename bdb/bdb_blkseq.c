@@ -70,6 +70,7 @@ static DB *create_blkseq(bdb_state_type *bdb_state, int stripe, int num)
         logmsg(LOGMSG_ERROR, "fchmod rc %d %s\n", errno, strerror(errno));
         return NULL;
     }
+    ctrace("blkseq stripe %d file %d %s\n", stripe, num, fname);
     rc = db->open(db, NULL, fname, NULL, DB_BTREE, DB_CREATE | DB_TRUNCATE,
                   0666);
     /* we don't need the descriptor mkstemp creates, just need a unique name */
