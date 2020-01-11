@@ -118,16 +118,16 @@ void *memp_trickle_thread(void *arg)
     while (!db_is_stopped()) {
 
         /* time is in usecs, memptricklemsecs is in msecs */
-        time = bdb_state->attr->memptricklemsecs * 100;
+        time = bdb_state->attr->memptricklemsecs * 1000;
 
         if (bdb_state->attr->private_blkseq_enabled) {
             int nstripes = bdb_state->pvt_blkseq_stripes;
             for (int ii = 0; ii < nstripes; ++ii) {
-                pthread_mutex_lock(&bdb_state->blkseq_lk[ii]);
-                logmsg(LOGMSG_FATAL, "%s: %d: ", __func__, ii);
+                if (pthread_mutex_trylock(&bdb_state->blkseq_lk[ii]) == 0) {
                 rc = bdb_state->dbenv->memp_trickle(
                         bdb_state->blkseq_env[ii], bdb_state->attr->memptricklepercent, &nwrote, 1, &blkseq[ii], &blkseq[ii+nstripes]);
                 pthread_mutex_unlock(&bdb_state->blkseq_lk[ii]);
+                }
             }
         }
 

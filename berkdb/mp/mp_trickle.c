@@ -124,7 +124,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 		else if (n < trickle_min)
 			n = trickle_min;
 
-		logmsg(LOGMSG_FATAL, "%s: alloc +%u, n %u.\n", __func__, diff_alloc, n);
+		logmsg(LOGMSG_DEBUG, "%s: alloc +%u, n %u.\n", __func__, diff_alloc, n);
 		last_alloc = alloc;
 	} else {
 		/*
