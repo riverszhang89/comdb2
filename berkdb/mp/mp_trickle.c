@@ -114,7 +114,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 
 	if (smooth && denominator > 0) {
 		diff = alloc - last_alloc;
-		n = nalloc = nalloc * (denominator - 1) / denominator + diff / denominator;
+		n = nalloc = diff + (nalloc * (denominator - 1)) / denominator;
 		n *= multiplier;
 		if (trickle_max <= 0)
 			trickle_max = total;
@@ -150,7 +150,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 
 done:	memcpy(&mp->trickle_lsn, &last_lsn, sizeof(DB_LSN));
 
-	*pn = nalloc;
+	*pn = n;
 	*plast = last_alloc;
 
 	return (ret);

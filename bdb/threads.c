@@ -99,9 +99,8 @@ void *memp_trickle_thread(void *arg)
     int has_pvt_blkseq;
     int nstripes;
     int stripe;
-    size_t len;
     int *blkseqpools;
-    int mainpool[2] = {0};
+    int mainpool[2] = {1, 1};
 
     if (try_set(&memp_trickle_thread_running) == 0)
         return NULL;
@@ -125,9 +124,9 @@ void *memp_trickle_thread(void *arg)
 
     has_pvt_blkseq = bdb_state->attr->private_blkseq_enabled;
     nstripes = bdb_state->pvt_blkseq_stripes;
-    len = sizeof(int) * nstripes * 2;
-    blkseqpools = alloca(len);
-    memset(blkseqpools, 0, len);
+    blkseqpools = alloca(sizeof(int) * nstripes * 2);
+    for (stripe = 0; stripe < nstripes; ++stripe)
+        blkseqpools[stripe] = blkseqpools[stripe + nstripes] = 1;
 
     while (!db_is_stopped()) {
 
