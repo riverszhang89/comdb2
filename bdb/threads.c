@@ -96,10 +96,11 @@ void *memp_trickle_thread(void *arg)
     int nwrote;
     int rc;
 
+    /* blkseq mpools */
     int has_pvt_blkseq;
-    int nstripes;
     int stripe;
-    int *blkseqpools;
+    int nstripes = 0;
+    int *blkseqpools = NULL;
     int mainpool[2] = {1, 1};
 
     if (try_set(&memp_trickle_thread_running) == 0)
@@ -123,10 +124,12 @@ void *memp_trickle_thread(void *arg)
         sleep(1);
 
     has_pvt_blkseq = bdb_state->attr->private_blkseq_enabled;
-    nstripes = bdb_state->pvt_blkseq_stripes;
-    blkseqpools = alloca(sizeof(int) * nstripes * 2);
-    for (stripe = 0; stripe < nstripes; ++stripe)
-        blkseqpools[stripe] = blkseqpools[stripe + nstripes] = 1;
+    if (has_pvt_blkseq) {
+        nstripes = bdb_state->pvt_blkseq_stripes;
+        blkseqpools = alloca(sizeof(int) * nstripes * 2);
+        for (stripe = 0; stripe < nstripes; ++stripe)
+            blkseqpools[stripe] = blkseqpools[stripe + nstripes] = 1;
+    }
 
     while (!db_is_stopped()) {
 
@@ -136,10 +139,12 @@ void *memp_trickle_thread(void *arg)
         if (has_pvt_blkseq) {
             for (stripe = 0; stripe < nstripes; ++stripe) {
                 if (pthread_mutex_trylock(&bdb_state->blkseq_lk[stripe]) == 0) {
+                    BDB_READLOCK("memp_trickle_thread");
                     (void)bdb_state->dbenv->memp_trickle(
                         bdb_state->blkseq_env[stripe],
                         bdb_state->attr->memptricklepercent, &nwrote, 1,
                         &blkseqpools[stripe], &blkseqpools[stripe + nstripes]);
+                    BDB_RELLOCK();
                     Pthread_mutex_unlock(&bdb_state->blkseq_lk[stripe]);
                 }
             }

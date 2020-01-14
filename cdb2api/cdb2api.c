@@ -3483,9 +3483,6 @@ static int next_cnonce(cdb2_hndl_tp *hndl)
     uint64_t cnt, seq, tm, now;
     cnonce_t *c;
 
-    static char hex[] = "0123456789abcdef";
-    char *in, *out, *end;
-
     rc = gettimeofday(&tv, NULL);
     if (rc != 0)
         return rc;
@@ -3515,17 +3512,8 @@ static int next_cnonce(cdb2_hndl_tp *hndl)
         rc = EINVAL;
     }
 
-    if (rc == 0) {
-        end = (char *)&c->seq;
-        in = end + sizeof(c->seq);
-        out = c->str;
-
-        while (in != end) {
-            char i = *(--in);
-            *(out++) = hex[(i & 0xf0) >> 4];
-            *(out++) = hex[i & 0x0f];
-        }
-    }
+    if (rc == 0)
+        sprintf(c->str, "%" PRIx64, c->seq);
     return rc;
 }
 

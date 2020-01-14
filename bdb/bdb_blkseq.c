@@ -159,7 +159,9 @@ int bdb_create_private_blkseq(bdb_state_type *bdb_state)
             logmsg(LOGMSG_ERROR, "blkseq->set_cachesize rc %d\n", rc);
             return rc;
         }
-        /* no locking around blkseq - we'll lock around them ourselves */
+        /* no locking around blkseq - we'll lock around them ourselves.
+           We still need the DB_THREAD flag for we trickle a blkseq mpool
+           in a multithreaded fashion (using thdpool). */
         rc =
             env->open(env, bdb_state->tmpdir,
                       DB_PRIVATE | DB_THREAD | DB_INIT_MPOOL | DB_CREATE, 0666);

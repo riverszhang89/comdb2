@@ -68,6 +68,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 	u_int32_t dirty, i, total, dtmp;
 	int n, ret, wrote;
 
+	/* smooth trickle */
 	u_int32_t alloc, diff;
 	int nalloc = *pn, last_alloc = *plast;
 	int smooth = dbenv->attr.trickle_smooth;
@@ -101,7 +102,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 	 * than one page size, as a free 512B buffer isn't the same as a free
 	 * 8KB buffer.
 	 *
-	 * Loop through the caches counting total/dirty buffers.
+	 * Loop through the caches counting total/dirty/allocated buffers.
 	 */
 	for (ret = 0, i = dirty = total = alloc = 0; i < mp->nreg; ++i) {
 		c_mp = dbmp->reginfo[i].primary;
@@ -114,17 +115,19 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 
 	if (smooth && denominator > 0) {
 		diff = alloc - last_alloc;
+		/* Estimate the number of pages to be sync'd:
+		   New Estimate = Prev Est * (100% - p) + Num Pages Allocated * p
+		   where p is 1/trickle_smooth_factor. */
 		n = nalloc = diff + (nalloc * (denominator - 1)) / denominator;
 		n *= multiplier;
-		if (trickle_max <= 0)
-			trickle_max = total;
+		if (n > total)
+			n = total;
 		if (n > trickle_max)
 			n = trickle_max;
 		else if (n < trickle_min)
 			n = trickle_min;
-
-		logmsg(LOGMSG_DEBUG, "%s: alloc +%u, n %u.\n", __func__, diff, n);
 		last_alloc = alloc;
+		logmsg(LOGMSG_DEBUG, "%s: alloc +%u, n %u.\n", __func__, diff, n);
 	} else {
 		/*
 		 * !!!
