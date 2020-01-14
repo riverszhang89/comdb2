@@ -935,7 +935,6 @@ typedef struct cnonce {
     int pid;
     struct cdb2_hndl *hndl;
     uint64_t seq;
-    int ofs;
     char str[CNONCE_STR_SZ];
 } cnonce_t;
 
@@ -3483,6 +3482,9 @@ static int next_cnonce(cdb2_hndl_tp *hndl)
     uint64_t cnt, seq, tm, now;
     cnonce_t *c;
 
+    static char hex[] = "0123456789abcdef";
+    char *in, *out, *end;
+
     rc = gettimeofday(&tv, NULL);
     if (rc != 0)
         return rc;
@@ -3504,16 +3506,25 @@ static int next_cnonce(cdb2_hndl_tp *hndl)
             c->hostid = _MACHINE_ID;
             c->pid = _PID;
             c->hndl = hndl;
-            c->ofs = sprintf(c->str + (sizeof(c->seq) << 1), CNONCE_STR_FMT,
-                             c->hostid, c->pid, (unsigned long long)c->hndl);
+            sprintf(c->str + (sizeof(c->seq) << 1), CNONCE_STR_FMT,
+                    c->hostid, c->pid, (unsigned long long)c->hndl);
         }
         c->seq = (now << CNT_BITS);
     } else {
         rc = EINVAL;
     }
 
-    if (rc == 0)
-        sprintf(c->str, "%" PRIx64, c->seq);
+    if (rc == 0) {
+        end = (char *)&c->seq;
+        in = end + sizeof(c->seq);
+        out = c->str;
+
+        while (in != end) {
+            char i = *(--in);
+            *(out++) = hex[(i & 0xf0) >> 4];
+            *(out++) = hex[i & 0x0f];
+        }
+    }
     return rc;
 }
 

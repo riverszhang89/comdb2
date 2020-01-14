@@ -70,7 +70,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 
 	/* smooth trickle */
 	u_int32_t alloc, diff;
-	int nalloc = *pn, last_alloc = *plast;
+	int last_alloc = *plast;
 	int smooth = dbenv->attr.trickle_smooth;
 	int denominator = dbenv->attr.trickle_smooth_factor;
 	int multiplier = dbenv->attr.trickle_smooth_multiplier;
@@ -114,20 +114,21 @@ __memp_trickle(dbenv, pct, nwrotep, lru, pn, plast)
 	}
 
 	if (smooth && denominator > 0) {
+		n = *pn;
 		diff = alloc - last_alloc;
 		/* Estimate the number of pages to be sync'd:
 		   New Estimate = Prev Est * (100% - p) + Num Pages Allocated * p
 		   where p is 1/trickle_smooth_factor. */
-		n = nalloc = diff + (nalloc * (denominator - 1)) / denominator;
+		n = (diff + n * (denominator - 1)) / denominator;
 		n *= multiplier;
 		if (n > total)
 			n = total;
-		if (n > trickle_max)
+		if (trickle_max > 0 && n > trickle_max)
 			n = trickle_max;
-		else if (n < trickle_min)
+        else if (trickle_min > 0 && n < trickle_min)
 			n = trickle_min;
 		last_alloc = alloc;
-		logmsg(LOGMSG_DEBUG, "%s: alloc +%u, n %u.\n", __func__, diff, n);
+		logmsg(LOGMSG_FATAL, "%s: alloc +%u, n %u.\n", __func__, diff, n);
 	} else {
 		/*
 		 * !!!
