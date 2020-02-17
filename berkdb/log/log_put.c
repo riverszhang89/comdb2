@@ -1201,7 +1201,6 @@ __log_putr(dblp, lsn, dbt, prev, h, lk)
 		goto err;
 
     if (b_off_ptr == NULL) {
-        puts("wtf?");
         lp->len = (u_int32_t)(nr + dbt->size);
         lp->lsn.offset += (u_int32_t)(nr + dbt->size);
     }

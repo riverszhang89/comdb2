@@ -566,6 +566,7 @@ __log_c_get_int(logc, alsn, dbt, flags)
 			rlock = L_ACQUIRED;
 			st = comdb2_time_epochus();
 			R_LOCK(dbenv, &dblp->reginfo);
+            Pthread_rwlock_wrlock(&lp->lgwrlk);
 			tot = (comdb2_time_epochus() - st);
 			logc->lockwaitus += (tot > 0 ? tot : 0);
 		}
@@ -649,6 +650,7 @@ next_file:	++nlsn.file;
 	 */
 	if (rlock == L_ACQUIRED) {
 		rlock = L_NONE;
+        Pthread_rwlock_unlock(&lp->lgwrlk);
 		R_UNLOCK(dbenv, &dblp->reginfo);
 	}
 	if ((ret =
@@ -683,6 +685,7 @@ cksum:	/*
 	 */
 	if (rlock == L_ACQUIRED) {
 		rlock = L_NONE;
+        Pthread_rwlock_unlock(&lp->lgwrlk);
 		R_UNLOCK(dbenv, &dblp->reginfo);
 	}
 
@@ -780,8 +783,11 @@ cksum:	/*
 	logc->c_len = hdr.len;
 	logc->c_prev = hdr.prev;
 
-err:	if (rlock == L_ACQUIRED)
-		R_UNLOCK(dbenv, &dblp->reginfo);
+err:
+    if (rlock == L_ACQUIRED) {
+        Pthread_rwlock_unlock(&lp->lgwrlk);
+        R_UNLOCK(dbenv, &dblp->reginfo);
+    }
 
 	return (ret);
 }
@@ -988,6 +994,7 @@ __log_c_inregion_int(logc, lsn, rlockp, last_lsn, hdr, pp)
 		*rlockp = L_ACQUIRED;
 		st = comdb2_time_epochus();
 		R_LOCK(dbenv, &dblp->reginfo);
+        Pthread_rwlock_wrlock(&lp->lgwrlk);
 		tot = comdb2_time_epochus() - st;
 		logc->lockwaitus += (tot > 0 ? tot : 0);
 	}
@@ -1319,6 +1326,7 @@ __log_c_inregion_int(logc, lsn, rlockp, last_lsn, hdr, pp)
 	/* Release the region lock. */
 	if (*rlockp == L_ACQUIRED) {
 		*rlockp = L_NONE;
+        Pthread_rwlock_unlock(&lp->lgwrlk);
 		R_UNLOCK(dbenv, &dblp->reginfo);
 	}
 
