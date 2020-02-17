@@ -1610,6 +1610,7 @@ err:	if (!F_ISSET(logc, DB_LOG_SILENT_ERR))
 		__db_err(dbenv,
 	    "DB_LOGC->get: LSN %lu/%lu: hdr=%p invalid log record header",
 		    (u_long)lsn->file, (u_long)lsn->offset, hdr);
+        abort();
 	return (EIO);
 }
 

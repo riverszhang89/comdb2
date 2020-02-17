@@ -57,15 +57,15 @@ extern int bdb_push_pglogs_commit(void *in_bdb_state, DB_LSN commit_lsn,
 
 static int __log_encrypt_record __P((DB_ENV *, DBT *, HDR *, u_int32_t));
 static int __log_file __P((DB_ENV *, const DB_LSN *, char *, size_t));
-static int __log_fill __P((DB_LOG *, DB_LSN *, void *, u_int32_t));
+static int __log_fill __P((DB_LOG *, DB_LSN *, void *, u_int32_t, size_t *));
 static int __log_fill_segments __P((DB_LOG *, DB_LSN *, DB_LSN *, void *,
 	u_int32_t));
 static int __log_flush_commit __P((DB_ENV *, const DB_LSN *, u_int32_t));
 static int __log_newfh __P((DB_LOG *));
 static int __log_put_next __P((DB_ENV *,
 	DB_LSN *, u_int64_t *, DBT *, const DBT *, HDR *, DB_LSN *, int,
-	u_int8_t *key, u_int32_t));
-static int __log_putr __P((DB_LOG *, DB_LSN *, const DBT *, u_int32_t, HDR *));
+	u_int8_t *key, u_int32_t, int *));
+static int __log_putr __P((DB_LOG *, DB_LSN *, const DBT *, u_int32_t, HDR *, int *));
 static int __log_write __P((DB_LOG *, void *, u_int32_t));
 
 pthread_mutex_t log_write_lk = PTHREAD_MUTEX_INITIALIZER;
@@ -261,12 +261,12 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 
 	ZERO_LSN(old_lsn);
 
-    Pthread_mutex_lock(&gbl_logput_lk);
 	if ((ret =
 		__log_put_next(dbenv, lsnp, contextp, dbt, udbt, &hdr, &old_lsn,
-		    off_context, key, flags)) != 0)
+		    off_context, key, flags, &lock_held)) != 0)
 		goto panic_check;
 
+    Pthread_mutex_lock(&gbl_logput_lk);
     Pthread_cond_broadcast(&gbl_logput_cond);
     Pthread_mutex_unlock(&gbl_logput_lk);
 
@@ -284,8 +284,10 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 		 * messages, but we want to drop and reacquire it a minimal
 		 * number of times.
 		 */
-		R_UNLOCK(dbenv, &dblp->reginfo);
-		lock_held = 0;
+        if (lock_held) {
+            R_UNLOCK(dbenv, &dblp->reginfo);
+            lock_held = 0;
+        }
 		/*
 		 * If we are not a rep application, but are sharing a
 		 * master rep env, we should not be writing log records.
@@ -621,7 +623,7 @@ __log_txn_lsn(dbenv, lsnp, mbytesp, bytesp)
  * turn out to be.
  */
 static int
-__log_put_next(dbenv, lsn, context, dbt, udbt, hdr, old_lsnp, off_context, key, flags)
+__log_put_next(dbenv, lsn, context, dbt, udbt, hdr, old_lsnp, off_context, key, flags, lk)
 	DB_ENV *dbenv;
 	DB_LSN *lsn;
 	u_int64_t *context;
@@ -632,6 +634,7 @@ __log_put_next(dbenv, lsn, context, dbt, udbt, hdr, old_lsnp, off_context, key, 
 	int off_context;
 	u_int8_t *key;
 	u_int32_t flags;
+    int *lk;
 {
 	DB_LOG *dblp;
 	DB_LSN old_lsn;
@@ -749,7 +752,7 @@ __log_put_next(dbenv, lsn, context, dbt, udbt, hdr, old_lsnp, off_context, key, 
 	}
 
 	/* Actually put the record. */
-	return (__log_putr(dblp, lsn, dbt, lp->lsn.offset - lp->len, hdr));
+	return (__log_putr(dblp, lsn, dbt, lp->lsn.offset - lp->len, hdr, lk));
 }
 
 /*
@@ -1078,7 +1081,7 @@ __log_newfile(dblp, lsnp)
 	    (CRYPTO_ON(dbenv)) ? db_cipher->mac_key : NULL, hdr.chksum);
 	lsn = lp->lsn;
 	if ((ret = __log_putr(dblp, &lsn,
-		    &t, lastoff == 0 ? 0 : lastoff - lp->len, &hdr)) != 0)
+		    &t, lastoff == 0 ? 0 : lastoff - lp->len, &hdr, NULL)) != 0)
 		goto err;
 
 	/* Update the LSN information returned to the caller. */
@@ -1096,12 +1099,13 @@ err:
  *	Actually put a record into the log.
  */
 static int
-__log_putr(dblp, lsn, dbt, prev, h)
+__log_putr(dblp, lsn, dbt, prev, h, lk)
 	DB_LOG *dblp;
 	DB_LSN *lsn;
 	const DBT *dbt;
 	u_int32_t prev;
 	HDR *h;
+    int *lk;
 {
 	DB_CIPHER *db_cipher;
 	DB_ENV *dbenv;
@@ -1110,6 +1114,8 @@ __log_putr(dblp, lsn, dbt, prev, h)
 	HDR tmp, *hdr;
 	int ret;
 	size_t nr;
+    size_t b_off;
+    size_t *b_off_ptr = NULL;
 
 	dbenv = dblp->dbenv;
 	lp = dblp->reginfo.primary;
@@ -1138,6 +1144,20 @@ __log_putr(dblp, lsn, dbt, prev, h)
 	hdr->prev = prev;
 	hdr->len = (u_int32_t)hdr->size + dbt->size;
 
+	if (lk == NULL || hdr->len + lp->b_off >= lp->buffer_size) {
+        Pthread_rwlock_wrlock(&lp->lgwrlk);
+    } else {
+        b_off = lp->b_off;
+        b_off_ptr = &b_off;
+        lp->b_off += hdr->len;
+        lp->len = hdr->len;
+        lp->lsn.offset += hdr->len;
+        Pthread_rwlock_wrlock(&lp->lgwrlk);
+        R_UNLOCK(dbenv, &dblp->reginfo);
+        *lk = 0;
+        logmsg(LOGMSG_DEBUG, "Early region unlock.");
+    }
+
 	/*
 	 * If we were passed in a nonzero checksum, our caller calculated
 	 * the checksum before acquiring the log mutex, as an optimization.
@@ -1161,7 +1181,7 @@ __log_putr(dblp, lsn, dbt, prev, h)
 		ret = __log_fill_segments(dblp, lsn, &tmplsn, hdr, nr);
 		assert(tmplsn.offset == lsn->offset + nr);
 	} else {
-		ret = __log_fill(dblp, lsn, hdr, (u_int32_t)nr);
+		ret = __log_fill(dblp, lsn, hdr, (u_int32_t)nr, b_off_ptr);
 	}
 
 	if (ret != 0)
@@ -1174,20 +1194,25 @@ __log_putr(dblp, lsn, dbt, prev, h)
 		    dbt->size);
 		assert(tmplsn.offset == lsn->offset + nr + dbt->size);
 	} else {
-		ret = __log_fill(dblp, lsn, dbt->data, dbt->size);
+		ret = __log_fill(dblp, lsn, dbt->data, dbt->size, b_off_ptr);
 	}
 
 	if (ret != 0)
 		goto err;
 
-	lp->len = (u_int32_t)(nr + dbt->size);
-	lp->lsn.offset += (u_int32_t)(nr + dbt->size);
+    if (b_off_ptr == NULL) {
+        puts("wtf?");
+        lp->len = (u_int32_t)(nr + dbt->size);
+        lp->lsn.offset += (u_int32_t)(nr + dbt->size);
+    }
+    Pthread_rwlock_unlock(&lp->lgwrlk);
 	return (0);
 
 err:
 	/* 
 	 * Panic if __log_fill returned non-0. 
 	 */
+    Pthread_rwlock_unlock(&lp->lgwrlk);
 	__db_err(dbenv, "Error writing the log-buffer");
 	__db_panic(dbenv, ret);
 	return (ret);
@@ -1317,6 +1342,8 @@ __log_flush_int(dblp, lsnp, release)
 	ncommit = 0;
 	ret = 0;
 
+    Pthread_rwlock_wrlock(&lp->lgwrlk);
+
 	/*
 	 * If no LSN specified, flush the entire log by setting the flush LSN
 	 * to the last LSN written in the log.  Otherwise, check that the LSN
@@ -1348,12 +1375,16 @@ __log_flush_int(dblp, lsnp, release)
 		 * This all assumes we can read an integer in one
 		 * state or the other, not in transition.
 		 */
-		if (lp->s_lsn.file > lsnp->file)
-			return (0);
+		if (lp->s_lsn.file > lsnp->file) {
+            ret = 0;
+            goto unlock_and_return;
+        }
 
 		if (lp->s_lsn.file == lsnp->file &&
-		    lp->s_lsn.offset > lsnp->offset)
-			return (0);
+		    lp->s_lsn.offset > lsnp->offset) {
+            ret = 0;
+            goto unlock_and_return;
+        }
 
 		flush_lsn = *lsnp;
 	}
@@ -1388,7 +1419,7 @@ __log_flush_int(dblp, lsnp, release)
 				    &commit->mutex,
 				    MUTEX_SELF_BLOCK |MUTEX_NO_RLOCK)) != 0) {
 				__os_free(dbenv, commit);
-				return (ret);
+                goto unlock_and_return;
 			}
 			MUTEX_LOCK(dbenv, &commit->mutex);
 			/*
@@ -1409,7 +1440,7 @@ __log_flush_int(dblp, lsnp, release)
 			__db_err(dbenv,
 			    "DB_ENV->log_flush fence value corruption");
 			ret = __db_panic(dbenv, ret);
-			return ret;
+            goto unlock_and_return;
 		}
 
 		lp->ncommit++;
@@ -1424,10 +1455,12 @@ __log_flush_int(dblp, lsnp, release)
 		commit->lsn = flush_lsn;
 		SH_TAILQ_INSERT_HEAD(
 		    &lp->commits, commit, links, __db_commit);
+        Pthread_rwlock_unlock(&lp->lgwrlk);
 		R_UNLOCK(dbenv, &dblp->reginfo);
 		/* Wait here for the in-progress flush to finish. */
 		MUTEX_LOCK(dbenv, &commit->mutex);
 		R_LOCK(dbenv, &dblp->reginfo);
+        Pthread_rwlock_wrlock(&lp->lgwrlk);
 
 		lp->ncommit--;
 		/*
@@ -1442,8 +1475,10 @@ __log_flush_int(dblp, lsnp, release)
 		if (do_flush) {
 			lp->in_flush--;
 			flush_lsn = lp->t_lsn;
-		} else
-			return (0);
+		} else {
+            ret = 0;
+            goto unlock_and_return;
+        }
 	}
 
 	/*
@@ -1532,16 +1567,20 @@ flush:	MUTEX_LOCK(dbenv, flush_mutexp);
 
 	s_lsn = __log_lwr_lsn(dblp);
 	lp->in_flush++;
-	if (release)
+	if (release) {
+        Pthread_rwlock_unlock(&lp->lgwrlk);
 		R_UNLOCK(dbenv, &dblp->reginfo);
+    }
 
 	/* Sync all writes to disk. */
 	if ((ret = __os_fsync(dbenv, dblp->lfhp)) != 0) {
 		MUTEX_UNLOCK(dbenv, flush_mutexp);
-		if (release)
+		if (release) {
 			R_LOCK(dbenv, &dblp->reginfo);
+            Pthread_rwlock_wrlock(&lp->lgwrlk);
+        }
 		ret = __db_panic(dbenv, ret);
-		return (ret);
+        goto unlock_and_return;
 	}
 
 	/*
@@ -1563,8 +1602,10 @@ flush:	MUTEX_LOCK(dbenv, flush_mutexp);
 		lp->s_lsn.offset = w_off;
 
 	MUTEX_UNLOCK(dbenv, flush_mutexp);
-	if (release)
+	if (release) {
 		R_LOCK(dbenv, &dblp->reginfo);
+        Pthread_rwlock_wrlock(&lp->lgwrlk);
+    }
 
 	lp->in_flush--;
 	++lp->stat.st_scount;
@@ -1624,7 +1665,7 @@ done:	listcnt = 0;
 				__db_err(dbenv,
 	    "DB_ENV->log_flush corruption detected in commit-waiter list");
 				ret = __db_panic(dbenv, ret);
-				return ret;
+                goto unlock_and_return;
 			}
 
 			if (log_compare(&lp->s_lsn, &commit->lsn) > 0) {
@@ -1654,6 +1695,8 @@ done:	listcnt = 0;
 	    lp->stat.st_mincommitperflush == 0)
 		lp->stat.st_mincommitperflush = ncommit;
 
+unlock_and_return:
+    Pthread_rwlock_unlock(&lp->lgwrlk);
 	return (ret);
 }
 
@@ -1872,11 +1915,12 @@ __log_fill_segments(dblp, startlsn, lsn, addr, len)
  *	Write information into the log.
  */
 static int
-__log_fill(dblp, lsn, addr, len)
+__log_fill(dblp, lsn, addr, len, ofs)
 	DB_LOG *dblp;
 	DB_LSN *lsn;
 	void *addr;
 	u_int32_t len;
+    size_t *ofs;
 {
 	LOG *lp;
 	u_int32_t bsize, nrec;
@@ -1884,6 +1928,9 @@ __log_fill(dblp, lsn, addr, len)
 	int ret;
 
 	lp = dblp->reginfo.primary;
+
+    if (ofs == NULL)
+        ofs = &lp->b_off;
 
 	bsize = lp->buffer_size;
 
@@ -1894,14 +1941,14 @@ __log_fill(dblp, lsn, addr, len)
 		 * when flushing the buffer so that we know if the in-memory
 		 * buffer needs to be flushed.
 		 */
-		if (lp->b_off == 0)
+		if (*ofs == 0)
 			lp->f_lsn = *lsn;
 
 		/*
 		 * If we're on a buffer boundary and the data is big enough,
 		 * copy as many records as we can directly from the data.
 		 */
-		if (lp->b_off == 0 && len >= bsize) {
+		if (*ofs == 0 && len >= bsize) {
 			nrec = len / bsize;
 			if ((ret = __log_write(dblp, addr, nrec * bsize)) != 0)
 				return (ret);
@@ -1912,18 +1959,18 @@ __log_fill(dblp, lsn, addr, len)
 		}
 
 		/* Figure out how many bytes we can copy this time. */
-		remain = bsize - lp->b_off;
+		remain = bsize - *ofs;
 		nw = remain > len ? len : remain;
-		memcpy(dblp->bufp + lp->b_off, addr, nw);
+		memcpy(dblp->bufp + *ofs, addr, nw);
 		addr = (u_int8_t *)addr + nw;
 		len -= (u_int32_t)nw;
-		lp->b_off += nw;
+		*ofs += nw;
 
 		/* If we fill the buffer, flush it. */
-		if (lp->b_off == bsize) {
+		if (*ofs == bsize) {
 			if ((ret = __log_write(dblp, dblp->bufp, bsize)) != 0)
 				return (ret);
-			lp->b_off = 0;
+			*ofs = 0;
 			++lp->stat.st_wcount_fill;
 		}
 	}
@@ -2244,7 +2291,7 @@ __log_rep_put(dbenv, lsnp, rec)
 	    (CRYPTO_ON(dbenv)) ? db_cipher->mac_key : NULL, hdr.chksum);
 
 	DB_ASSERT(log_compare(lsnp, &lp->lsn) == 0);
-	ret = __log_putr(dblp, lsnp, dbt, lp->lsn.offset - lp->len, &hdr);
+	ret = __log_putr(dblp, lsnp, dbt, lp->lsn.offset - lp->len, &hdr, NULL);
 err:
 	/*
 	 * !!! Assume caller holds db_rep->db_mutex to modify ready_lsn.
