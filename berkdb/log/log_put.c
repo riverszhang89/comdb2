@@ -1154,10 +1154,10 @@ __log_putr(dblp, lsn, dbt, prev, h, lk)
         lp->b_off += hdr->len;
         lp->len = hdr->len;
         lp->lsn.offset += hdr->len;
-        Pthread_rwlock_wrlock(&lp->lgwrlk);
+        Pthread_rwlock_rdlock(&lp->lgwrlk);
         R_UNLOCK(dbenv, &dblp->reginfo);
         *lk = 0;
-        logmsg(LOGMSG_DEBUG, "Early region unlock.");
+        logmsg(LOGMSG_DEBUG, "Early region unlock.\n");
     }
 
 	/*
