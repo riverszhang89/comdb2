@@ -268,6 +268,7 @@ struct __log {
 
 	roff_t	  maint_off;		/* offset of region maintenance info */
 #endif
+    pthread_rwlock_t lgwrlk;
 };
 
 /*

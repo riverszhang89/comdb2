@@ -27,6 +27,8 @@ static const char revid[] = "$Id: log.c,v 11.133 2003/09/13 19:20:37 bostic Exp 
 #include "dbinc/txn.h"
 #include <logmsg.h>
 
+#include "locks_wrap.h"
+
 static int	__log_init __P((DB_ENV *, DB_LOG *));
 static int	__log_recover __P((DB_LOG *));
 static size_t	__log_region_size __P((DB_ENV *));
@@ -293,6 +295,8 @@ mem_err:	__db_err(dbenv,
 	region->persist.magic = DB_LOGMAGIC;
 	region->persist.version = DB_LOGVERSION;
 	region->persist.mode = (u_int32_t)dbenv->db_mode;
+
+    Pthread_rwlock_init(&region->lgwrlk, NULL);
 
 	return (0);
 }
