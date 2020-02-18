@@ -5475,17 +5475,20 @@ void *watcher_thread(void *arg)
             const char *hostlist[REPMAX];
             int num_skipped;
 
-            /*
-             * Don't mess with VOODOO:  rep_flush grabs the last logfile
-             * message,
-             * and broadcasts it to all nodes
-             */
-            bdb_state->dbenv->rep_flush(bdb_state->dbenv);
 
             num_skipped = 0;
 
             count = net_get_all_nodes_connected(bdb_state->repinfo->netinfo,
                                                 hostlist);
+
+            if (count > 0) {
+                /*
+                 * Don't mess with VOODOO:  rep_flush grabs the last logfile
+                 * message,
+                 * and broadcasts it to all nodes
+                 */
+                bdb_state->dbenv->rep_flush(bdb_state->dbenv);
+            }
 
             for (i = 0; i < count; i++)
                 if (is_incoherent(bdb_state, hostlist[i]))

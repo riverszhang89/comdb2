@@ -1094,6 +1094,10 @@ err:
 	return (ret);
 }
 
+#include <unistd.h>
+
+extern __thread int ww;
+
 /*
  * __log_putr --
  *	Actually put a record into the log.
@@ -1157,6 +1161,17 @@ __log_putr(dblp, lsn, dbt, prev, h, lk)
         *lk = 0;
         logmsg(LOGMSG_DEBUG, "Early region unlock.\n");
     }
+
+#if 0
+    if (ww > 0) {
+    if (ww%2==1) {
+        printf("sleep %d\n", ww);
+        sleep(1);
+    } else {
+        printf("not sleep %d\n", ww);
+    }
+    }
+#endif
 
 	/*
 	 * If we were passed in a nonzero checksum, our caller calculated

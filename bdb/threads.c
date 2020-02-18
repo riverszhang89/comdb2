@@ -363,7 +363,7 @@ void *checkpoint_thread(void *arg)
     unsigned long long end_sleep_time_msec;
     unsigned long long crt_time_msec;
     DB_LSN logfile;
-    DB_LSN crtlogfile;
+    //DB_LSN crtlogfile;
     int broken;
     static int checkpoint_thd_running = 0;
 
@@ -453,6 +453,7 @@ void *checkpoint_thread(void *arg)
 
                 poll(0, 0, checkpointtimepoll);
 
+#if 0
                 BDB_READLOCK("checkpoint_thread2");
                 broken = bdb_state->dbenv->log_get_last_lsn(bdb_state->dbenv,
                                                             &crtlogfile);
@@ -463,6 +464,7 @@ void *checkpoint_thread(void *arg)
                     if (logfile.file != crtlogfile.file)
                         break;
                 }
+#endif
 
                 crt_time_msec = osql_log_time();
             } while (crt_time_msec < end_sleep_time_msec);

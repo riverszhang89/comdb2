@@ -1899,10 +1899,18 @@ static int toblock_fwd_int(struct ireq *iq, block_state_t *p_blkstate)
     return RC_OK;
 }
 
+#if 0
+int wwg = 0;
+__thread int ww = 0;
+#endif
+
 int toblock(struct ireq *iq)
 {
     int rc = 0;
     block_state_t blkstate;
+#if 0
+    ww = ++wwg;
+#endif
 
     /* fill blkstate's common fields */
     blkstate.p_buf_req_start = iq->p_buf_in;

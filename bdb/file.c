@@ -8001,14 +8001,16 @@ int bdb_purge_unused_files(bdb_state_type *bdb_state, tran_type *tran,
     struct stat sb;
 
     if (bdb_state->attr->keep_referenced_files) {
-        int ourlowfilenum;
+        int ourlowfilenum = 0;
 
         /* if there's no cluster, use our log file, otherwise use the cluster
          * low watermark,
          * or our low watermark, whichever is lower */
         lowfilenum = get_lowfilenum_sanclist(bdb_state);
 
+#if 0
         ourlowfilenum = bdb_get_first_logfile(bdb_state, bdberr);
+#endif
         if (ourlowfilenum == -1) return -1;
         if (lowfilenum == 0) lowfilenum = ourlowfilenum;
 

@@ -63,7 +63,7 @@ __memp_trickle(dbenv, pct, nwrotep, lru)
 {
 	DB_MPOOL *dbmp;
 	MPOOL *c_mp, *mp;
-	DB_LSN last_lsn;
+	//DB_LSN last_lsn;
 	u_int32_t dirty, i, total, dtmp;
 	int n, ret, wrote;
 
@@ -76,9 +76,11 @@ __memp_trickle(dbenv, pct, nwrotep, lru)
 	if (pct < 1 || pct > 100)
 		return (EINVAL);
 
+#if 0
 	__log_get_last_lsn(dbenv, &last_lsn);
 	if (log_compare(&last_lsn, &mp->trickle_lsn) <= 0)
 		return (0);
+#endif
 
 	/*
 	 * If there are sufficient clean buffers, no buffers or no dirty
@@ -120,7 +122,10 @@ __memp_trickle(dbenv, pct, nwrotep, lru)
 
 	mp->stat.st_page_trickle += *nwrotep;
 
-done:	memcpy(&mp->trickle_lsn, &last_lsn, sizeof(DB_LSN));
+done:
+#if 0
+    memcpy(&mp->trickle_lsn, &last_lsn, sizeof(DB_LSN));
+#endif
 
 	return (ret);
 }
