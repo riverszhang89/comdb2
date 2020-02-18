@@ -268,9 +268,11 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 		    off_context, key, flags, &lock_held)) != 0)
 		goto panic_check;
 
+#if 0
     Pthread_mutex_lock(&gbl_logput_lk);
     Pthread_cond_broadcast(&gbl_logput_cond);
     Pthread_mutex_unlock(&gbl_logput_lk);
+#endif
 
 	lsn = *lsnp;
 
@@ -1096,6 +1098,10 @@ err:
 	return (ret);
 }
 
+#include <unistd.h>
+
+extern __thread int ww;
+
 /*
  * __log_putr --
  *	Actually put a record into the log.
@@ -1159,6 +1165,17 @@ __log_putr(dblp, lsn, dbt, prev, h, lk)
         *lk = 0;
         logmsg(LOGMSG_DEBUG, "Early region unlock.\n");
     }
+
+#if 0
+    if (ww > 0) {
+    if (ww%2==1) {
+        printf("sleep %d\n", ww);
+        sleep(1);
+    } else {
+        printf("not sleep %d\n", ww);
+    }
+    }
+#endif
 
 	/*
 	 * If we were passed in a nonzero checksum, our caller calculated

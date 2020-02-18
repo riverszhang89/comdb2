@@ -293,6 +293,7 @@ if(PAGELIST_DEBUG)
 else()
   add_definitions(-DPAGELIST_DEBUG=0)
 endif()
+add_definitions(-DDEBUG_MUTEX=1)
 
 option(WRITELOCK_HANDLE_DUMP_MATCHING "Dump matching handles at writelock" OFF)
 mark_as_advanced(WRITELOCK_HANDLE_DUMP_MATCHING)

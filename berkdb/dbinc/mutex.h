@@ -951,10 +951,6 @@ struct __mutex_t {
 
 #define	MUTEX_UNLOCK(dbenv, mp)						\
 	if (!F_ISSET((mp), MUTEX_IGNORE)){			    \
-		(mp)->file = "";							\
-		(mp)->func = "";							\
-		(mp)->line = 0;							 \
-		(mp)->thd = 0;							  \
 		(void)__db_mutex_unlock(dbenv, mp);		 \
     }
 #else
