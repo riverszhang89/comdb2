@@ -379,7 +379,7 @@ int handle_ireq(struct ireq *iq)
                     rc = offload_comm_send_blockreply(
                         iq->frommach, iq->fwd_tag_rqid, iq->p_buf_out_start,
                         iq->p_buf_out - iq->p_buf_out_start, rc);
-                    free_bigbuf_nosignal(iq->p_buf_out_start);
+                    free(iq->p_buf_out_start);
                 } else {
                     /* The tag request is handled locally.
                        We know for sure `request_data' is a `buf_lock_t'. */
@@ -390,12 +390,13 @@ int handle_ireq(struct ireq *iq)
                         if (p_slock->reply_state == REPLY_STATE_DISCARD) {
                             Pthread_mutex_unlock(&p_slock->req_lock);
                             cleanup_lock_buffer(p_slock);
-                            free_bigbuf_nosignal(iq->p_buf_out_start);
+                            free(iq->p_buf_out_start);
                         } else {
                             sndbak_open_socket(
                                 iq->sb, iq->p_buf_out_start,
                                 iq->p_buf_out - iq->p_buf_out_start, rc);
-                            free_bigbuf(iq->p_buf_out_start, iq->request_data);
+                            free(iq->p_buf_out_start);
+                            signal_buflock(iq->request_data);
                             Pthread_mutex_unlock(&p_slock->req_lock);
                         }
                     }

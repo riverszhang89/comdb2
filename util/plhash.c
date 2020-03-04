@@ -1503,6 +1503,8 @@ void hash_clear(hash_t *const h)
 
 void hash_free(hash_t *const h)
 {
+    if (h == NULL)
+        return;
     hashfree_t *const h_free = h->free_fn;
     hashtable *restrict htab, *nxtab = h->htab->freed;
     while ((htab = nxtab)) {

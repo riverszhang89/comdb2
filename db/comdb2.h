@@ -1912,8 +1912,6 @@ struct buf_lock_t {
 #define MAX_BUFFER_SIZE 65536
 
 int signal_buflock(struct buf_lock_t *p_slock);
-int free_bigbuf(uint8_t *p_buf, struct buf_lock_t *p_slock);
-int free_bigbuf_nosignal(uint8_t *p_buf);
 
 /* request debugging */
 
