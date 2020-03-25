@@ -308,6 +308,7 @@ static int rese_commit(struct sqlclntstate *clnt, struct sql_thread *thd,
     }
 
     /* process shadow tables */
+    /* RZ */ 
     rc = osql_shadtbl_process(clnt, &sentops, &bdberr, 0);
 
     /* Preserve the sentops optimization */
@@ -632,6 +633,8 @@ int osql_clean_sqlclntstate(struct sqlclntstate *clnt)
             abort();
     }
 
+    free(osql->target.bundled.hdr);
+    free(osql->target.bundled.buf);
     bzero(osql, sizeof(*osql));
     listc_init(&osql->shadtbls, offsetof(struct shad_tbl, linkv));
 
