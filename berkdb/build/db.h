@@ -2489,6 +2489,8 @@ struct __db_env {
 
 	LISTC_T(DB) *dbs;
 	int maxdb;
+	pthread_mutex_t *curadjlks;
+	pthread_rwlock_t *dbslk;
 	hash_t *fidhash;
 
 	LISTC_T(HEAP) regions;
