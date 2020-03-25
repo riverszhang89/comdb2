@@ -89,8 +89,8 @@ static void _destroy_session(osql_sess_t **psess)
 {
     osql_sess_t *sess = *psess;
 
-    if (sess->snap_info)
-        free(sess->snap_info);
+    free(sess->snap_info);
+    free(sess->finalop);
 
     Pthread_mutex_destroy(&sess->impl->mtx);
     free(sess);
@@ -225,7 +225,7 @@ int osql_sess_rcvop(unsigned long long rqid, uuid_t uuid, int type, void *data,
     *found = 1;
 
     /* save op */
-    rc = osql_bplog_saveop(sess, sess->tran, data, datalen, type);
+    rc = osql_bplog_saveop(sess, sess->tran, data, datalen, type, is_msg_done);
     if (rc) {
         /* failed to save into bplog; discard and be done */
         goto failed_stream;
@@ -241,8 +241,17 @@ int osql_sess_rcvop(unsigned long long rqid, uuid_t uuid, int type, void *data,
         return 0;
     }
 
+    sess->finalop = malloc(datalen);
+    if (sess->finalop == NULL) {
+        logmsgperror("malloc");
+        goto failed_stream;
+    }
+    sess->finalopsz = datalen;
+    memcpy(sess->finalop, data, datalen);
+
     /* IT WAS A DONE MESSAGE
        HERE IS THE DISPATCH */
+    /* RZ */
     return handle_buf_sorese(sess);
 
 failed_stream:

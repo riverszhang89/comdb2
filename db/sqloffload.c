@@ -243,8 +243,13 @@ char *osql_breq2a(int op)
         return "OSQL_DELIDX";
     case OSQL_INSIDX:
         return "OSQL_INSIDX";
-    case OSQL_DBQ_CONSUME_UUID:
-        return "OSQL_DBQ_CONSUME_UUID";
+    case OSQL_STARTGEN:
+        return "OSQL_STARTGEN";
+        /*RZ: break down to get num of ins, del, etc*/
+    case OSQL_MULTIPLE:
+        return "OSQL_MULTIPLE";
+    case OSQL_MULTIPLE_DONE:
+        return "OSQL_MULTIPLE_DONE";
     default:
         return "UNKNOWN";
     }
@@ -365,6 +370,7 @@ static int rese_commit(struct sqlclntstate *clnt, struct sql_thread *thd,
     }
 
     /* process shadow tables */
+    /* RZ */ 
     rc = osql_shadtbl_process(clnt, &sentops, &bdberr, 0);
 
     /* Preserve the sentops optimization */
@@ -691,6 +697,8 @@ int osql_clean_sqlclntstate(struct sqlclntstate *clnt)
             abort();
     }
 
+    free(osql->msg_lens);
+    free(osql->send_buf);
     bzero(osql, sizeof(*osql));
     listc_init(&osql->shadtbls, offsetof(struct shad_tbl, linkv));
 

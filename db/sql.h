@@ -199,6 +199,17 @@ typedef struct osqlstate {
 
     /* set to 1 if we have already called osql_sock_start in socksql mode */
     bool sock_started : 1;
+
+    /* osql buffered send */
+    int send_type;
+
+    int num_msgs;
+    int num_msgs_inuse;
+    int *msg_lens;
+
+    int send_buf_sz;
+    int send_buf_inuse_sz;
+    void *send_buf;
 } osqlstate_t;
 
 enum ctrl_sqleng {
