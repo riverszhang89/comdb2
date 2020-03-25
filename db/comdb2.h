@@ -347,7 +347,9 @@ enum OSQL_RPL_TYPE {
     OSQL_DELIDX = 24, /* new osql type to support indexes on expressions */
     OSQL_INSIDX = 25, /* new osql type to support indexes on expressions */
     OSQL_STARTGEN = 27,
-    MAX_OSQL_TYPES = 28
+    OSQL_MULTIPLE = 28,
+    OSQL_MULTIPLE_DONE = 29,
+    MAX_OSQL_TYPES = 30
 };
 
 enum DEBUGREQ { DEBUG_METADB_PUT = 1 };
@@ -1248,6 +1250,8 @@ struct osql_sess {
     int verify_retries; /* how many times we verify retried this one */
     blocksql_tran_t *tran;
     int is_tranddl;
+    void *finalop;
+    int finalopsz;
 };
 typedef struct osql_sess osql_sess_t;
 

@@ -451,6 +451,8 @@ const char *osql_reqtype_str(int type)
         "INSIDX",
         "DBQ_CONSUME_UUID",
         "STARTGEN",
+        "MULTIPLE",
+        "MULTIPLE_DONE",
     };
     return typestr[type];
 }
@@ -557,6 +559,7 @@ static void _pre_process_saveop(osql_sess_t *sess, blocksql_tran_t *tran,
         sess->is_tranddl++;
         break;
     case OSQL_USEDB:
+        /* RZ ??? mutually exclusive? */
         if (tran->is_selectv_wl_upd || tran->is_reorder_on) {
             int tableversion = 0;
             const char *tblname =
@@ -598,7 +601,7 @@ static void _pre_process_saveop(osql_sess_t *sess, blocksql_tran_t *tran,
  *
  */
 int osql_bplog_saveop(osql_sess_t *sess, blocksql_tran_t *tran, char *rpl,
-                      int rplen, int type)
+                      int rplen, int type, int preprocess_only)
 {
     int rc = 0;
     oplog_key_t key = {0};
@@ -613,6 +616,9 @@ int osql_bplog_saveop(osql_sess_t *sess, blocksql_tran_t *tran, char *rpl,
 #endif
 
     _pre_process_saveop(sess, tran, rpl, rplen, type);
+
+    if (preprocess_only)
+        return rc;
 
     key.seq = tran->seq;
 
@@ -633,6 +639,8 @@ int osql_bplog_saveop(osql_sess_t *sess, blocksql_tran_t *tran, char *rpl,
                       rc = bdb_temp_table_put(thedb->bdb_env, tmptbl, &key,
                                               sizeof(key), rpl, rplen, NULL,
                                               &bdberr););
+    logmsg(LOGMSG_ERROR, "%s:put oplog seq=%u rc=%d bdberr=%d type = %d\n",
+            __func__, tran->seq, rc, bdberr, type);
 
     if (rc) {
         logmsg(LOGMSG_ERROR, "%s: fail to put oplog seq=%u rc=%d bdberr=%d\n",
@@ -945,15 +953,16 @@ static int process_this_session(
         reqlog_set_rqid(iq->reqlogger, sess->uuid, sizeof(sess->uuid));
     reqlog_set_event(iq->reqlogger, EV_TXN);
 
-#if DEBUG_REORDER
+//#if DEBUG_REORDER
+#if 1 /* RZ */
     logmsg(LOGMSG_DEBUG, "OSQL ");
     // if needed to check content of socksql temp table, dump with:
     void bdb_temp_table_debug_dump(bdb_state_type * bdb_state,
                                    tmpcursor_t * cur, int);
-    bdb_temp_table_debug_dump(thedb->bdb_env, dbc, LOGMSG_DEBUG);
+    bdb_temp_table_debug_dump(thedb->bdb_env, dbc, LOGMSG_FATAL);
     if (dbc_ins) {
         logmsg(LOGMSG_DEBUG, "INS ");
-        bdb_temp_table_debug_dump(thedb->bdb_env, dbc_ins, LOGMSG_DEBUG);
+        bdb_temp_table_debug_dump(thedb->bdb_env, dbc_ins, LOGMSG_FATAL);
     }
 #endif
 
@@ -977,9 +986,12 @@ static int process_this_session(
     oplog_key_t *opkey_ins = NULL;
     uint8_t add_stripe = 0;
     bool drain_adds = false; // we always start by reading normal tmp tbl
-    rc = init_ins_tbl(iq->reqlogger, dbc_ins, &opkey_ins, &add_stripe, bdberr);
-    if (rc)
-        return rc;
+    if (rc != IX_EMPTY) {
+        rc = init_ins_tbl(iq->reqlogger, dbc_ins, &opkey_ins,
+                          &add_stripe, bdberr);
+        if (rc)
+            return rc;
+    }
 
     /* only reorder indices if more than one row add/upd/dels
      * NB: the idea is that single row transactions can not deadlock but
@@ -989,14 +1001,25 @@ static int process_this_session(
     if (sess->tran_rows > 1 && gbl_reorder_idx_writes)
         iq->osql_flags |= OSQL_FLAGS_REORDER_IDX_ON;
 
-    while (!rc && !rc_out) {
+    if (rc == IX_EMPTY)
+        rc = IX_PASTEOF;
+
+    while ((rc == 0 || rc == IX_PASTEOF) && !rc_out) {
         char *data = NULL;
         int datalen = 0;
-        // fetch the data from the appropriate temp table -- based on drain_adds
-        get_tmptbl_data_and_len(dbc, dbc_ins, drain_adds, &data, &datalen);
-        /* Reset temp cursor data - it will be freed after the callback. */
-        bdb_temp_table_reset_datapointers(drain_adds ? dbc_ins : dbc);
-        DEBUG_PRINT_TMPBL_READ();
+        if (rc == IX_PASTEOF) {
+            if (sess->finalop == NULL)
+                break;
+            data = sess->finalop;
+            datalen = sess->finalopsz;
+            rc = 0;
+        } else {
+            // fetch the data from the appropriate temp table -- based on drain_adds
+            get_tmptbl_data_and_len(dbc, dbc_ins, drain_adds, &data, &datalen);
+            /* Reset temp cursor data - it will be freed after the callback. */
+            bdb_temp_table_reset_datapointers(drain_adds ? dbc_ins : dbc);
+            DEBUG_PRINT_TMPBL_READ();
+        }
 
         if (bdb_lock_desired(thedb->bdb_env)) {
             logmsg(LOGMSG_ERROR, "%lu %s:%d blocksql session closing early\n",
@@ -1027,9 +1050,13 @@ static int process_this_session(
         }
 
         step++;
+        if (data == sess->finalop)
+            break;
         rc = get_next_merge_tmps(dbc, dbc_ins, &opkey, &opkey_ins, &drain_adds,
                                  bdberr, add_stripe);
     }
+
+    sess->finalop = NULL;
 
     if (iq->osql_step_ix)
         gbl_osqlpf_step[*(iq->osql_step_ix)].step = opkey->seq << 7;

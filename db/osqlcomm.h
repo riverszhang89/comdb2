@@ -80,15 +80,14 @@ int osql_comm_send_poke(char *tonode, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_usedb(char *tohost, unsigned long long rqid, uuid_t uuid,
-                    char *tablename, int type, unsigned long long version);
+int osql_send_usedb(osqlstate_t *osql, char *tablename, int type, unsigned long long version);
 
 /**
  * Send INDEX op
  * It handles remote/local connectivity
  *
  */
-int osql_send_index(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_index(osqlstate_t *osql,
                     unsigned long long genid, int isDelete, int ixnum,
                     char *pData, int nData, int type);
 
@@ -97,7 +96,7 @@ int osql_send_index(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_qblob(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_qblob(osqlstate_t *osql,
                     int blobid, unsigned long long seq, int type, char *data,
                     int datalen);
 
@@ -106,7 +105,7 @@ int osql_send_qblob(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_updcols(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_updcols(osqlstate_t *osql,
                       unsigned long long seq, int type, int *colList,
                       int ncols);
 
@@ -115,7 +114,7 @@ int osql_send_updcols(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_updrec(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_updrec(osqlstate_t *osql,
                      unsigned long long genid, unsigned long long ins_keys,
                      unsigned long long del_keys, char *pData, int nData,
                      int type);
@@ -125,7 +124,7 @@ int osql_send_updrec(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_insrec(osqlstate_t *osql,
                      unsigned long long genid, unsigned long long dirty_keys,
                      char *pData, int nData, int type, int upsert_flags);
 
@@ -134,7 +133,7 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_delrec(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_delrec(osqlstate_t *osql,
                      unsigned long long genid, unsigned long long dirty_keys,
                      int type);
 
@@ -143,7 +142,7 @@ int osql_send_delrec(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_schemachange(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_schemachange(osqlstate_t *osql,
                            struct schema_change_type *sc, int type);
 
 /**
@@ -151,14 +150,14 @@ int osql_send_schemachange(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_bpfunc(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_bpfunc(osqlstate_t *osql,
                      BpfuncArg *msg, int type);
 
 /**
  * Send SERIAL op
  *
  */
-int osql_send_serial(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_serial(osqlstate_t *osql,
                      CurRangeArr *arr, unsigned int file, unsigned int offset,
                      int type);
 
@@ -167,16 +166,16 @@ int osql_send_serial(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_commit(char *tohost, unsigned long long rqid, uuid_t uuid,
-                     int nops, struct errstat *xerr, int type,
+int osql_send_commit(osqlstate_t *osql,
+                     struct errstat *xerr, int type,
                      struct client_query_stats *query_stats,
                      snap_uid_t *snap_info);
 
-int osql_send_commit_by_uuid(char *tohost, uuid_t uuid, int nops,
+int osql_send_commit_by_uuid(osqlstate_t *osql,
                              struct errstat *xerr, int type,
                              struct client_query_stats *query_stats,
                              snap_uid_t *snap_info);
-int osql_send_startgen(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_startgen(osqlstate_t *osql,
                        uint32_t start_gen, int type);
 
 /**
@@ -185,7 +184,7 @@ int osql_send_startgen(char *tohost, unsigned long long rqid, uuid_t uuid,
  */
 int osql_process_message_decom(char *host);
 
-int osql_send_dbq_consume(char *tohost, unsigned long long rqid, uuid_t,
+int osql_send_dbq_consume(osqlstate_t *osql,
                           genid_t, int type);
 
 /**
@@ -224,8 +223,7 @@ void osql_set_net_poll(int pval);
  * Sql is the first update part of this transaction
  *
  */
-int osql_comm_send_socksqlreq(char *tohost, const char *sql, int sqlen,
-                              unsigned long long rqid, uuid_t uuid,
+int osql_comm_send_socksqlreq(osqlstate_t *osql, const char *sql, int sqlen,
                               char *tzname, int type, int flags);
 
 /**
@@ -299,7 +297,7 @@ void osql_net_exiting(void);
  * FSQL_GRAB_DBGLOG request.
  *
  */
-int osql_send_dbglog(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_dbglog(osqlstate_t *osql,
                      unsigned long long dbglog_cookie, int queryid, int type);
 
 /**
@@ -307,7 +305,7 @@ int osql_send_dbglog(char *tohost, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_recordgenid(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_recordgenid(osqlstate_t *osql,
                           unsigned long long genid, int type);
 
 /**
@@ -328,7 +326,7 @@ int osql_disable_net_test(void);
  */
 int osql_comm_check_bdb_lock(const char *func, int line);
 
-int osql_send_updstat(char *tohost, unsigned long long rqid, uuid_t uuid,
+int osql_send_updstat(osqlstate_t *osql,
                       unsigned long long seq, char *pData, int nData, int nStat,
                       int type);
 
