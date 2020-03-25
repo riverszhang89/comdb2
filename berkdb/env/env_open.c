@@ -578,6 +578,11 @@ foundlsn:
 	clear_fid_hash(dbenv);
 	dbenv->maxdb = 0;
 	dbenv->fidhash = hash_init(DB_FILE_ID_LEN);
+	if (dbenv->dbslk == NULL) {
+		__os_malloc(dbenv, sizeof(pthread_rwlock_t), &dbenv->dbslk);
+		Pthread_rwlock_init(dbenv->dbslk, NULL);
+	}
+
 	if (F_ISSET(dbenv, DB_ENV_THREAD) && LF_ISSET(DB_INIT_MPOOL)) {
 		dbmp = dbenv->mp_handle;
 		if ((ret =
@@ -904,6 +909,7 @@ __dbenv_close(dbenv, rep_check)
         hash_free(dbenv->ltrans_hash);
     }
 
+
 	/* Release DB list */
 	__os_free(dbenv, dbenv->dbs);
 
@@ -976,8 +982,18 @@ __dbenv_refresh(dbenv, orig_flags, rep_check)
 	clear_adj_fileid(dbenv, __func__);
 	LIST_INIT(&dbenv->dblist);
 	clear_fid_hash(dbenv);
+
+	if (dbenv->dbslk != NULL) {
+		Pthread_rwlock_destroy(dbenv->dbslk);
+		__os_free(dbenv, dbenv->dbslk);
+	}
+	for (int i = 1; i <= dbenv->maxdb; ++i)
+		Pthread_mutex_destroy(&dbenv->curadjlks[i]);
+	__os_free(dbenv, dbenv->curadjlks);
+
 	dbenv->maxdb = 0;
 	dbenv->fidhash = hash_init(DB_FILE_ID_LEN);
+
 	if (dbenv->dblist_mutexp != NULL) {
 		dbmp = dbenv->mp_handle;
 		__db_mutex_free(dbenv, dbmp->reginfo, dbenv->dblist_mutexp);

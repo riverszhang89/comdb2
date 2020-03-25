@@ -723,6 +723,11 @@ __db_dbenv_setup(dbp, txn, fname, id, flags)
 			MUTEX_ALLOC | MUTEX_THREAD)) != 0)
 			return (ret);
 	}
+	
+	if (dbenv->dbslk == NULL) {
+		__os_malloc(dbenv, sizeof(pthread_rwlock_t), &dbenv->dbslk);
+		Pthread_rwlock_init(dbenv->dbslk, NULL);
+	}
 
 	/*
 	 * Set up a bookkeeping entry for this database in the log region,
@@ -755,6 +760,7 @@ __db_dbenv_setup(dbp, txn, fname, id, flags)
 	 * expensive memcmps.
 	 */
 	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_wrlock(dbenv->dbslk);
 
 	if (F_ISSET(dbp, DB_AM_HASH)) {
 		dbp->peer = dbp;
@@ -797,14 +803,13 @@ __db_dbenv_setup(dbp, txn, fname, id, flags)
 	 */
 	if (ldbp == NULL) {
 		dbp->adj_fileid = dbenv->maxdb + 1;
-		dbenv->dbs =
-			realloc(dbenv->dbs,
-					sizeof(listc_t) * (dbp->adj_fileid + 1));
+		__os_realloc(dbenv, sizeof(listc_t) * (dbp->adj_fileid + 1), &dbenv->dbs);
+		__os_realloc(dbenv, sizeof(pthread_mutex_t) * (dbp->adj_fileid + 1), &dbenv->curadjlks);
 		for (i = dbenv->maxdb + 1 ; i <= dbp->adj_fileid; i++) {
 			listc_init(&dbenv->dbs[i], offsetof(DB, adjlnk));
+			Pthread_mutex_init(&dbenv->curadjlks[i], NULL);
 		}
 		dbenv->maxdb = dbp->adj_fileid;
-		listc_init(&dbenv->dbs[dbp->adj_fileid], offsetof(DB, adjlnk));
 
 		bef = get_dblist_count(dbenv, dbp, "before-insert-head", __func__, __LINE__);
 		LIST_INSERT_HEAD(&dbenv->dblist, dbp, dblistlinks);
@@ -827,12 +832,15 @@ __db_dbenv_setup(dbp, txn, fname, id, flags)
 					__func__, ldbp->adj_fileid);
 	}
 	dbp->inadjlist = 1;
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	listc_abl(&dbenv->dbs[dbp->adj_fileid], dbp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
 	if (gbl_instrument_dblist)
 		logmsg(LOGMSG_DEBUG, "%s putting dbp %p adj_fileid %u into %p list "
 				"%p\n", __func__, dbp, dbp->adj_fileid, dbenv, &dbenv->dbs[
 				dbp->adj_fileid]);
 
+	Pthread_rwlock_unlock(dbenv->dbslk);
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
 	return (0);
@@ -1292,6 +1300,7 @@ never_opened:
 	 * while opening a DB handle.
 	 */
 	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
 	if (dbp->dblistlinks.le_prev != NULL) {
         bef = get_dblist_count(dbenv, dbp, "before-remove", __func__, __LINE__);
 		LIST_REMOVE(dbp, dblistlinks);
@@ -1299,7 +1308,9 @@ never_opened:
         if (gbl_instrument_dblist && aft != (bef - 1))
             abort();
 		if (dbp->inadjlist) {
+			Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 			listc_rfl(&dbenv->dbs[dbp->adj_fileid], dbp);
+			Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
 			dbp->inadjlist = 0;
             if (gbl_instrument_dblist)
                 logmsg(LOGMSG_DEBUG, "%s removing dbp %p adj_fileid %u from %p "
@@ -1318,6 +1329,7 @@ never_opened:
 		dbp->mpf = NULL;
 	}
 
+	Pthread_rwlock_unlock(dbenv->dbslk);
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
 	/* Clear out fields that normally get set during open. */

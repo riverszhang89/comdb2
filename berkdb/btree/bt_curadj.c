@@ -88,10 +88,12 @@ __bam_ca_delete_int(dbp, pgno, indx, delete, fromclose)
 	 * Each cursor is single-threaded, so we only need to lock the
 	 * list of DBs and then the list of cursors in each DB.
 	 */
-	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	//MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	for (count = 0, ldbp = __dblist_get(dbenv, dbp->adj_fileid);
-	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
-	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+	    ldbp != NULL;
+	    ldbp = LISTC_NEXT(ldbp, adjlnk)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 			dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			cp = (BTREE_CURSOR *)dbc->internal;
@@ -138,7 +140,9 @@ __bam_ca_delete_int(dbp, pgno, indx, delete, fromclose)
 		}
 		__db_unlock_aq(dbp, ldbp, cq);
 	}
-	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
+	Pthread_rwlock_unlock(dbenv->dbslk);
+	//MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
 	return (count);
 }
@@ -204,17 +208,21 @@ __ram_ca_delete(dbp, root_pgno)
 	/*
 	 * Review the cursors.  See the comment in __bam_ca_delete().
 	 */
-	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	//MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
-	    found == 0 && ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
-	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+	    found == 0 && ldbp != NULL;
+	    ldbp = LISTC_NEXT(ldbp, adjlnk)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 			found == 0 && dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
 			if (dbc->internal->root == root_pgno)
 				found = 1;
 		__db_unlock_aq(dbp, ldbp, cq);
 	}
-	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
+	Pthread_rwlock_unlock(dbenv->dbslk);
+	//MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 	return (found);
 }
 
@@ -249,10 +257,12 @@ __bam_ca_di(my_dbc, pgno, indx, adjust)
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
 	 */
 	found = 0;
-	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	//MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
-	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
-	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+	    ldbp != NULL;
+	    ldbp = LISTC_NEXT(ldbp, adjlnk)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (dbc->dbtype == DB_RECNO)
@@ -272,7 +282,9 @@ __bam_ca_di(my_dbc, pgno, indx, adjust)
 		}
 		__db_unlock_aq(dbp, ldbp, cq);
 	}
-	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
+	Pthread_rwlock_unlock(dbenv->dbslk);
+	//MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
 	if (found != 0 && DBC_LOGGING(my_dbc)) {
 		if ((ret = __bam_curadj_log(dbp, my_dbc->txn,
@@ -373,10 +385,12 @@ __bam_ca_dup(my_dbc, first, fpgno, fi, tpgno, ti)
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
 	 */
 	found = 0;
-	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	//MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
-	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
-	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+	    ldbp != NULL;
+	    ldbp = LISTC_NEXT(ldbp, adjlnk)) {
 loop:		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			/* Find cursors pointing to this record. */
@@ -406,7 +420,9 @@ loop:		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		}
 		__db_unlock_aq(dbp, ldbp, cq);
 	}
-	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
+	Pthread_rwlock_unlock(dbenv->dbslk);
+	//MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
 	if (found != 0 && DBC_LOGGING(my_dbc)) {
 		if ((ret = __bam_curadj_log(dbp, my_dbc->txn,
@@ -443,10 +459,12 @@ __bam_ca_undodup(dbp, first, fpgno, fi, ti)
 	/*
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
 	 */
-	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	//MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
-	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
-	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+	    ldbp != NULL;
+		ldbp = LISTC_NEXT(ldbp, adjlnk)) {
 loop:		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			orig_cp = (BTREE_CURSOR *)dbc->internal;
@@ -477,7 +495,9 @@ loop:		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		}
 		__db_unlock_aq(dbp, ldbp, cq);
 	}
-	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
+	Pthread_rwlock_unlock(dbenv->dbslk);
+	//MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
 	return (0);
 }
@@ -509,10 +529,12 @@ __bam_ca_rsplit(my_dbc, fpgno, tpgno)
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
 	 */
 	found = 0;
-	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	//MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
-	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
-	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+	    ldbp != NULL;
+	    ldbp = LISTC_NEXT(ldbp, adjlnk)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (dbc->dbtype == DB_RECNO)
@@ -529,7 +551,9 @@ __bam_ca_rsplit(my_dbc, fpgno, tpgno)
 		}
 		__db_unlock_aq(dbp, ldbp, cq);
 	}
-	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
+	Pthread_rwlock_unlock(dbenv->dbslk);
+	//MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
 	if (found != 0 && DBC_LOGGING(my_dbc)) {
 		if ((ret = __bam_curadj_log(dbp, my_dbc->txn,
@@ -577,10 +601,12 @@ __bam_ca_split(my_dbc, ppgno, lpgno, rpgno, split_indx, cleft)
 	 * records split to the left page.
 	 */
 	found = 0;
-	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	//MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
-	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
-	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+	    ldbp != NULL;
+	    ldbp = LISTC_NEXT(ldbp, adjlnk)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (dbc->dbtype == DB_RECNO)
@@ -604,7 +630,9 @@ __bam_ca_split(my_dbc, ppgno, lpgno, rpgno, split_indx, cleft)
 		}
 		__db_unlock_aq(dbp, ldbp, cq);
 	}
-	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
+	Pthread_rwlock_unlock(dbenv->dbslk);
+	//MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
 	if (found != 0 && DBC_LOGGING(my_dbc)) {
 		if ((ret = __bam_curadj_log(dbp,
@@ -646,10 +674,12 @@ __bam_ca_undosplit(dbp, frompgno, topgno, lpgno, split_indx)
 	 * When backing out a split, we move the cursor back
 	 * to the original offset and bump it by the split_indx.
 	 */
-	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	//MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_rwlock_rdlock(dbenv->dbslk);
+	Pthread_mutex_lock(&dbenv->curadjlks[dbp->adj_fileid]);
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
-	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
-	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+	    ldbp != NULL;
+	    ldbp = LISTC_NEXT(ldbp, adjlnk)) {
 		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (dbc->dbtype == DB_RECNO)
@@ -663,5 +693,7 @@ __bam_ca_undosplit(dbp, frompgno, topgno, lpgno, split_indx)
 		}
 		__db_unlock_aq(dbp, ldbp, cq);
 	}
-	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
+	Pthread_mutex_unlock(&dbenv->curadjlks[dbp->adj_fileid]);
+	Pthread_rwlock_unlock(dbenv->dbslk);
+	//MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 }
