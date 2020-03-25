@@ -373,6 +373,7 @@ int gbl_sqlite_sorterpenalty = 5;
 int gbl_file_permissions = 0660;
 
 extern int gbl_net_maxconn;
+extern int gbl_osql_max_bundled_bytes;
 
 /*
   =========================================================
@@ -950,6 +951,15 @@ static int max_password_cache_size_update(void *context, void *value)
     }
     gbl_max_password_cache_size = val;
     init_password_cache();
+    return 0;
+}
+
+static int osql_max_bundled_bytes_update(void *context, void *value)
+{
+    int val = *(int *)value;
+    if (val > 0 && gbl_reorder_socksql_no_deadlock)
+        logmsg(LOGMSG_WARN, "osql bundling will be disabled for blocksql, for it's incompatible with reordering.");
+    gbl_max_password_cache_size = val;
     return 0;
 }
 

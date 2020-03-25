@@ -108,6 +108,7 @@
 #include "string_ref.h"
 
 #include "osqlsqlsocket.h"
+#include "osqlbundled.h"
 #include <net_appsock.h>
 
 /*
@@ -5274,6 +5275,7 @@ void reset_clnt(struct sqlclntstate *clnt, int initial)
 
     if (gbl_sockbplog) {
         init_bplog_socket(clnt);
+        init_bplog_bundled(&clnt->osql.target);
     }
 }
 

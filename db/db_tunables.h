@@ -2201,4 +2201,7 @@ REGISTER_TUNABLE("sqlite_use_temptable_for_rowset",
 REGISTER_TUNABLE("max_identity_cache", "Max cache size of externalauth identities (Default: 500)",
                  TUNABLE_INTEGER, &gbl_identity_cache_max, 0, NULL, NULL, NULL, NULL);
 
+REGISTER_TUNABLE("osql_max_bundled_bytes",
+                 "Maximum bplog bundle size, set to <=0 to turn off bundling (Default: 4 MiB)", TUNABLE_INTEGER,
+                 &gbl_osql_max_bundled_bytes, 0, NULL, NULL, osql_max_bundled_bytes_update, NULL);
 #endif /* _DB_TUNABLES_H */

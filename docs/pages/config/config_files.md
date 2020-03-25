@@ -939,6 +939,7 @@ These options are toggle-able at runtime.
 |sockbplog_sockpool | off | Osql bplog sent over sockets is using local sockpool
 |throttle_txn_chunks_msec | 0 | Wait that many milliseconds before starting a new transaction chunk
 |externalauth| off | Enable use of external auth plugin
+| osql_max_bundled_bytes | 4194304 | Max osql bundle size
 
 
 
