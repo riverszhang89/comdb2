@@ -35,6 +35,7 @@
 #include "str0.h"
 #include "reqlog.h"
 #include "osqlsqlnet.h"
+#include "osqlbundled.h"
 
 struct sess_impl {
     int clients; /* number of threads using the session */
@@ -149,8 +150,8 @@ static void _destroy_session(osql_sess_t **psess)
 {
     osql_sess_t *sess = *psess;
 
-    if (sess->snap_info)
-        free(sess->snap_info);
+    free(sess->snap_info);
+    free(sess->finalop);
 
     Pthread_mutex_destroy(&sess->impl->mtx);
     if (!sess->impl->embedded_sql)
@@ -296,7 +297,7 @@ int osql_sess_rcvop(unsigned long long rqid, uuid_t uuid, int type, void *data,
     *found = 1;
 
     /* save op */
-    rc = osql_bplog_saveop(sess, sess->tran, data, datalen, type);
+    rc = osql_bplog_saveop(sess, sess->tran, data, datalen, type, is_msg_done);
     if (rc) {
         /* failed to save into bplog; discard and be done */
         goto failed_stream;
@@ -312,8 +313,18 @@ int osql_sess_rcvop(unsigned long long rqid, uuid_t uuid, int type, void *data,
         return 0;
     }
 
+    sess->finalop = malloc(datalen);
+    if (sess->finalop == NULL) {
+        logmsgperror("malloc");
+        rc = ENOMEM;
+        goto failed_stream;
+    }
+    sess->finalopsz = datalen;
+    memcpy(sess->finalop, data, datalen);
+
     /* IT WAS A DONE MESSAGE
        HERE IS THE DISPATCH */
+    /* RZ */
     return handle_buf_sorese(sess);
 
 failed_stream:
@@ -355,7 +366,7 @@ int osql_sess_rcvop_socket(osql_sess_t *sess, int type, void *data, int datalen,
     }
 
     /* save op */
-    rc = osql_bplog_saveop(sess, sess->tran, data, datalen, type);
+    rc = osql_bplog_saveop(sess, sess->tran, data, datalen, type, *is_msg_done);
     if (rc) {
         /* failed to save into bplog; discard and be done */
         return rc;
@@ -365,6 +376,14 @@ int osql_sess_rcvop_socket(osql_sess_t *sess, int type, void *data, int datalen,
     if (!*is_msg_done) {
         return 0;
     }
+
+    sess->finalop = malloc(datalen);
+    if (sess->finalop == NULL) {
+        logmsgperror("malloc");
+        return ENOMEM;
+    }
+    sess->finalopsz = datalen;
+    memcpy(sess->finalop, data, datalen);
 
     if (gbl_sockbplog_debug)
         logmsg(LOGMSG_ERROR, "%p Dispatching transaction\n", (void *)pthread_self());
@@ -514,8 +533,8 @@ static osql_sess_t *_osql_sess_create(osql_sess_t *sess, char *tzname, int type,
         strncpy0(sess->tzname, tzname, sizeof(sess->tzname));
 
     sess->impl->clients = 1;
-    /* defaults to net */
     init_bplog_net(&sess->target);
+    init_bplog_bundled(&sess->target);
 
     /* create bplog so we can collect ops from sql thread */
     sess->tran = osql_bplog_create(sess->rqid == OSQL_RQID_USE_UUID,
