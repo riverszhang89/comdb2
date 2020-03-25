@@ -52,6 +52,7 @@
 #include <unistd.h>
 #include "osqlsqlnet.h"
 #include "osqlsqlsocket.h"
+#include "osqlbundled.h"
 
 #define MAX_CLUSTER 16
 
@@ -72,7 +73,6 @@ int gbl_toblock_random_deadlock_trans;
 
 int db_is_stopped();
 
-static int osql_net_type_to_net_uuid_type(int type);
 static void osql_extract_snap_info(osql_sess_t *sess, void *rpl, int rpllen,
                                    int is_uuid);
 
@@ -399,19 +399,12 @@ osqlcomm_req_uuid_type_get(struct osql_uuid_req *p_osql_req,
     return (const uint8_t *)p_buf;
 }
 
-typedef struct osql_rpl {
-    /* keep this header aligned head and tail! */
-    enum OSQL_RPL_TYPE type;
-    int padding;
-    unsigned long long sid; /* concurrent access */
-} osql_rpl_t;
-
-enum { OSQLCOMM_RPL_TYPE_LEN = 4 + 4 + 8 };
+typedef struct osql_rpl osql_rpl_t;
 
 BB_COMPILE_TIME_ASSERT(osqlcomm_rpl_type_len,
                        sizeof(osql_rpl_t) == OSQLCOMM_RPL_TYPE_LEN);
 
-static uint8_t *osqlcomm_rpl_type_put(const osql_rpl_t *p_osql_rpl,
+uint8_t *osqlcomm_rpl_type_put(const osql_rpl_t *p_osql_rpl,
                                       uint8_t *p_buf, const uint8_t *p_buf_end)
 {
     if (p_buf_end < p_buf || OSQLCOMM_RPL_TYPE_LEN > (p_buf_end - p_buf))
@@ -448,22 +441,14 @@ const uint8_t *osqlcomm_rpl_type_get(osql_rpl_t *p_osql_rpl,
     return p_buf;
 }
 
-typedef struct osql_rpl_uuid {
-    enum OSQL_RPL_TYPE type;
-    int padding;
-    uuid_t uuid;
-} osql_uuid_rpl_t;
-
-enum { OSQLCOMM_UUID_RPL_TYPE_LEN = 4 + 4 + 16 };
-
 BB_COMPILE_TIME_ASSERT(osqlcomm_rpl_uuid_type_len,
                        sizeof(osql_uuid_rpl_t) == OSQLCOMM_UUID_RPL_TYPE_LEN);
 
 uuid_t zero_uuid = {0};
 
-static uint8_t *osqlcomm_uuid_rpl_type_put(const osql_uuid_rpl_t *p_osql_rpl,
-                                           uint8_t *p_buf,
-                                           const uint8_t *p_buf_end)
+uint8_t *osqlcomm_uuid_rpl_type_put(const osql_uuid_rpl_t *p_osql_rpl,
+                                    uint8_t *p_buf,
+                                    const uint8_t *p_buf_end)
 {
     if (p_buf_end < p_buf || OSQLCOMM_UUID_RPL_TYPE_LEN > (p_buf_end - p_buf))
         return NULL;
@@ -3221,11 +3206,13 @@ int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
     case OSQL_DELIDX:
     case OSQL_QBLOB:
     case OSQL_STARTGEN:
+    case OSQL_BUNDLED:
         break;
     case OSQL_DONE_SNAP:
         osql_extract_snap_info(sess, rpl, rpllen, is_uuid);
         /* fall-through */
     case OSQL_DONE:
+    case OSQL_DONE_BUNDLED:
         if (xerr)
             *xerr = NULL;
         rc = 1;
@@ -3312,7 +3299,7 @@ int osql_comm_send_poke(const char *tohost, unsigned long long rqid,
     return rc;
 }
 
-static int osql_net_type_to_net_uuid_type(int type)
+int osql_net_type_to_net_uuid_type(int type)
 {
     switch (type) {
     case NET_OSQL_SOCK_REQ:
@@ -3348,8 +3335,8 @@ int is_tablename_queue(const char *name)
     return strncmp(name, "__q", 3) == 0;
 }
 
-int osql_send_startgen(osql_target_t *target, unsigned long long rqid,
-                       uuid_t uuid, uint32_t start_gen, int type)
+int osql_send_startgen(osqlstate_t *osql,
+                       uint32_t start_gen, int type)
 {
     uint8_t
         buf[(int)OSQLCOMM_STARTGEN_UUID_RPL_LEN > (int)OSQLCOMM_STARTGEN_RPL_LEN
@@ -3357,6 +3344,11 @@ int osql_send_startgen(osql_target_t *target, unsigned long long rqid,
                 : OSQLCOMM_STARTGEN_RPL_LEN];
     int msglen;
     int rc;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -3401,7 +3393,7 @@ int osql_send_startgen(osql_target_t *target, unsigned long long rqid,
                comdb2uuidstr(uuid, us), start_gen);
     }
 
-    rc = target->send(target, type, &buf, msglen, 0, NULL, 0);
+    rc = target->send(target, type, &buf, msglen, 0, NULL, 0, 0, 0);
 
     if (rc)
         logmsg(LOGMSG_ERROR, "%s target->send returns rc=%d\n", __func__, rc);
@@ -3414,13 +3406,18 @@ int osql_send_startgen(osql_target_t *target, unsigned long long rqid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_usedb(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
+int osql_send_usedb(osqlstate_t *osql,
                     char *tablename, int type, unsigned long long tableversion)
 {
     unsigned short tablenamelen = strlen(tablename) + 1; /*including trailing 0*/
     int msglen;
     int rc = 0;
     int sent;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     uint8_t buf[(int)OSQLCOMM_USEDB_RPL_UUID_TYPE_LEN >
                         (int)OSQLCOMM_USEDB_RPL_TYPE_LEN
@@ -3487,7 +3484,7 @@ int osql_send_usedb(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
     /* tablename field is not null-terminated -- send rest of tablename */
     rc = target->send(target, type, &buf, msglen, 0,
                       (tablenamelen > sent) ? tablename + sent : NULL,
-                      (tablenamelen > sent) ? tablenamelen - sent : 0);
+                      (tablenamelen > sent) ? tablenamelen - sent : 0, 0, 0);
 
     if (rc)
         logmsg(LOGMSG_ERROR, "%s target->send returns rc=%d\n", __func__, rc);
@@ -3507,9 +3504,8 @@ int osql_send_usedb(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_updcols(osql_target_t *target, unsigned long long rqid,
-                      uuid_t uuid, unsigned long long seq, int type,
-                      int *colList, int ncols)
+int osql_send_updcols(osqlstate_t *osql,
+                      unsigned long long seq, int type, int *colList, int ncols)
 {
     int rc = 0;
     int didmalloc = 0;
@@ -3519,6 +3515,11 @@ int osql_send_updcols(osql_target_t *target, unsigned long long rqid,
     uint8_t *buf;
     uint8_t *p_buf;
     uint8_t *p_buf_end;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -3582,7 +3583,7 @@ int osql_send_updcols(osql_target_t *target, unsigned long long rqid,
         logmsg(LOGMSG_DEBUG, "[%llu] send OSQL_UPDCOLS %d\n", rqid, ncols);
     }
 
-    rc = target->send(target, type, buf, totlen, 0, NULL, 0);
+    rc = target->send(target, type, buf, totlen, 0, NULL, 0, 0, 0);
 
     if (didmalloc)
         free(buf);
@@ -3595,7 +3596,7 @@ int osql_send_updcols(osql_target_t *target, unsigned long long rqid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_index(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
+int osql_send_index(osqlstate_t *osql,
                     unsigned long long genid, int isDelete, int ixnum,
                     char *pData, int nData, int type)
 {
@@ -3606,6 +3607,11 @@ int osql_send_index(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
                     : OSQLCOMM_INDEX_UUID_RPL_TYPE_LEN];
     uint8_t *p_buf = buf;
     uint8_t *p_buf_end = NULL;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -3660,7 +3666,7 @@ int osql_send_index(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
     }
 
     return target->send(target, type, buf, msglen, 0,
-                        (nData > 0) ? pData : NULL, (nData > 0) ? nData : 0);
+                        (nData > 0) ? pData : NULL, (nData > 0) ? nData : 0, 0, 0);
 }
 
 /**
@@ -3668,7 +3674,7 @@ int osql_send_index(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_qblob(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
+int osql_send_qblob(osqlstate_t *osql,
                     int blobid, unsigned long long seq, int type, char *data,
                     int datalen)
 {
@@ -3681,6 +3687,11 @@ int osql_send_qblob(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
     uint8_t *p_buf_end;
     int msgsz = 0;
     osql_qblob_rpl_t rpl = {{0}};
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -3765,7 +3776,7 @@ int osql_send_qblob(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
 
     return target->send(target, type, buf, msgsz, 0,
                         (datalen > sent) ? data + sent : NULL,
-                        (datalen > sent) ? datalen - sent : 0);
+                        (datalen > sent) ? datalen - sent : 0, 0, 0);
 }
 
 /**
@@ -3773,10 +3784,10 @@ int osql_send_qblob(osql_target_t *target, unsigned long long rqid, uuid_t uuid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_updrec(osql_target_t *target, unsigned long long rqid,
-                     uuid_t uuid, unsigned long long genid,
-                     unsigned long long ins_keys, unsigned long long del_keys,
-                     char *pData, int nData, int type)
+int osql_send_updrec(osqlstate_t *osql,
+                     unsigned long long genid, unsigned long long ins_keys,
+                     unsigned long long del_keys, char *pData, int nData,
+                     int type)
 {
     uint8_t
         buf[(int)OSQLCOMM_UPD_UUID_RPL_TYPE_LEN > (int)OSQLCOMM_UPD_RPL_TYPE_LEN
@@ -3788,6 +3799,11 @@ int osql_send_updrec(osql_target_t *target, unsigned long long rqid,
     int msgsz;
     osql_upd_rpl_t upd_rpl = {{0}};
     int send_dk = 0;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (gbl_partial_indexes && ins_keys != -1ULL && del_keys != -1ULL)
         send_dk = 1;
@@ -3867,7 +3883,7 @@ int osql_send_updrec(osql_target_t *target, unsigned long long rqid,
 
     return target->send(target, type, &buf, msgsz, 0,
                         (nData > sent) ? pData + sent : NULL,
-                        (nData > sent) ? nData - sent : 0);
+                        (nData > sent) ? nData - sent : 0, 0, 0);
 }
 
 void osql_decom_node(char *decom_node)
@@ -3914,14 +3930,18 @@ void osql_cleanup_netinfo(void)
 }
 
 /* Send dbglog op */
-int osql_send_dbglog(osql_target_t *target, unsigned long long rqid,
-                     uuid_t uuid, unsigned long long dbglog_cookie, int queryid,
-                     int type)
+int osql_send_dbglog(osqlstate_t *osql,
+                     unsigned long long dbglog_cookie, int queryid, int type)
 {
     osql_dbglog_t req = {0};
     uint8_t buf[OSQLCOMM_DBGLOG_TYPE_LEN];
     uint8_t *p_buf = buf;
     uint8_t *p_buf_end = p_buf + OSQLCOMM_DBGLOG_TYPE_LEN;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -3937,7 +3957,7 @@ int osql_send_dbglog(osql_target_t *target, unsigned long long rqid,
         return -1;
     }
 
-    return target->send(target, type, &buf, sizeof(osql_dbglog_t), 0, NULL, 0);
+    return target->send(target, type, &buf, sizeof(osql_dbglog_t), 0, NULL, 0, 0, 0);
 }
 
 /**
@@ -3945,9 +3965,9 @@ int osql_send_dbglog(osql_target_t *target, unsigned long long rqid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_updstat(osql_target_t *target, unsigned long long rqid,
-                      uuid_t uuid, unsigned long long seq, char *pData,
-                      int nData, int nStat, int type)
+int osql_send_updstat(osqlstate_t *osql,
+                      unsigned long long seq, char *pData, int nData, int nStat,
+                      int type)
 {
     osql_updstat_rpl_t updstat_rpl = {{0}};
     osql_updstat_uuid_rpl_t updstat_rpl_uuid = {{0}};
@@ -3960,6 +3980,11 @@ int osql_send_updstat(osql_target_t *target, unsigned long long rqid,
     uint8_t *p_buf_end = p_buf + sizeof(buf);
     int sent;
     int msglen;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -4011,7 +4036,7 @@ int osql_send_updstat(osql_target_t *target, unsigned long long rqid,
 
     return target->send(target, type, buf, msglen, 0,
                         (nData > sent) ? pData + sent : NULL,
-                        (nData > sent) ? nData - sent : 0);
+                        (nData > sent) ? nData - sent : 0, 0, 0);
 }
 
 /**
@@ -4019,10 +4044,9 @@ int osql_send_updstat(osql_target_t *target, unsigned long long rqid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_insrec(osql_target_t *target, unsigned long long rqid,
-                     uuid_t uuid, unsigned long long genid,
-                     unsigned long long dirty_keys, char *pData, int nData,
-                     int type, int upsert_flags)
+int osql_send_insrec(osqlstate_t *osql,
+                     unsigned long long genid, unsigned long long dirty_keys,
+                     char *pData, int nData, int type, int upsert_flags)
 {
     int msglen;
     uint8_t
@@ -4033,6 +4057,11 @@ int osql_send_insrec(osql_target_t *target, unsigned long long rqid,
     uint8_t *p_buf = buf;
     uint8_t *p_buf_end = NULL;
     int send_dk = 0;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (gbl_partial_indexes && dirty_keys != -1ULL)
         send_dk = 1;
@@ -4125,16 +4154,22 @@ int osql_send_insrec(osql_target_t *target, unsigned long long rqid,
 
     return target->send(target, type, buf, msglen, 0,
                         (nData > sent) ? pData + sent : NULL,
-                        (nData > sent) ? nData - sent : 0);
+                        (nData > sent) ? nData - sent : 0, 0, 0);
 }
 
-int osql_send_dbq_consume(osql_target_t *target, unsigned long long rqid,
-                          uuid_t uuid, genid_t genid, int type)
+int osql_send_dbq_consume(osqlstate_t *osql,
+                          genid_t genid, int type)
 {
     union {
         osql_dbq_consume_uuid_t uuid;
         osql_dbq_consume_t rqid;
     } rpl = {{{0}}};
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
+
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
     if (gbl_enable_osql_logging) {
@@ -4157,7 +4192,7 @@ int osql_send_dbq_consume(osql_target_t *target, unsigned long long rqid,
         rpl.rqid.genid = genid;
         sz = sizeof(rpl.rqid);
     }
-    return target->send(target, type, &rpl, sz, 0, NULL, 0);
+    return target->send(target, type, &rpl, sz, 0, NULL, 0, 0, 0);
 }
 
 
@@ -4166,9 +4201,9 @@ int osql_send_dbq_consume(osql_target_t *target, unsigned long long rqid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_delrec(osql_target_t *target, unsigned long long rqid,
-                     uuid_t uuid, unsigned long long genid,
-                     unsigned long long dirty_keys, int type)
+int osql_send_delrec(osqlstate_t *osql,
+                     unsigned long long genid, unsigned long long dirty_keys,
+                     int type)
 {
     uint8_t buf[(int)OSQLCOMM_OSQL_DEL_RPL_TYPE_LEN >
                         (int)OSQLCOMM_OSQL_DEL_UUID_RPL_TYPE_LEN
@@ -4178,6 +4213,11 @@ int osql_send_delrec(osql_target_t *target, unsigned long long rqid,
     uint8_t *p_buf_end;
     int msgsz;
     int send_dk = 0;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (gbl_partial_indexes && dirty_keys != -1ULL)
         send_dk = 1;
@@ -4239,16 +4279,16 @@ int osql_send_delrec(osql_target_t *target, unsigned long long rqid,
                lclgenid, lclgenid);
     }
 
-    return target->send(target, type, &buf, msgsz, 0, NULL, 0);
+    return target->send(target, type, &buf, msgsz, 0, NULL, 0, 0, 0);
 }
 
 /**
  * Send SERIAL READ SET
  *
  */
-int osql_send_serial(osql_target_t *target, unsigned long long rqid,
-                     uuid_t uuid, CurRangeArr *arr, unsigned int file,
-                     unsigned int offset, int type)
+int osql_send_serial(osqlstate_t *osql,
+                     CurRangeArr *arr, unsigned int file, unsigned int offset,
+                     int type)
 {
     int used_malloc = 0;
     uint8_t *buf = NULL;
@@ -4258,6 +4298,11 @@ int osql_send_serial(osql_target_t *target, unsigned long long rqid,
     int b_sz;
     int cr_sz = 0;
     CurRange *cr;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -4376,7 +4421,7 @@ int osql_send_serial(osql_target_t *target, unsigned long long rqid,
         }
     }
 
-    return target->send(target, type, buf, b_sz, 1, NULL, 0);
+    return target->send(target, type, buf, b_sz, 1, NULL, 0, 0, 0);
 }
 
 /**
@@ -4384,8 +4429,8 @@ int osql_send_serial(osql_target_t *target, unsigned long long rqid,
  * It handles remote/local connectivity
  *
  */
-int osql_send_commit(osql_target_t *target, unsigned long long rqid,
-                     uuid_t uuid, int nops, struct errstat *xerr, int type,
+int osql_send_commit(osqlstate_t *osql,
+                     struct errstat *xerr, int type,
                      struct client_query_stats *query_stats,
                      snap_uid_t *snap_info)
 {
@@ -4402,6 +4447,12 @@ int osql_send_commit(osql_target_t *target, unsigned long long rqid,
     /* Master does not read query_stats, since R5 maybe.  Do not send them
     unless we decide to fix it first */
     query_stats = NULL;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    int nops = osql->replicant_numops;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     /* Always 'commit' to release starthrottle.  Failure if master has swung. */
     if (check_master(target))
@@ -4484,8 +4535,7 @@ int osql_send_commit(osql_target_t *target, unsigned long long rqid,
                 return -1;
             }
         }
-        rc = target->send(target, type, buf, b_sz, 1, NULL, 0);
-
+        rc = target->send(target, type, buf, b_sz, 1, NULL, 0, 1, 0);
     } else {
 
         rpl_xerr.hd.type = OSQL_XERR;
@@ -4500,7 +4550,7 @@ int osql_send_commit(osql_target_t *target, unsigned long long rqid,
                 free(buf);
             return -1;
         }
-        rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0);
+        rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0, 1, 0);
     }
     if (used_malloc)
         free(buf);
@@ -4519,7 +4569,7 @@ int type_to_uuid_type(int type)
     }
 }
 
-int osql_send_commit_by_uuid(osql_target_t *target, uuid_t uuid, int nops,
+int osql_send_commit_by_uuid(osqlstate_t *osql,
                              struct errstat *xerr, int type,
                              struct client_query_stats *query_stats,
                              snap_uid_t *snap_info)
@@ -4537,6 +4587,11 @@ int osql_send_commit_by_uuid(osql_target_t *target, uuid_t uuid, int nops,
     /* Master does not read query_stats, since R5 maybe.  Do not send them
     unless we decide to fix it first */
     query_stats = NULL;
+
+    osql_target_t *target = &osql->target;
+    int nops = osql->replicant_numops;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     type = osql_net_type_to_net_uuid_type(type);
 
@@ -4625,8 +4680,7 @@ int osql_send_commit_by_uuid(osql_target_t *target, uuid_t uuid, int nops,
                 return -1;
             }
         }
-        rc = target->send(target, type, buf, b_sz, 1, NULL, 0);
-
+        rc = target->send(target, type, buf, b_sz, 1, NULL, 0, 1, 0);
     } else {
 
         rpl_xerr.hd.type = OSQL_XERR;
@@ -4647,7 +4701,7 @@ int osql_send_commit_by_uuid(osql_target_t *target, uuid_t uuid, int nops,
                 free(buf);
             return -1;
         }
-        rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0);
+        rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0, 1, 0);
     }
     if (used_malloc)
         free(buf);
@@ -4816,8 +4870,7 @@ void osql_set_net_poll(int pval)
  * Sql is the first update part of this transaction
  *
  */
-int osql_comm_send_socksqlreq(osql_target_t *target, const char *sql, int sqlen,
-                              unsigned long long rqid, uuid_t uuid,
+int osql_comm_send_socksqlreq(osqlstate_t *osql, const char *sql, int sqlen,
                               char *tzname, int type, int flags)
 {
 
@@ -4825,6 +4878,11 @@ int osql_comm_send_socksqlreq(osql_target_t *target, const char *sql, int sqlen,
     int reqlen = 0;
     int rc = 0;
     int net_type;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     stats[type].snd++;
 
@@ -4852,7 +4910,7 @@ int osql_comm_send_socksqlreq(osql_target_t *target, const char *sql, int sqlen,
         }
     }
 
-    rc = target->send(target, net_type, req, reqlen, 1, NULL, 0);
+    rc = target->send(target, net_type, req, reqlen, 1, NULL, 0, 0, 0);
 
     if (rc)
         stats[type].snd_failed++;
@@ -4970,7 +5028,7 @@ int osql_comm_signal_sqlthr_rc(osql_target_t *target, unsigned long long rqid,
   printf("Send %d rqid=%llu tmp=%llu\n",  NET_OSQL_SIGNAL, rqid, osql_log_time());
 #endif
     /* lazy again, works just because node!=0 */
-    int irc = target->send(target, type, buf, msglen, 1, NULL, 0);
+    int irc = target->send(target, type, buf, msglen, 1, NULL, 0, 0, 0);
     if (irc) {
         irc = -1;
         logmsg(LOGMSG_ERROR, "%s: error sending done to %s!\n", __func__,
@@ -5450,8 +5508,8 @@ static int net_osql_rpl_tail(void *hndl, void *uptr, char *fromhost,
                 __func__, netrpl2req(usertype), ((osql_rpl_t *)dtap)->sid);
 #endif
 
-        memmove(dup, dtap, dtalen);
-        memmove((char *)dup + dtalen, tail, tailen);
+        memcpy(dup, dtap, dtalen);
+        memcpy((char *)dup + dtalen, tail, tailen);
     } else {
         dup = dtap;
     }
@@ -5969,6 +6027,13 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
         comdb2uuid_clear(uuid);
     }
 
+    /* Break down a bundle */
+    if (type == OSQL_BUNDLED || type == OSQL_DONE_BUNDLED)
+        return osql_process_bundled(iq, rqid, uuid, trans, (char *)p_buf_end, msglen -
+                (p_buf_end - p_buf),
+                flags, updCols, blobs, step, err, receivedrows);
+
+
     if (type >= 0 && type < MAX_OSQL_TYPES)
         db->blockosqltypcnt[type]++;
     else
@@ -5978,9 +6043,9 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     if (gbl_toblock_net_throttle && is_write_request(type))
         net_throttle_wait(thedb->handle_sibling);
 
-#if DEBUG_REORDER
+#if 0
     const char *osql_reqtype_str(int type);
-    DEBUGMSG("osql_process_packet(): processing %s (%d)\n",
+    printf("osql_process_packet(): processing %s (%d)\n",
              osql_reqtype_str(type), type);
 #endif
 
@@ -7148,11 +7213,16 @@ int osql_comm_echo(char *tohost, int stream, unsigned long long *sent,
  * It handles remote/local connectivity
  *
  */
-int osql_send_recordgenid(osql_target_t *target, unsigned long long rqid,
-                          uuid_t uuid, unsigned long long genid, int type)
+int osql_send_recordgenid(osqlstate_t *osql,
+                          unsigned long long genid, int type)
 {
     int rc = 0;
     uuidstr_t us;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     if (check_master(target))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -7180,7 +7250,7 @@ int osql_send_recordgenid(osql_target_t *target, unsigned long long rqid,
         }
 
         type = osql_net_type_to_net_uuid_type(type);
-        target->send(target, type, buf, sizeof(recgenid_rpl), 0, NULL, 0);
+        target->send(target, type, buf, sizeof(recgenid_rpl), 0, NULL, 0, 0, 0);
     } else {
         osql_recgenid_rpl_t recgenid_rpl = {{0}};
         uint8_t buf[OSQLCOMM_RECGENID_RPL_TYPE_LEN];
@@ -7203,7 +7273,7 @@ int osql_send_recordgenid(osql_target_t *target, unsigned long long rqid,
                    rqid, comdb2uuidstr(uuid, us), genid, genid);
         }
 
-        target->send(target, type, buf, sizeof(recgenid_rpl), 0, NULL, 0);
+        target->send(target, type, buf, sizeof(recgenid_rpl), 0, NULL, 0, 0, 0);
     }
 
     return rc;
@@ -7296,9 +7366,13 @@ netinfo_type *osql_get_netinfo(void)
  * It handles remote/local connectivity
  *
  */
-int osql_send_schemachange(osql_target_t *target, unsigned long long rqid,
-                           uuid_t uuid, struct schema_change_type *sc, int type)
+int osql_send_schemachange(osqlstate_t *osql,
+                           struct schema_change_type *sc, int type)
 {
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     schemachange_packed_size(sc);
     size_t osql_rpl_size =
@@ -7347,11 +7421,11 @@ int osql_send_schemachange(osql_target_t *target, unsigned long long rqid,
                comdb2uuidstr(uuid, us), sc->tablename);
     }
 
-    return target->send(target, type, buf, osql_rpl_size, 0, NULL, 0);
+    return target->send(target, type, buf, osql_rpl_size, 0, NULL, 0, 0, 1);
 }
 
-int osql_send_bpfunc(osql_target_t *target, unsigned long long rqid,
-                     uuid_t uuid, BpfuncArg *arg, int type)
+int osql_send_bpfunc(osqlstate_t *osql,
+                     BpfuncArg *arg, int type)
 {
     osql_bpfunc_t *dt;
     size_t data_len = bpfunc_arg__get_packed_size(arg);
@@ -7361,6 +7435,11 @@ int osql_send_bpfunc(osql_target_t *target, unsigned long long rqid,
     uint8_t *p_buf_end;
     int rc = 0;
     uuidstr_t us;
+
+    osql_target_t *target = &osql->target;
+    unsigned long long rqid = osql->rqid;
+    uuid_t uuid;
+    comdb2uuidcpy(uuid, osql->uuid);
 
     osql_bpfunc_size = OSQLCOMM_BPFUNC_TYPE_LEN + data_len;
     dt = malloc(osql_bpfunc_size);
@@ -7422,7 +7501,7 @@ int osql_send_bpfunc(osql_target_t *target, unsigned long long rqid,
                comdb2uuidstr(uuid, us), arg->type);
     }
 
-    rc = target->send(target, type, p_buf, osql_rpl_size, 0, NULL, 0);
+    rc = target->send(target, type, p_buf, osql_rpl_size, 0, NULL, 0, 0, 0);
 
 freemem:
     if (dt)
@@ -7436,19 +7515,21 @@ freemem:
 /* test osql stream sending a dummy uuid OSQL_DONE request */
 int osql_send_test(void)
 {
-    struct errstat xerr = {0};
+    osqlstate_t osql;
+    memset(&osql, 0, sizeof(osqlstate_t));
+    osql.uuid[0] = 1; // just assign dummy cnonce here
+    osql.replicant_numops = 1;
     int nettype = NET_OSQL_SOCK_RPL_UUID;
     snap_uid_t snap_info = {{0}};
     snap_info.replicant_is_able_to_retry = 0;
-    snap_info.uuid[0] = 1; // just assign dummy cnonce here
     int rc;
     osql_target_t target = {0};
 
     init_bplog_net(&target);
     target.host = thedb->master;
 
-    rc = osql_send_commit_by_uuid(&target, snap_info.uuid, 1 /*numops*/, &xerr,
-                                  nettype, NULL /*clnt->query_stats*/,
+    rc = osql_send_commit_by_uuid(&osql,
+                                  &osql.xerr, nettype, NULL /*clnt->query_stats*/,
                                   &snap_info);
     return rc;
 }
