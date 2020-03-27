@@ -5544,6 +5544,14 @@ static int offload_net_send(const char *host, int usertype, void *data,
 
 // hihihihi
 //int gbl_osql_send_buffer_max_bytes = (8192 * 1024);
+
+
+net_hostdown_rtn: HOSTDOWN was the master, calling for election
+hostdown_thread line 1885 called for election
+net_hostdown_rtn: HOSTDOWN was the master, calling for election
+hostdown_thread line 1885 called for election
+bdb_upgrade_int line 5085 calling rep_start as master with egen 0
+
 int gbl_osql_send_buffer_max_bytes = 0;
 
 static int osql_flush_multiple(osqlstate_t *osql, int done, int nodelay)
