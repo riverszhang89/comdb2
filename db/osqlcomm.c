@@ -5543,44 +5543,8 @@ static int offload_net_send(const char *host, int usertype, void *data,
 }
 
 // hihihihi
-//int gbl_osql_send_buffer_max_bytes = (8192 * 1024);
-
-
-net_hostdown_rtn: HOSTDOWN was the master, calling for election
-hostdown_thread line 1885 called for election
-net_hostdown_rtn: HOSTDOWN was the master, calling for election
-hostdown_thread line 1885 called for election
-bdb_upgrade_int line 5085 calling rep_start as master with egen 0
-I AM READY.
-[off ip-172-31-58-6.ec2.internal fd:65       disable_write] CLOSING CONNECTION
-fd:65
-[off ip-172-31-58-6.ec2.internal fd:-1        do_reconnect] RECONNECT IN 7s
-Retrying to find the master retries=1
-Retrying to find the master retries=2
-Retrying to find the master retries=3
-Retrying to find the master retries=4
-[off ip-172-31-58-6.ec2.internal fd:-1        pmux_connect] CONNECTING fd:66
-[off ip-172-31-58-6.ec2.internal fd:-1    comdb2_connected] MADE NEW CONNECTION
-fd:66
-[off ip-172-31-58-6.ec2.internal fd:-1      host_connected] PROCESSING
-CONNECTION fd:66
-[off ip-172-31-58-6.ec2.internal fd:66   finish_host_setup] WRITING HELLO
-[off ip-172-31-58-6.ec2.internal fd:66         accept_host] ACCEPTED NEW
-CONNECTION fd:67
-[off ip-172-31-58-6.ec2.internal fd:66      host_connected] PROCESSING
-CONNECTION fd:67
-[off ip-172-31-58-6.ec2.internal fd:66       disable_write] CLOSING CONNECTION
-fd:66
-[off ip-172-31-58-6.ec2.internal fd:67   process_hello_msg] GOT HELLO
-[off ip-172-31-58-6.ec2.internal fd:67       disable_write] CLOSING CONNECTION
-fd:67
-[off ip-172-31-58-6.ec2.internal fd:-1        do_reconnect] RECONNECT IN 5s
-Retrying to find the master retries=5
-Retrying to find the master retries=6
-Retrying to find the master retries=7
-Retrying to find the master retries=8
-
-int gbl_osql_send_buffer_max_bytes = 0;
+int gbl_osql_send_buffer_max_bytes = (64 * 1024 * 1024);
+//int gbl_osql_send_buffer_max_bytes = 0;
 
 static int osql_flush_multiple(osqlstate_t *osql, int done, int nodelay)
 {
