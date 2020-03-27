@@ -5543,8 +5543,8 @@ static int offload_net_send(const char *host, int usertype, void *data,
 }
 
 // hihihihi
-int gbl_osql_send_buffer_max_bytes = (8192 * 1024);
-//int gbl_osql_send_buffer_max_bytes = 0;
+//int gbl_osql_send_buffer_max_bytes = (8192 * 1024);
+int gbl_osql_send_buffer_max_bytes = 0;
 
 static int osql_flush_multiple(osqlstate_t *osql, int done, int nodelay)
 {
@@ -6394,7 +6394,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     if (gbl_toblock_net_throttle && is_write_request(type))
         net_throttle_wait(thedb->handle_sibling);
 
-#if 1
+#if 0
     const char *osql_reqtype_str(int type);
     printf("osql_process_packet(): processing %s (%d)\n",
              osql_reqtype_str(type), type);

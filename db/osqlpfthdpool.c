@@ -578,6 +578,7 @@ int osql_page_prefault(char *rpl, int rplen, struct dbtable **last_db,
                        int **iq_step_ix, unsigned long long rqid, uuid_t uuid,
                        unsigned long long seq)
 {
+    /* RZ break down */
     static int last_step_idex = 0;
     int *ii;
     osql_rpl_t rpl_op;

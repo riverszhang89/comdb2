@@ -639,8 +639,6 @@ int osql_bplog_saveop(osql_sess_t *sess, blocksql_tran_t *tran, char *rpl,
                       rc = bdb_temp_table_put(thedb->bdb_env, tmptbl, &key,
                                               sizeof(key), rpl, rplen, NULL,
                                               &bdberr););
-    logmsg(LOGMSG_ERROR, "%s:put oplog seq=%u rc=%d bdberr=%d type = %d\n",
-            __func__, tran->seq, rc, bdberr, type);
 
     if (rc) {
         logmsg(LOGMSG_ERROR, "%s: fail to put oplog seq=%u rc=%d bdberr=%d\n",
@@ -954,7 +952,8 @@ static int process_this_session(
     reqlog_set_event(iq->reqlogger, EV_TXN);
 
 //#if DEBUG_REORDER
-#if 1 /* RZ */
+    /* RZ */
+#if 0
     logmsg(LOGMSG_DEBUG, "OSQL ");
     // if needed to check content of socksql temp table, dump with:
     void bdb_temp_table_debug_dump(bdb_state_type * bdb_state,
@@ -1037,7 +1036,10 @@ static int process_this_session(
          * func is osql_process_packet or osql_process_schemachange */
         rc_out = func(iq, sess->rqid, sess->uuid, iq_tran, &data, datalen,
                       &flags, &updCols, blobs, step, err, &receivedrows);
-        free(data);
+
+        /* Do not free finalop. It is freed in _destroy_session(). */
+        if (data != sess->finalop)
+            free(data);
 
         if (rc_out != 0 && rc_out != OSQL_RC_DONE) {
             reqlog_set_error(iq->reqlogger, "Error processing", rc_out);
@@ -1055,8 +1057,6 @@ static int process_this_session(
         rc = get_next_merge_tmps(dbc, dbc_ins, &opkey, &opkey_ins, &drain_adds,
                                  bdberr, add_stripe);
     }
-
-    sess->finalop = NULL;
 
     if (iq->osql_step_ix)
         gbl_osqlpf_step[*(iq->osql_step_ix)].step = opkey->seq << 7;
