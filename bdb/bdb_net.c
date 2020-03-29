@@ -56,7 +56,6 @@
 #define debug_trace(...)
 #endif
 
-extern char *gbl_myhostname;
 extern void fsnapf(FILE *, void *, int);
 extern int get_myseqnum(bdb_state_type *bdb_state, uint8_t *p_net_seqnum);
 extern int verify_master_leases_int(bdb_state_type *bdb_state,
@@ -277,7 +276,7 @@ void udp_ping(bdb_state_type *bdb_state, char *to)
 {
     /* udp_send_header(bdb_state, to, USER_TYPE_UDP_PING); */
     if (send_timestamp(bdb_state, to, USER_TYPE_UDP_TIMESTAMP) > 0) {
-        debug_trace("sent ping %s -> %s", gbl_myhostname, to);
+        debug_trace("sent ping %s -> %s", gbl_mynode, to);
     }
 }
 
@@ -699,7 +698,7 @@ void tcp_ping_all(bdb_state_type *bdb_state)
 void tcp_ping(bdb_state_type *bdb_state, char *to)
 {
     if (send_timestamp(bdb_state, to, USER_TYPE_TCP_TIMESTAMP) > 0) {
-        debug_trace("sent ping %s -> %s", gbl_myhostname, to);
+        debug_trace("sent ping %s -> %s", gbl_mynode, to);
     }
 }
 
@@ -896,7 +895,7 @@ void ping_all(bdb_state_type *bdb_state)
 void ping_node(bdb_state_type *bdb_state, char *to)
 {
     if (send_timestamp(bdb_state, to, USER_TYPE_TCP_TIMESTAMP) > 0) {
-        debug_trace("sent ping %s -> %s", gbl_myhostname, to);
+        debug_trace("sent ping %s -> %s", gbl_mynode, to);
     }
 }
 

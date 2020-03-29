@@ -25,12 +25,13 @@ extern "C" {
 
 struct in_addr;
 
-typedef int(hostbyname)(char **, struct in_addr *);
+typedef int(hostbyname)(const char *, struct in_addr *, char **);
 
 hostbyname *get_os_hostbyname();
 void set_hostbyname(hostbyname *);
 
-hostbyname comdb2_gethostbyname;
+int comdb2_gethostbyname(const char *name, struct in_addr *addr);
+int comdb2_getcanonicalname(const char *name, char **canonname);
 void comdb2_getservbyname(const char *, const char *, short *);
 int bb_readdir(DIR *d, void *buf, struct dirent **dent);
 char *comdb2_realpath(const char *path, char *resolved_path);

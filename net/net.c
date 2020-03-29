@@ -4502,7 +4502,7 @@ int get_dedicated_conhost(host_node_type *host_node_ptr, struct in_addr *addr)
                          host_node_ptr->host);
 #endif
         Pthread_mutex_unlock(&subnet_mtx);
-        int rc = comdb2_gethostbyname(&host_node_ptr->host, addr);
+        int rc = comdb2_gethostbyname(host_node_ptr->host, addr);
         if (rc == 0 && addr != &host_node_ptr->addr) {
             host_node_ptr->addr = *addr;
         }
@@ -4548,7 +4548,7 @@ int get_dedicated_conhost(host_node_type *host_node_ptr, struct in_addr *addr)
                 "Connecting to NON dedicated hostname/subnet '%s' counter=%d\n",
                 rephostname, counter);
 #endif
-        rc = comdb2_gethostbyname(&rephostname, addr);
+        rc = comdb2_gethostbyname(rephostname, addr);
         if (rc) {
             logmsg(LOGMSG_ERROR, "%d) %s(): ERROR gethostbyname '%s' FAILED\n",
                     ii, __func__, rephostname);

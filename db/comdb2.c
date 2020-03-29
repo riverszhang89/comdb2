@@ -302,7 +302,6 @@ long gbl_report_last_r;
 char *gbl_mynode;     /* my hostname */
 struct in_addr gbl_myaddr; /* my IPV4 address */
 int gbl_mynodeid = 0; /* node number, for backwards compatibility */
-char *gbl_myhostname; /* added for now to merge fdb source id */
 pid_t gbl_mypid;      /* my pid */
 char *gbl_myuri;      /* added for fdb uri for this db: dbname@hostname */
 int gbl_myroom;
@@ -1544,7 +1543,6 @@ void clean_exit(void)
     cleanup_interned_strings();
     cleanup_peer_hash();
     free(gbl_dbdir);
-    free(gbl_myhostname);
 
     cleanresources(); // list of lrls
     // TODO: would be nice but other threads need to exit first:
@@ -3471,7 +3469,7 @@ static int init(int argc, char **argv)
     }
     strcpy(gbl_dbname, dbname);
     char tmpuri[1024];
-    snprintf(tmpuri, sizeof(tmpuri), "%s@%s", gbl_dbname, gbl_myhostname);
+    snprintf(tmpuri, sizeof(tmpuri), "%s@%s", gbl_dbname, gbl_mynode);
     gbl_myuri = intern(tmpuri);
 
     if (optind < argc && isdigit((int)argv[optind][0])) {
@@ -5291,16 +5289,15 @@ static void register_all_int_switches()
 static void getmyid(void)
 {
     char name[1024];
+    char *canonname;
 
     if (gethostname(name, sizeof(name))) {
         logmsg(LOGMSG_ERROR, "%s: Failure to get local hostname!!!\n", __func__);
-        gbl_myhostname = "UNKNOWN";
         gbl_mynode = "localhost";
+    } else if (comdb2_getcanonicalname(name, &canonname) == 0) {
+        gbl_mynode = intern(canonname);
     } else {
-        name[1023] = '\0'; /* paranoia, just in case of truncation */
-
-        gbl_myhostname = strdup(name);
-        gbl_mynode = intern(gbl_myhostname);
+        gbl_mynode = intern(name);
     }
 
     getmyaddr();

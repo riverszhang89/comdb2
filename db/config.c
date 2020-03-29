@@ -410,7 +410,7 @@ static int lrl_if(char **tok_inout, char *line, int line_len, int *st,
 
 void getmyaddr()
 {
-    if (comdb2_gethostbyname(&gbl_mynode, &gbl_myaddr) != 0) {
+    if (comdb2_gethostbyname(gbl_mynode, &gbl_myaddr) != 0) {
         gbl_myaddr.s_addr = INADDR_LOOPBACK; /* default to localhost */
         return;
     }
@@ -778,7 +778,7 @@ static int read_lrl_option(struct dbenv *dbenv, char *line,
                 /* Check to see if this name is another name for me. */
                 struct in_addr addr;
                 char *name = nodename;
-                if (comdb2_gethostbyname(&name, &addr) == 0 &&
+                if (comdb2_gethostbyname(name, &addr) == 0 &&
                     addr.s_addr == gbl_myaddr.s_addr) {
                     /* Assume I am better known by this name. */
                     gbl_mynode = intern(name);

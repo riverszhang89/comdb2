@@ -916,7 +916,7 @@ static void comdb2HostFunc(
   sqlite3_value **NotUsed2
 ){
   UNUSED_PARAMETER2(NotUsed, NotUsed2);
-  sqlite3_result_text(context, gbl_myhostname, -1, SQLITE_STATIC);
+  sqlite3_result_text(context, gbl_mynode, -1, SQLITE_STATIC);
 }
 
 extern int comdb2_get_server_port();

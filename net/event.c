@@ -78,7 +78,7 @@
 
 int gbl_libevent = 1;
 
-extern char *gbl_myhostname;
+extern char *gbl_mynode;
 extern int gbl_create_mode;
 extern int gbl_exit;
 extern int gbl_fullrecovery;
@@ -591,7 +591,7 @@ static void update_wire_hdrs(struct event_info *e)
 
 static void setup_wire_hdrs(struct event_info *e)
 {
-    int fromlen = strlen(gbl_myhostname);
+    int fromlen = strlen(gbl_mynode);
     int tolen = strlen(e->host);
     size_t len = NET_WIRE_HEADER_TYPE_LEN;
     if (fromlen > HOSTNAME_LEN)
@@ -604,10 +604,10 @@ static void setup_wire_hdrs(struct event_info *e)
         char *name = (char *)e->wirehdr[i] + NET_WIRE_HEADER_TYPE_LEN;
         if (fromlen > HOSTNAME_LEN) {
             sprintf(e->wirehdr[i]->fromhost, ".%d", fromlen);
-            strcpy(name, gbl_myhostname);
+            strcpy(name, gbl_mynode);
             name += fromlen;
         } else {
-            strcpy(e->wirehdr[i]->fromhost, gbl_myhostname);
+            strcpy(e->wirehdr[i]->fromhost, gbl_mynode);
         }
         e->wirehdr[i]->fromport = htonl(e->net_info->port);
         if (tolen > HOSTNAME_LEN) {
@@ -1168,8 +1168,8 @@ static void exit_once_func(void)
     struct event_info *e;
     LIST_FOREACH(n, &net_list, entry) {
         LIST_FOREACH(e, &n->event_list, net_list_entry) {
-            write_decom(n->netinfo_ptr, e->host_node_ptr, gbl_myhostname,
-                        strlen(gbl_myhostname), e->host);
+            write_decom(n->netinfo_ptr, e->host_node_ptr, gbl_mynode,
+                        strlen(gbl_mynode), e->host);
         }
     }
     net_stop = 1;
@@ -2014,7 +2014,7 @@ static int accept_host(struct accept_info *a)
 
 static int validate_host(struct accept_info *a)
 {
-    if (strcmp(a->from_host, gbl_myhostname) == 0) {
+    if (strcmp(a->from_host, gbl_mynode) == 0) {
         logmsg(LOGMSG_WARN, "%s fd:%d invalid from:%s\n", __func__, a->fd,
                a->from_host);
         return -1;
@@ -2032,9 +2032,9 @@ static int validate_host(struct accept_info *a)
     if (f) {
         *f = '\0';
     }
-    if (strcmp(a->from_host, from) != 0 || strcmp(a->to_host, gbl_myhostname) != 0) {
+    if (strcmp(a->from_host, from) != 0 || strcmp(a->to_host, gbl_mynode) != 0) {
         logmsg(LOGMSG_WARN, "%s fd:%d invalid names from:%s (exp:%s) to:%s (exp:%s)\n",
-               __func__, a->fd, a->from_host, from, a->to_host, gbl_myhostname);
+               __func__, a->fd, a->from_host, from, a->to_host, gbl_mynode);
         return -1;
     }
 #   endif
@@ -2478,7 +2478,7 @@ static void do_add_host(int accept_fd, short what, void *data)
     netinfo_type *netinfo_ptr = host_node_ptr->netinfo_ptr;
     net_accept(netinfo_ptr);
     char *host = host_node_ptr->host;
-    if (strcmp(host, gbl_myhostname) == 0) {
+    if (strcmp(host, gbl_mynode) == 0) {
         return;
     }
     struct net_info *n = net_info_find(netinfo_ptr->service);
@@ -2604,7 +2604,7 @@ static void flushcb(int fd, short what, void *data)
 
 static inline int skip_send(struct event_info *e, int nodrop, int check_hello)
 {
-    return strcmp(e->host, gbl_myhostname) == 0 || e->fd == -1 ||
+    return strcmp(e->host, gbl_mynode) == 0 || e->fd == -1 ||
            e->decomissioned || (e->wr_full && !nodrop) ||
            (check_hello && !e->got_hello);
 }
@@ -2770,7 +2770,7 @@ void decom(char *host)
     if (net_stop) {
         return;
     }
-    if (strcmp(host, gbl_myhostname) == 0) {
+    if (strcmp(host, gbl_mynode) == 0) {
         return;
     }
     struct host_info *h = host_info_find(host);
@@ -2948,7 +2948,7 @@ int net_send_evbuffer(netinfo_type *netinfo_ptr, const char *host,
         return NET_SEND_FAIL_INVALIDNODE;
     }
     struct event_info *e = entry->event_info;
-    if (strcmp(e->host, gbl_myhostname) == 0) {
+    if (strcmp(e->host, gbl_mynode) == 0) {
         return NET_SEND_FAIL_SENDTOME;
     }
     int n = numtails + 1;
