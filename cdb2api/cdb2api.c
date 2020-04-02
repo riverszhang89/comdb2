@@ -1041,6 +1041,7 @@ struct cdb2_hndl {
     int protobuf_offset;
     int protobuf_used_sysmalloc;
     ProtobufCAllocator allocator;
+    CDB2SQLQUERY pbsql;
 };
 
 static void *cdb2_protobuf_alloc(void *allocator_data, size_t size)
@@ -2852,78 +2853,82 @@ retry_read:
     return 0;
 }
 
-static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
-                           SBUF2 *sb, const char *dbname, const char *sql,
-                           int n_set_commands, int n_set_commands_sent,
-                           char **set_commands, int n_bindvars,
-                           CDB2SQLQUERY__Bindvalue **bindvars, int ntypes,
-                           int *types, int is_begin, int skip_nrows,
-                           int retries_done, int do_append, int fromline)
+static int is_pbsql_initialized(cdb2_hndl_tp *hndl)
 {
-    int rc = 0;
+    return (hndl != NULL && hndl->pbsql.dbname != NULL);
+}
 
-    void *callbackrc;
-    int overwrite_rc = 0;
-    cdb2_event *e = NULL;
+static void pbsql_initialize(
+        CDB2SQLQUERY *pbsql,
+        cdb2_hndl_tp *hndl,
+        const char *dbname)
+{
+    cdb2__sqlquery__init(pbsql);
 
-    while ((e = cdb2_next_callback(event_hndl, CDB2_BEFORE_SEND_QUERY, e)) !=
-           NULL) {
-        callbackrc = cdb2_invoke_callback(event_hndl, e, 1, CDB2_SQL, sql);
-        PROCESS_EVENT_CTRL_BEFORE(event_hndl, e, rc, callbackrc, overwrite_rc);
-    }
+    /* Set fields which are unlikely to change. */
 
-    if (overwrite_rc)
-        goto after_callback;
+    /* dbname */
+    pbsql->dbname = (char *)dbname;
 
-    if (log_calls) {
-        fprintf(stderr, "td 0x%p %s line %d\n", (void *)pthread_self(),
-                __func__, __LINE__);
-    }
-
-    int n_features = 0;
-    int features[10]; // Max 10 client features??
-    CDB2QUERY query = CDB2__QUERY__INIT;
-    CDB2SQLQUERY sqlquery = CDB2__SQLQUERY__INIT;
-    CDB2SQLQUERY__Snapshotinfo snapshotinfo;
-
-    // This should be sent once right after we connect, not with every query
-    CDB2SQLQUERY__Cinfo cinfo = CDB2__SQLQUERY__CINFO__INIT;
-
-    if (!hndl || !hndl->sent_client_info) {
-        cinfo.pid = _PID;
-        cinfo.th_id = pthread_self();
-        cinfo.host_id = cdb2_hostid();
-        cinfo.argv0 = _ARGV0;
-        if (hndl && hndl->send_stack)
-            cinfo.stack = hndl->stack;
-        sqlquery.client_info = &cinfo;
-        if (hndl)
-            hndl->sent_client_info = 1;
-    }
-
-    sqlquery.dbname = (char *)dbname;
-    sqlquery.sql_query = (char *)cdb2_skipws(sql);
+    /* endianness */
 #if _LINUX_SOURCE
-    sqlquery.little_endian = 1;
+    pbsql->little_endian = 1;
 #else
-    sqlquery.little_endian = 0;
+    pbsql->little_endian = 0;
 #endif
 
-    sqlquery.n_bindvars = n_bindvars;
-    sqlquery.bindvars = bindvars;
-    sqlquery.n_types = ntypes;
-    sqlquery.types = types;
-    sqlquery.tzname = (hndl) ? hndl->env_tz : DB_TZNAME_DEFAULT;
-    sqlquery.mach_class = cdb2_default_cluster;
+    /* timezone */
+    pbsql->tzname = (hndl) ? hndl->env_tz : DB_TZNAME_DEFAULT;
 
+    /* tier */
+    pbsql->mach_class = cdb2_default_cluster;
 
-    
+    if (hndl != NULL) {
+        /* Have a query id associated with each transaction/query */
+        pbsql->has_cnonce = 1;
+        pbsql->cnonce.data = (uint8_t *)hndl->cnonce.str;
+        pbsql->cnonce.len = strlen(hndl->cnonce.str);
+    }
+}
 
-    query.sqlquery = &sqlquery;
+static void pbsql_update(
+        CDB2SQLQUERY *pbsql,
+        cdb2_hndl_tp *hndl,
+        int *features,
+        CDB2SQLQUERY__Snapshotinfo *psnap,
+        CDB2SQLQUERY__Cinfo *pcinfo,
+        CDB2SQLQUERY__Reqinfo *preq,
+        const char *sql, int n_set_commands,
+        int n_set_commands_sent,
+        char **set_commands, int n_bindvars,
+        CDB2SQLQUERY__Bindvalue **bindvars, int ntypes,
+        int *types,
+        int is_begin, int skip_nrows,
+        int retries_done, int do_append, int fromline)
+{
+    int n_features = 0;
+    if (hndl && hndl->sent_client_info) {
+        pbsql->client_info = NULL;
+    } else {
+        cdb2__sqlquery__cinfo__init(pcinfo);
+        pcinfo->pid = _PID;
+        pcinfo->th_id = pthread_self();
+        pcinfo->host_id = cdb2_hostid();
+        pcinfo->argv0 = _ARGV0;
+        if (hndl && hndl->send_stack)
+            pcinfo->stack = hndl->stack;
+        pbsql->client_info = pcinfo;
+    }
 
-    sqlquery.n_set_flags = n_set_commands - n_set_commands_sent;
-    if (sqlquery.n_set_flags)
-        sqlquery.set_flags = &set_commands[n_set_commands_sent];
+    pbsql->sql_query = (char *)cdb2_skipws(sql);
+    pbsql->n_bindvars = n_bindvars;
+    pbsql->bindvars = bindvars;
+    pbsql->n_types = ntypes;
+    pbsql->types = types;
+
+    pbsql->n_set_flags = n_set_commands - n_set_commands_sent;
+    if (pbsql->n_set_flags)
+        pbsql->set_flags = &set_commands[n_set_commands_sent];
 
 #if WITH_SSL
     features[n_features++] = CDB2_CLIENT_FEATURES__SSL;
@@ -2947,24 +2952,19 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
                    sql, fromline, retries_done, do_append);
 
         if (hndl->is_retry) {
-            sqlquery.has_retry = 1;
-            sqlquery.retry = hndl->is_retry;
+            pbsql->has_retry = 1;
+            pbsql->retry = hndl->is_retry;
         }
 
         if ( !(hndl->flags & CDB2_READ_INTRANS_RESULTS) && is_begin) {
             features[n_features++] = CDB2_CLIENT_FEATURES__SKIP_INTRANS_RESULTS;
         }
 
-        /* Have a query id associated with each transaction/query */
-        sqlquery.has_cnonce = 1;
-        sqlquery.cnonce.data = (uint8_t *)hndl->cnonce.str;
-        sqlquery.cnonce.len = strlen(hndl->cnonce.str);
-
         if (hndl->snapshot_file) {
-            cdb2__sqlquery__snapshotinfo__init(&snapshotinfo);
-            snapshotinfo.file = hndl->snapshot_file;
-            snapshotinfo.offset = hndl->snapshot_offset;
-            sqlquery.snapshot_info = &snapshotinfo;
+            cdb2__sqlquery__snapshotinfo__init(psnap);
+            psnap->file = hndl->snapshot_file;
+            psnap->offset = hndl->snapshot_offset;
+            pbsql->snapshot_info = psnap;
         }
     } else if (retries_done) {
         features[n_features++] = CDB2_CLIENT_FEATURES__ALLOW_MASTER_DBINFO;
@@ -2973,41 +2973,87 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
     }
 
     if (n_features) {
-        sqlquery.n_features = n_features;
-        sqlquery.features = features;
+        pbsql->n_features = n_features;
+        pbsql->features = features;
     }
 
     if (skip_nrows) {
-        sqlquery.has_skip_rows = 1;
-        sqlquery.skip_rows = skip_nrows;
+        pbsql->has_skip_rows = 1;
+        pbsql->skip_rows = skip_nrows;
     }
 
     if (hndl && hndl->context_msgs.has_changed == 1 &&
         hndl->context_msgs.count > 0) {
-        sqlquery.n_context = hndl->context_msgs.count;
-        sqlquery.context = hndl->context_msgs.message;
+        pbsql->n_context = hndl->context_msgs.count;
+        pbsql->context = hndl->context_msgs.message;
         /* Reset the has_changed flag. */
         hndl->context_msgs.has_changed = 0;
     }
 
-    uint8_t trans_append = hndl && hndl->in_trans && do_append;
-    CDB2SQLQUERY__Reqinfo req_info = CDB2__SQLQUERY__REQINFO__INIT;
-    req_info.timestampus = (hndl ? hndl->timestampus : 0);
-    req_info.num_retries = retries_done;
-    sqlquery.req_info = &req_info;
+    cdb2__sqlquery__reqinfo__init(preq);
+    preq->timestampus = (hndl ? hndl->timestampus : 0);
+    preq->num_retries = retries_done;
+    pbsql->req_info = preq;
+}
 
-    int len = cdb2__query__get_packed_size(&query);
+static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
+                           SBUF2 *sb, const char *dbname, const char *sql,
+                           int n_set_commands, int n_set_commands_sent,
+                           char **set_commands, int n_bindvars,
+                           CDB2SQLQUERY__Bindvalue **bindvars, int ntypes,
+                           int *types,int is_begin, int skip_nrows,
+                           int retries_done, int do_append, int fromline)
+{
+    int rc = 0;
 
-    unsigned char *buf;
-    int on_heap = 1;
-    if (trans_append || len > MAX_BUFSIZE_ONSTACK) {
-        buf = malloc(len + 1);
-    } else {
-        buf = alloca(len + 1);
-        on_heap = 0;
+    void *callbackrc;
+    int overwrite_rc = 0;
+    cdb2_event *e = NULL;
+
+    while ((e = cdb2_next_callback(event_hndl, CDB2_BEFORE_SEND_QUERY, e)) !=
+           NULL) {
+        callbackrc = cdb2_invoke_callback(event_hndl, e, 1, CDB2_SQL, sql);
+        PROCESS_EVENT_CTRL_BEFORE(event_hndl, e, rc, callbackrc, overwrite_rc);
     }
 
-    cdb2__query__pack(&query, buf);
+    if (overwrite_rc)
+        goto after_callback;
+
+    if (log_calls) {
+        fprintf(stderr, "td 0x%p %s line %d\n", (void *)pthread_self(),
+                __func__, __LINE__);
+    }
+
+    int features[10]; // Max 10 client features??
+
+    CDB2SQLQUERY sqlquery, *psql;
+
+    CDB2QUERY query = CDB2__QUERY__INIT;
+    CDB2SQLQUERY__Snapshotinfo snapinfo;
+    CDB2SQLQUERY__Cinfo cinfo;
+    CDB2SQLQUERY__Reqinfo req_info;
+
+    if (hndl == NULL) {
+        psql = &sqlquery;
+        pbsql_initialize(psql, hndl, dbname);
+    } else {
+        psql = &hndl->pbsql;
+        if (!is_pbsql_initialized(hndl))
+            pbsql_initialize(psql, hndl, dbname);
+    }
+
+    pbsql_update(psql, hndl, features, &snapinfo, &cinfo, &req_info, sql,
+            n_set_commands, n_set_commands_sent, set_commands,
+            n_bindvars, bindvars, ntypes, types, is_begin, skip_nrows,
+            retries_done, do_append, fromline);
+
+    query.sqlquery = psql;
+
+    uint8_t base[MAX_BUFSIZE_ONSTACK];
+    ProtobufCBufferSimple simple = PROTOBUF_C_BUFFER_SIMPLE_INIT(base);
+    ProtobufCBuffer *buffer = (ProtobufCBuffer *) &simple;
+    int len = cdb2__query__pack_to_buffer(&query, buffer);
+    void *payload = simple.data;
 
     struct newsqlheader hdr = {.type = ntohl(CDB2_REQUEST_TYPE__CDB2QUERY),
                                .compression = ntohl(0),
@@ -3018,23 +3064,23 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
     if (rc != sizeof(hdr))
         debugprint("sbuf2write rc = %d\n", rc);
 
-    rc = sbuf2write((char *)buf, len, sb);
+    rc = sbuf2write(payload, len, sb);
     if (rc != len)
         debugprint("sbuf2write rc = %d (len = %d)\n", rc, len);
 
     rc = sbuf2flush(sb);
     if (rc < 0) {
         debugprint("sbuf2flush rc = %d\n", rc);
-        if (on_heap)
-            free(buf);
+        PROTOBUF_C_BUFFER_SIMPLE_CLEAR(&simple);
         rc = -1;
         goto after_callback;
     }
 
-    if (trans_append) {
+    if (hndl && hndl->in_trans && do_append) {
         /* Retry number of transaction is different from that of query.*/
         cdb2_query_list *item = malloc(sizeof(cdb2_query_list));
-        item->buf = buf;
+        item->buf = malloc(len);
+        memcpy(item->buf, payload, len);
         item->len = len;
         item->is_read = hndl->is_read;
         item->next = NULL;
@@ -3047,10 +3093,9 @@ static int cdb2_send_query(cdb2_hndl_tp *hndl, cdb2_hndl_tp *event_hndl,
                 last = last->next;
             last->next = item;
         }
-    } else if (on_heap) {
-        free(buf);
     }
 
+    PROTOBUF_C_BUFFER_SIMPLE_CLEAR(&simple);
     rc = 0;
 
 after_callback:

@@ -1919,12 +1919,6 @@ REGISTER_TUNABLE("sc_is_at_end",
                  TUNABLE_BOOLEAN, &gbl_sc_is_at_end, EXPERIMENTAL, NULL, NULL,
                  NULL, NULL);
 
-REGISTER_TUNABLE("cached_output_buffer_max_bytes",
-                 "Maximum size in bytes of the output buffer of an appsock "
-                 "thread.  (Default: 8 MiB)",
-                 TUNABLE_INTEGER, &gbl_cached_output_buffer_max_bytes, 0, NULL,
-                 NULL, NULL, NULL);
-
 REGISTER_TUNABLE("debug_queuedb",
                  "Enable debug-trace for queuedb.  "
                  "(Default: off)",
