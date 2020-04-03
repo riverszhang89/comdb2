@@ -5292,11 +5292,6 @@ int wait_for_sql_query(struct sqlclntstate *clnt)
                         __LINE__, rc);
                 exit(1);
             }
-
-            if (lock_client_write_trylock(clnt) == 0) {
-                sbuf2flush(clnt->sb);
-                unlock_client_write_lock(clnt);
-            }
             Pthread_mutex_unlock(&clnt->wait_mutex);
         }
     } else {
