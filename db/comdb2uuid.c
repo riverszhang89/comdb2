@@ -18,10 +18,9 @@
 
 #include <uuid/uuid.h>
 
-void comdb2uuid(uuid_t u) { uuid_generate(u); }
+void comdb2uuid(uuid_t u) { uuid_generate_time(u); }
 
-char *comdb2uuidstr(uuid_t u, char out[37]);
-inline char *comdb2uuidstr(uuid_t u, char out[37])
+char *comdb2uuidstr(uuid_t u, char out[37])
 {
     uuid_unparse(u, out);
     return out;
@@ -35,7 +34,5 @@ void comdb2uuidcpy(uuid_t dst, uuid_t src) { uuid_copy(dst, src); }
 
 int comdb2uuid_is_zero(uuid_t u)
 {
-    uuid_t zero;
-    comdb2uuid_clear(zero);
-    return !comdb2uuidcmp(u, zero);
+    return uuid_is_null(u);
 }
