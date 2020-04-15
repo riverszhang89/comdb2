@@ -1236,8 +1236,12 @@ __log_flush(dbenv, lsn)
 {
 	DB_LOG *dblp;
 	int ret;
+	LOG *lp;
 
 	dblp = dbenv->lg_handle;
+	lp = dblp->reginfo.primary;
+	if (lsn != NULL && log_compare(&lp->s_lsn, lsn) > 0)
+		return (0);
 	R_LOCK(dbenv, &dblp->reginfo);
 	ret = __log_flush_int(dblp, lsn, 1);
 	R_UNLOCK(dbenv, &dblp->reginfo);
