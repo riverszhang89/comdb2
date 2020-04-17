@@ -844,10 +844,13 @@ __ham_c_chgpg(dbc, old_pgno, old_index, new_pgno, new_index)
 	DB_TXN *my_txn;
 	DBC *cp;
 	HASH_CURSOR *hcp;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int found, ret;
 
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
+	cqh = NULL;
 
 	my_txn = IS_SUBTRANSACTION(dbc->txn) ? dbc->txn : NULL;
 	found = 0;
@@ -857,7 +860,8 @@ __ham_c_chgpg(dbc, old_pgno, old_index, new_pgno, new_index)
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
 		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (cp = TAILQ_FIRST(&ldbp->active_queue); cp != NULL;
+		cq = __db_acquire_cq(ldbp, &cqh);
+		for (cp = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    cp = TAILQ_NEXT(cp, links)) {
 			if (cp == dbc || cp->dbtype != DB_HASH)
 				continue;
@@ -882,7 +886,7 @@ __ham_c_chgpg(dbc, old_pgno, old_index, new_pgno, new_index)
 					found = 1;
 			}
 		}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 

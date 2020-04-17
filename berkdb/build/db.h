@@ -33,6 +33,7 @@
 #include <mem_berkdb.h>
 #include <sys/time.h>
 #include <sbuf2.h>
+#include <locks_wrap.h>
 
 #ifndef COMDB2AR
 #include <mem_override.h>
@@ -1367,6 +1368,39 @@ void timeval_add(struct timeval *tvp,
                   struct timeval *uvp,
                   struct timeval *vvp);
 
+typedef struct __db_cq {
+	DB *db;
+	struct {
+		DBC *tqh_first;
+		DBC **tqh_last;
+	} aq;
+	struct {
+		DBC *tqh_first;
+		DBC **tqh_last;
+	} fq;
+	struct {
+		DBC *tqh_first;
+		DBC **tqh_last;
+	} jq;
+} DB_CQ;
+
+typedef struct __db_cq_hash {
+	hash_t *h;
+	pthread_mutex_t lk;
+	struct {
+		struct __db_cq_hash *tqe_next;
+		struct __db_cq_hash **tqe_prev;
+	} links;
+} DB_CQ_HASH;
+
+typedef struct __db_cq_hash_list {
+	DB_CQ_HASH *tqh_first;
+	DB_CQ_HASH **tqh_last;
+	pthread_mutex_t lk;
+} DB_CQ_HASH_LIST;
+extern DB_CQ_HASH_LIST gbl_all_cursors;
+extern pthread_key_t tlcq_key;
+
 /* Database handle. */
 struct __db {
 	/*******************************************************
@@ -1391,7 +1425,6 @@ struct __db {
 	DB_MPOOLFILE *mpf;		/* Backing buffer pool. */
 
 	DB_MUTEX *mutexp;		/* Synchronization for free threading */
-	DB_MUTEX *free_mutexp;		/* Synchronization for free threading */
 
 	char *fname, *dname;		/* File/database passed to DB->open. */
 	u_int32_t open_flags;		/* Flags passed to DB->open. */
@@ -1447,28 +1480,6 @@ struct __db {
 		struct __db *le_next;
 		struct __db **le_prev;
 	} dblistlinks;
-
-	/*
-	 * Cursor queues.
-	 *
-	 * !!!
-	 * Explicit representations of structures from queue.h.
-	 * TAILQ_HEAD(__cq_fq, __dbc) free_queue;
-	 * TAILQ_HEAD(__cq_aq, __dbc) active_queue;
-	 * TAILQ_HEAD(__cq_jq, __dbc) join_queue;
-	 */
-	struct __cq_fq {
-		struct __dbc *tqh_first;
-		struct __dbc **tqh_last;
-	} free_queue;
-	struct __cq_aq {
-		struct __dbc *tqh_first;
-		struct __dbc **tqh_last;
-	} active_queue;
-	struct __cq_jq {
-		struct __dbc *tqh_first;
-		struct __dbc **tqh_last;
-	} join_queue;
 
 	/*
 	 * Secondary index support.

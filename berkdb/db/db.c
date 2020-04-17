@@ -81,6 +81,174 @@ static int  __qam_testdocopy __P((DB *, const char *));
 extern int gbl_is_physical_replicant;
 
 /*
+ * __db_new_cq --
+ *  Create a new cursor queue and add it to the thread-local hashtable.
+ *  If a thread-local hashtable does not exist, create one as well and
+ *  hold its lock. __db_release_cq() must be called later to unlock.
+ *
+ * PUBLIC: DB_CQ *__db_new_cq __P((DB *, DB_CQ_HASH **));
+ */
+DB_CQ *
+__db_new_cq(db, dbcqh)
+	DB *db;
+	DB_CQ_HASH **dbcqh;
+{
+	DB_CQ *cq;
+	DB_CQ_HASH *h = *dbcqh;
+
+	cq = malloc(sizeof(DB_CQ));
+	cq->db = db;
+	TAILQ_INIT(&cq->aq);
+	TAILQ_INIT(&cq->fq);
+	TAILQ_INIT(&cq->jq);
+
+	if (h == NULL) {
+		h = malloc(sizeof(DB_CQ_HASH));
+		h->h = hash_init(sizeof(DB *));
+		Pthread_mutex_init(&h->lk, NULL);
+		pthread_setspecific(tlcq_key, h);
+
+		Pthread_mutex_lock(&gbl_all_cursors.lk);
+		TAILQ_INSERT_TAIL(&gbl_all_cursors, h, links);
+		Pthread_mutex_unlock(&gbl_all_cursors.lk);
+		*dbcqh = h;
+		Pthread_mutex_lock(&h->lk);
+	}
+
+	hash_add(h->h, cq);
+	return cq;
+}
+
+/*
+ * __db_acquire_cq --
+ *  Given a DB structure, lock the thread-local hashtable and
+ *  return its thread-local cursor queue. __db_release_cq()
+ *  must be called later to unlock the hashtable.
+ *
+ * PUBLIC: DB_CQ *__db_acquire_cq __P((DB *, DB_CQ_HASH **));
+ */
+DB_CQ *
+__db_acquire_cq(db, dbcqh)
+	DB *db;
+	DB_CQ_HASH **dbcqh;
+{
+	DB_CQ_HASH *h = *dbcqh;
+	if (h == NULL && (h = pthread_getspecific(tlcq_key)) == NULL)
+		return NULL;
+
+	*dbcqh = h;
+	Pthread_mutex_lock(&h->lk);
+	return hash_find(h->h, &db);
+}
+
+/*
+ * __db_release_cq --
+ *  Unlock the thread-local hashtable.
+ *
+ * PUBLIC: void __db_release_cq __P((DB_CQ_HASH *));
+ */
+void
+__db_release_cq(dbcqh)
+	DB_CQ_HASH *dbcqh;
+{
+	if (dbcqh == NULL)
+		return;
+	Pthread_mutex_unlock(&dbcqh->lk);
+}
+
+/*
+ * __db_fq_destroy --
+ *  Destroy all thread-local free cursors.
+ *
+ * PUBLIC: void __db_fq_destroy __P((void *));
+ */
+void
+__db_fq_destroy(arg)
+	void *arg;
+{
+	DB_CQ_HASH *h = arg;
+	DB_CQ *cq;
+	DBC *dbc;
+	void *hashent;
+	unsigned int pos;
+
+	if (h == NULL)
+		return;
+
+	Pthread_mutex_lock(&gbl_all_cursors.lk);
+	TAILQ_REMOVE(&gbl_all_cursors, h, links);
+	Pthread_mutex_unlock(&gbl_all_cursors.lk);
+
+	for (cq = hash_first(h->h, &hashent, &pos); cq != NULL;
+			cq = hash_next(h->h, &hashent, &pos)) {
+		while ((dbc = TAILQ_FIRST(&cq->fq)) != NULL) {
+			TAILQ_REMOVE(&cq->fq, dbc, links);
+			(void)__db_c_destroy(dbc);
+		}
+	}
+	Pthread_mutex_destroy(&h->lk);
+	free(cq);
+}
+
+/*
+ * __db_fq_invalidate --
+ *  Close all free and join cursors matching the DB structure.
+ *
+ * PUBLIC: int __db_fq_invalidate __P((DB *));
+ */
+int
+__db_fq_invalidate(db)
+	DB *db;
+{
+	DBC *dbc;
+	DB_CQ *cq;
+	DB_CQ_HASH *h;
+	void *hashent;
+	unsigned int pos;
+	int ret, t_ret;
+
+	ret = 0;
+
+	Pthread_mutex_lock(&gbl_all_cursors.lk);
+
+	TAILQ_FOREACH(h, &gbl_all_cursors, links) {
+
+		Pthread_mutex_lock(&h->lk);
+
+		for (cq = hash_first(h->h, &hashent, &pos); cq != NULL;
+				cq = hash_next(h->h, &hashent, &pos)) {
+			if (db != cq->db)
+				continue;
+
+			/* Comdb2 shouldn't close dbhandles with active cursors */
+			DB_ASSERT(TAILQ_EMPTY(&cq->aq));
+
+			while ((dbc = TAILQ_FIRST(&cq->fq)) != NULL) {
+				TAILQ_REMOVE(&cq->fq, dbc, links);
+				(void)__db_c_destroy(dbc);
+			}
+
+			/*
+			 * Close any outstanding join cursors.  Join cursors destroy
+			 * themselves on close and have no separate destroy routine.
+			 */
+			while ((dbc = TAILQ_FIRST(&cq->jq)) != NULL)
+				if ((t_ret = __db_join_close(dbc)) != 0) {
+					if (ret == 0)
+						ret = t_ret;
+					break;
+				}
+		}
+
+		Pthread_mutex_unlock(&h->lk);
+
+	}
+
+	Pthread_mutex_unlock(&gbl_all_cursors.lk);
+	return (ret);
+}
+
+/*
  * DB.C --
  *	This file contains the utility functions for the DBP layer.
  */
@@ -492,9 +660,6 @@ __db_dbenv_setup(dbp, txn, fname, id, flags)
 		if ((ret = __db_mutex_setup(dbenv, dbmp->reginfo, &dbp->mutexp,
 			MUTEX_ALLOC | MUTEX_THREAD)) != 0)
 			return (ret);
-		if ((ret = __db_mutex_setup(dbenv, dbmp->reginfo, &dbp->free_mutexp,
-			MUTEX_ALLOC | MUTEX_THREAD)) != 0)
-			return (ret);
 	}
 
 	/*
@@ -898,28 +1063,8 @@ __db_refresh(dbp, txn, flags, deferred_closep)
 	    (t_ret = __db_sync(dbp)) != 0 && ret == 0)
 		ret = t_ret;
 
-	/* Comdb2 shouldn't close dbhandles with active cursors */
-	DB_ASSERT(TAILQ_FIRST(&dbp->active_queue) == NULL);
-
-	while ((dbc = TAILQ_FIRST(&dbp->free_queue)) != NULL)
-		if ((t_ret = __db_c_destroy(dbc)) != 0) {
-			if (ret == 0)
-				ret = t_ret;
-			break;
-		}
-
-
-	/*
-	 * Close any outstanding join cursors.  Join cursors destroy
-	 * themselves on close and have no separate destroy routine.
-	 */
-	while ((dbc = TAILQ_FIRST(&dbp->join_queue)) != NULL)
-		if ((t_ret = __db_join_close(dbc)) != 0) {
-			if (ret == 0)
-				ret = t_ret;
-			break;
-		}
-
+	if ((t_ret = __db_fq_invalidate(dbp)) != 0 && (ret == 0))
+		ret = t_ret;
 
 	/*
 	 * Sync the memory pool, even though we've already called DB->sync,
@@ -1030,11 +1175,6 @@ never_opened:
 		dbmp = dbenv->mp_handle;
 		__db_mutex_free(dbenv, dbmp->reginfo, dbp->mutexp);
 		dbp->mutexp = NULL;
-	}
-	if (dbp->free_mutexp != NULL) {
-		dbmp = dbenv->mp_handle;
-		__db_mutex_free(dbenv, dbmp->reginfo, dbp->free_mutexp);
-		dbp->free_mutexp = NULL;
 	}
 
 	/* Discard any memory allocated for the file and database names. */
@@ -1277,33 +1417,37 @@ __db_disassociate(sdbp)
 	DB *sdbp;
 {
 	DBC *dbc;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int ret, t_ret;
 
 	ret = 0;
+	cqh = NULL;
 
 	sdbp->s_callback = NULL;
 	sdbp->s_primary = NULL;
 	sdbp->get = sdbp->stored_get;
 	sdbp->close = sdbp->stored_close;
 
+	cq = __db_acquire_cq(sdbp, &cqh);
+
 	/*
 	 * Complain, but proceed, if we have any active cursors.  (We're in
 	 * the middle of a close, so there's really no turning back.)
 	 */
+
 	if (sdbp->s_refcnt != 1 ||
-	    TAILQ_FIRST(&sdbp->active_queue) != NULL ||
-	    TAILQ_FIRST(&sdbp->join_queue) != NULL) {
+	    (cq != NULL && (!TAILQ_EMPTY(&cq->aq) || !TAILQ_EMPTY(&cq->jq)))) {
 		__db_err(sdbp->dbenv,
     "Closing a primary DB while a secondary DB has active cursors is unsafe");
 		ret = EINVAL;
 	}
 	sdbp->s_refcnt = 0;
 
-	while ((dbc = TAILQ_FIRST(&sdbp->free_queue)) != NULL)
-		if ((t_ret = __db_c_destroy(dbc)) != 0 && ret == 0)
-			ret = t_ret;
+	__db_release_cq(cqh);
 
-	F_CLR(sdbp, DB_AM_SECONDARY);
+	if ((ret = __db_fq_invalidate(sdbp)) == 0)
+		F_CLR(sdbp, DB_AM_SECONDARY);
 	return (ret);
 }
 
