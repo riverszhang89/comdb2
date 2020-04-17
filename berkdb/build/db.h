@@ -33,6 +33,7 @@
 #include <mem_berkdb.h>
 #include <sys/time.h>
 #include <sbuf2.h>
+#include <locks_wrap.h>
 
 #ifndef COMDB2AR
 #include <mem_override.h>
@@ -1367,6 +1368,26 @@ void timeval_add(struct timeval *tvp,
                   struct timeval *uvp,
                   struct timeval *vvp);
 
+/* Thread-local free queue */
+typedef struct tlfq {
+	struct __dbc *tqh_first;
+	struct __dbc **tqh_last;
+	pthread_mutex_t lk;
+	DB *dbp;
+	struct {
+		struct tlfq *tqe_next;
+		struct tlfq **tqe_prev;
+	} links;
+} tlfq_t;
+
+/* List of all thread-local free queues */
+typedef struct {
+	tlfq_t *tqh_first;
+	tlfq_t **tqh_last;
+	pthread_mutex_t lk;
+} tlfqs_t;
+extern tlfqs_t gbl_tlfqs;
+
 /* Database handle. */
 struct __db {
 	/*******************************************************
@@ -1391,7 +1412,6 @@ struct __db {
 	DB_MPOOLFILE *mpf;		/* Backing buffer pool. */
 
 	DB_MUTEX *mutexp;		/* Synchronization for free threading */
-	DB_MUTEX *free_mutexp;		/* Synchronization for free threading */
 
 	char *fname, *dname;		/* File/database passed to DB->open. */
 	u_int32_t open_flags;		/* Flags passed to DB->open. */
@@ -1453,14 +1473,10 @@ struct __db {
 	 *
 	 * !!!
 	 * Explicit representations of structures from queue.h.
-	 * TAILQ_HEAD(__cq_fq, __dbc) free_queue;
 	 * TAILQ_HEAD(__cq_aq, __dbc) active_queue;
 	 * TAILQ_HEAD(__cq_jq, __dbc) join_queue;
 	 */
-	struct __cq_fq {
-		struct __dbc *tqh_first;
-		struct __dbc **tqh_last;
-	} free_queue;
+	pthread_key_t tlfq; /* Thread local free queue */
 	struct __cq_aq {
 		struct __dbc *tqh_first;
 		struct __dbc **tqh_last;
