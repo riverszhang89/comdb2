@@ -80,6 +80,78 @@ static int  __qam_testdocopy __P((DB *, const char *));
 
 extern int gbl_is_physical_replicant;
 
+tlfqs_t gbl_tlfqs = {
+	.lk = PTHREAD_MUTEX_INITIALIZER
+};
+
+/*
+ * __db_free_queue_destroy --
+ *
+ * PUBLIC: void __db_free_queue_destroy __P((void *));
+ */
+void
+__db_free_queue_destroy(arg)
+	void *arg;
+{
+	tlfq_t *fq = (tlfq_t *)arg;;
+	DBC *dbc;
+
+	if (fq == NULL)
+		return;
+
+	Pthread_mutex_lock(&gbl_tlfqs.lk);
+	TAILQ_REMOVE(&gbl_tlfqs, fq, links);
+	Pthread_mutex_unlock(&gbl_tlfqs.lk);
+
+	while ((dbc = TAILQ_FIRST(fq)) != NULL) {
+		TAILQ_REMOVE(fq, dbc, links);
+		(void)__db_c_destroy(dbc);
+	}
+	Pthread_mutex_destroy(&fq->lk);
+	free(fq);
+}
+
+/*
+ * __db_free_queue_invalidate --
+ *
+ * PUBLIC: int __db_free_queue_invalidate __P((DB *));
+ */
+int
+__db_free_queue_invalidate(db)
+	DB *db;
+{
+	DBC *dbc;
+	tlfq_t *tlfq;
+	int ret;
+
+	ret = 0;
+
+	Pthread_mutex_lock(&gbl_tlfqs.lk);
+	int i = 0;
+
+	/* Walk the global list to invalidate matching thread-local free queues. */
+	TAILQ_FOREACH(tlfq, &gbl_tlfqs, links) {
+		if (db != tlfq->dbp)
+			continue;
+
+		Pthread_mutex_lock(&tlfq->lk);
+
+		/* Destroy free cursors. */
+		while ((dbc = TAILQ_FIRST(tlfq)) != NULL) {
+			TAILQ_REMOVE(tlfq, dbc, links);
+			if ((ret = __db_c_destroy(dbc)) != 0)
+				break;
+		}
+		/* Re-init the free queue. */
+		TAILQ_INIT(tlfq);
+
+		Pthread_mutex_unlock(&tlfq->lk);
+	}
+
+	Pthread_mutex_unlock(&gbl_tlfqs.lk);
+	return (ret);
+}
+
 /*
  * DB.C --
  *	This file contains the utility functions for the DBP layer.
@@ -492,10 +564,13 @@ __db_dbenv_setup(dbp, txn, fname, id, flags)
 		if ((ret = __db_mutex_setup(dbenv, dbmp->reginfo, &dbp->mutexp,
 			MUTEX_ALLOC | MUTEX_THREAD)) != 0)
 			return (ret);
-		if ((ret = __db_mutex_setup(dbenv, dbmp->reginfo, &dbp->free_mutexp,
-			MUTEX_ALLOC | MUTEX_THREAD)) != 0)
-			return (ret);
 	}
+
+	/* Initialize the global list of thread-local free queues, if needed. */
+	Pthread_mutex_lock(&gbl_tlfqs.lk);
+	if (gbl_tlfqs.tqh_last == NULL)
+			TAILQ_INIT(&gbl_tlfqs);
+	Pthread_mutex_unlock(&gbl_tlfqs.lk);
 
 	/*
 	 * Set up a bookkeeping entry for this database in the log region,
@@ -901,13 +976,9 @@ __db_refresh(dbp, txn, flags, deferred_closep)
 	/* Comdb2 shouldn't close dbhandles with active cursors */
 	DB_ASSERT(TAILQ_FIRST(&dbp->active_queue) == NULL);
 
-	while ((dbc = TAILQ_FIRST(&dbp->free_queue)) != NULL)
-		if ((t_ret = __db_c_destroy(dbc)) != 0) {
-			if (ret == 0)
-				ret = t_ret;
-			break;
-		}
-
+	if ((t_ret = __db_free_queue_invalidate(dbp)) != 0 && (ret == 0))
+		ret = t_ret;
+	Pthread_key_delete(dbp->tlfq);
 
 	/*
 	 * Close any outstanding join cursors.  Join cursors destroy
@@ -1030,11 +1101,6 @@ never_opened:
 		dbmp = dbenv->mp_handle;
 		__db_mutex_free(dbenv, dbmp->reginfo, dbp->mutexp);
 		dbp->mutexp = NULL;
-	}
-	if (dbp->free_mutexp != NULL) {
-		dbmp = dbenv->mp_handle;
-		__db_mutex_free(dbenv, dbmp->reginfo, dbp->free_mutexp);
-		dbp->free_mutexp = NULL;
 	}
 
 	/* Discard any memory allocated for the file and database names. */
@@ -1299,11 +1365,8 @@ __db_disassociate(sdbp)
 	}
 	sdbp->s_refcnt = 0;
 
-	while ((dbc = TAILQ_FIRST(&sdbp->free_queue)) != NULL)
-		if ((t_ret = __db_c_destroy(dbc)) != 0 && ret == 0)
-			ret = t_ret;
-
-	F_CLR(sdbp, DB_AM_SECONDARY);
+	if ((ret = __db_free_queue_invalidate(sdbp)) == 0)
+		F_CLR(sdbp, DB_AM_SECONDARY);
 	return (ret);
 }
 

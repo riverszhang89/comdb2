@@ -77,6 +77,7 @@ __db_c_close_ll(dbc, countmein)
 	DBC_INTERNAL *cp;
 	DB_ENV *dbenv;
 	int ret, t_ret;
+	tlfq_t *fq;
 
 #ifdef LULU2
 	fprintf(stdout,
@@ -159,15 +160,30 @@ __db_c_close_ll(dbc, countmein)
 		dbc->txn->cursors--;
 
 	/* Move the cursor(s) to the free queue. */
-	MUTEX_THREAD_LOCK(dbenv, dbp->free_mutexp);
+
+	/* See if we have a thread-local free queue. If not, create one
+	   and add it the the global list. */
+	fq = pthread_getspecific(dbp->tlfq);
+	if (fq == NULL) {
+		fq = calloc(1, sizeof(tlfq_t));
+		TAILQ_INIT(fq);
+		fq->dbp = dbp;
+		Pthread_mutex_init(&fq->lk, NULL);
+		Pthread_setspecific(dbp->tlfq, fq);
+		Pthread_mutex_lock(&gbl_tlfqs.lk);
+		TAILQ_INSERT_TAIL(&gbl_tlfqs, fq, links);
+		Pthread_mutex_unlock(&gbl_tlfqs.lk);
+	}
+
+	Pthread_mutex_lock(&fq->lk);
 	if (opd != NULL) {
 		if (dbc->txn != NULL)
 			dbc->txn->cursors--;
-		TAILQ_INSERT_TAIL(&dbp->free_queue, opd, links);
+		TAILQ_INSERT_TAIL(fq, opd, links);
 		opd = NULL;
 	}
-	TAILQ_INSERT_TAIL(&dbp->free_queue, dbc, links);
-	MUTEX_THREAD_UNLOCK(dbenv, dbp->free_mutexp);
+	TAILQ_INSERT_TAIL(fq, dbc, links);
+	Pthread_mutex_unlock(&fq->lk);
 
 	return (ret);
 }
@@ -519,14 +535,10 @@ __db_c_destroy(dbc)
 	DB *dbp;
 	DB_ENV *dbenv;
 	int ret, t_ret;
+	tlfq_t *fq;
 
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
-
-	/* Remove the cursor from the free queue. */
-	MUTEX_THREAD_LOCK(dbenv, dbp->free_mutexp);
-	TAILQ_REMOVE(&dbp->free_queue, dbc, links);
-	MUTEX_THREAD_UNLOCK(dbenv, dbp->free_mutexp);
 
 	/* Free up allocated memory. */
 	if (dbc->my_rskey.data != NULL)
