@@ -77,6 +77,8 @@ __db_c_close_ll(dbc, countmein)
 	DBC_INTERNAL *cp;
 	DB_ENV *dbenv;
 	int ret, t_ret;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 
 #ifdef LULU2
 	fprintf(stdout,
@@ -104,6 +106,7 @@ __db_c_close_ll(dbc, countmein)
 	cp = dbc->internal;
 	opd = cp->opd;
 	ret = 0;
+	cqh = NULL;
 
 	/*
 	 * Remove the cursor(s) from the active queue.  We may be closing two
@@ -116,16 +119,15 @@ __db_c_close_ll(dbc, countmein)
 	 * access specific cursor close routine, btree depends on having that
 	 * order of operations.
 	 */
-	MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-
+	cq = __db_acquire_cq(dbp, &cqh);
+	DB_ASSERT(cq != NULL);
 	if (opd != NULL) {
 		F_CLR(opd, DBC_ACTIVE);
-		TAILQ_REMOVE(&dbp->active_queue, opd, links);
+		TAILQ_REMOVE(&cq->aq, opd, links);
 	}
 	F_CLR(dbc, DBC_ACTIVE);
-	TAILQ_REMOVE(&dbp->active_queue, dbc, links);
-
-	MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+	TAILQ_REMOVE(&cq->aq, dbc, links);
+	__db_release_cq(cqh);
 
 	/* Call the access specific cursor close routine. */
 	if ((t_ret =
@@ -159,15 +161,16 @@ __db_c_close_ll(dbc, countmein)
 		dbc->txn->cursors--;
 
 	/* Move the cursor(s) to the free queue. */
-	MUTEX_THREAD_LOCK(dbenv, dbp->free_mutexp);
+	cq = __db_acquire_cq(dbp, &cqh);
+	DB_ASSERT(cq != NULL);
 	if (opd != NULL) {
 		if (dbc->txn != NULL)
 			dbc->txn->cursors--;
-		TAILQ_INSERT_TAIL(&dbp->free_queue, opd, links);
+		TAILQ_INSERT_TAIL(&cq->fq, opd, links);
 		opd = NULL;
 	}
-	TAILQ_INSERT_TAIL(&dbp->free_queue, dbc, links);
-	MUTEX_THREAD_UNLOCK(dbenv, dbp->free_mutexp);
+	TAILQ_INSERT_TAIL(&cq->fq, dbc, links);
+	__db_release_cq(cqh);
 
 	return (ret);
 }
@@ -522,11 +525,6 @@ __db_c_destroy(dbc)
 
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
-
-	/* Remove the cursor from the free queue. */
-	MUTEX_THREAD_LOCK(dbenv, dbp->free_mutexp);
-	TAILQ_REMOVE(&dbp->free_queue, dbc, links);
-	MUTEX_THREAD_UNLOCK(dbenv, dbp->free_mutexp);
 
 	/* Free up allocated memory. */
 	if (dbc->my_rskey.data != NULL)

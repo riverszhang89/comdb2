@@ -72,9 +72,12 @@ __bam_ca_delete_int(dbp, pgno, indx, delete, fromclose)
 	DB *ldbp;
 	DB_ENV *dbenv;
 	DBC *dbc;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int count;		/* !!!: Has to contain max number of cursors. */
 
 	dbenv = dbp->dbenv;
+	cqh = NULL;
 
 	/*
 	 * Adjust the cursors.  We have the page write locked, so the
@@ -91,8 +94,8 @@ __bam_ca_delete_int(dbp, pgno, indx, delete, fromclose)
 	for (count = 0, ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (dbc = TAILQ_FIRST(&ldbp->active_queue);
+		cq = __db_acquire_cq(ldbp, &cqh);
+		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			cp = (BTREE_CURSOR *)dbc->internal;
 			if (cp->pgno == pgno && cp->indx == indx) {
@@ -136,7 +139,7 @@ __bam_ca_delete_int(dbp, pgno, indx, delete, fromclose)
 					abort();
 			}
 		}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
@@ -195,10 +198,13 @@ __ram_ca_delete(dbp, root_pgno)
 	DB *ldbp;
 	DBC *dbc;
 	DB_ENV *dbenv;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int found;
 
 	found = 0;
 	dbenv = dbp->dbenv;
+	cqh = NULL;
 
 	/*
 	 * Review the cursors.  See the comment in __bam_ca_delete().
@@ -207,12 +213,13 @@ __ram_ca_delete(dbp, root_pgno)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    found == 0 && ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (dbc = TAILQ_FIRST(&ldbp->active_queue);
+
+		cq = __db_acquire_cq(ldbp, &cqh);
+		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    found == 0 && dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
 			if (dbc->internal->root == root_pgno)
 				found = 1;
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 	return (found);
@@ -237,10 +244,13 @@ __bam_ca_di(my_dbc, pgno, indx, adjust)
 	DB_TXN *my_txn;
 	DBC *dbc;
 	DBC_INTERNAL *cp;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int found, ret;
 
 	dbp = my_dbc->dbp;
 	dbenv = dbp->dbenv;
+	cqh = NULL;
 
 	my_txn = IS_SUBTRANSACTION(my_dbc->txn) ? my_dbc->txn : NULL;
 
@@ -252,8 +262,8 @@ __bam_ca_di(my_dbc, pgno, indx, adjust)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (dbc = TAILQ_FIRST(&ldbp->active_queue);
+		cq = __db_acquire_cq(ldbp, &cqh);
+		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (dbc->dbtype == DB_RECNO)
 				continue;
@@ -270,7 +280,7 @@ __bam_ca_di(my_dbc, pgno, indx, adjust)
 					found = 1;
 			}
 		}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
@@ -362,11 +372,14 @@ __bam_ca_dup(my_dbc, first, fpgno, fi, tpgno, ti)
 	DB_ENV *dbenv;
 	DB_LSN lsn;
 	DB_TXN *my_txn;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int found, ret;
 
 	dbp = my_dbc->dbp;
 	dbenv = dbp->dbenv;
 	my_txn = IS_SUBTRANSACTION(my_dbc->txn) ? my_dbc->txn : NULL;
+	cqh = NULL;
 
 	/*
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
@@ -376,8 +389,8 @@ __bam_ca_dup(my_dbc, first, fpgno, fi, tpgno, ti)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-loop:		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (dbc = TAILQ_FIRST(&ldbp->active_queue);
+loop:		cq = __db_acquire_cq(ldbp, &cqh);
+		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			/* Find cursors pointing to this record. */
 			orig_cp = (BTREE_CURSOR *)dbc->internal;
@@ -391,7 +404,7 @@ loop:		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
 			if (orig_cp->opd != NULL)
 				continue;
 
-			MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+			__db_release_cq(cqh);
 			/* [#8032]
 			DB_ASSERT(!STD_LOCKING(dbc) ||
 			    orig_cp->lock_mode != DB_LOCK_NG);
@@ -404,7 +417,7 @@ loop:		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
 			/* We released the mutex to get a cursor, start over. */
 			goto loop;
 		}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
@@ -435,9 +448,12 @@ __bam_ca_undodup(dbp, first, fpgno, fi, ti)
 	DB *ldbp;
 	DBC *dbc;
 	DB_ENV *dbenv;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int ret;
 
 	dbenv = dbp->dbenv;
+	cqh = NULL;
 
 	/*
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
@@ -446,8 +462,8 @@ __bam_ca_undodup(dbp, first, fpgno, fi, ti)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-loop:		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (dbc = TAILQ_FIRST(&ldbp->active_queue);
+loop:		 cq = __db_acquire_cq(ldbp, &cqh);
+		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			orig_cp = (BTREE_CURSOR *)dbc->internal;
 
@@ -464,7 +480,7 @@ loop:		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
 			    ((BTREE_CURSOR *)orig_cp->opd->internal)->indx
 			    != ti)
 				continue;
-			MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+			__db_release_cq(cqh);
 			if ((ret = __db_c_close(orig_cp->opd)) != 0)
 				return (ret);
 			orig_cp->opd = NULL;
@@ -475,7 +491,7 @@ loop:		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
 			 */
 			goto loop;
 		}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
@@ -498,11 +514,14 @@ __bam_ca_rsplit(my_dbc, fpgno, tpgno)
 	DB_ENV *dbenv;
 	DB_LSN lsn;
 	DB_TXN *my_txn;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int found, ret;
 
 	dbp = my_dbc->dbp;
 	dbenv = dbp->dbenv;
 	my_txn = IS_SUBTRANSACTION(my_dbc->txn) ? my_dbc->txn : NULL;
+	cqh = NULL;
 
 	/*
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
@@ -512,8 +531,8 @@ __bam_ca_rsplit(my_dbc, fpgno, tpgno)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (dbc = TAILQ_FIRST(&ldbp->active_queue);
+		cq = __db_acquire_cq(ldbp, &cqh);
+		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (dbc->dbtype == DB_RECNO)
 				continue;
@@ -527,7 +546,7 @@ __bam_ca_rsplit(my_dbc, fpgno, tpgno)
 					found = 1;
 			}
 		}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
@@ -559,11 +578,14 @@ __bam_ca_split(my_dbc, ppgno, lpgno, rpgno, split_indx, cleft)
 	DB_ENV *dbenv;
 	DB_LSN lsn;
 	DB_TXN *my_txn;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int found, ret;
 
 	dbp = my_dbc->dbp;
 	dbenv = dbp->dbenv;
 	my_txn = IS_SUBTRANSACTION(my_dbc->txn) ? my_dbc->txn : NULL;
+	cqh = NULL;
 
 	/*
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
@@ -580,8 +602,8 @@ __bam_ca_split(my_dbc, ppgno, lpgno, rpgno, split_indx, cleft)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (dbc = TAILQ_FIRST(&ldbp->active_queue);
+		cq = __db_acquire_cq(ldbp, &cqh);
+		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (dbc->dbtype == DB_RECNO)
 				continue;
@@ -602,7 +624,7 @@ __bam_ca_split(my_dbc, ppgno, lpgno, rpgno, split_indx, cleft)
 				}
 			}
 		}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
@@ -636,8 +658,11 @@ __bam_ca_undosplit(dbp, frompgno, topgno, lpgno, split_indx)
 	DBC *dbc;
 	DB_ENV *dbenv;
 	DBC_INTERNAL *cp;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 
 	dbenv = dbp->dbenv;
+	cqh = NULL;
 
 	/*
 	 * Adjust the cursors.  See the comment in __bam_ca_delete().
@@ -649,8 +674,8 @@ __bam_ca_undosplit(dbp, frompgno, topgno, lpgno, split_indx)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-		for (dbc = TAILQ_FIRST(&ldbp->active_queue);
+		cq = __db_acquire_cq(ldbp, &cqh);
+		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (dbc->dbtype == DB_RECNO)
 				continue;
@@ -661,7 +686,7 @@ __bam_ca_undosplit(dbp, frompgno, topgno, lpgno, split_indx)
 			} else if (cp->pgno == lpgno)
 				cp->pgno = frompgno;
 		}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+		__db_release_cq(cqh);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 }

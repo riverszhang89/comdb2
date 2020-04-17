@@ -174,13 +174,24 @@ err:	if (dbp->mpf != NULL)
 	return (ret);
 }
 
+pthread_key_t tlcq_key;
+DB_CQ_HASH_LIST gbl_all_cursors;
+static pthread_once_t tlcq_once = PTHREAD_ONCE_INIT;
+static void __db_tlcq_init_once(void)
+{
+    /* Create a pthread key for per-thread cursor queues.
+       On exit, destroy all free cursors. */
+    Pthread_key_create(&tlcq_key, __db_fq_destroy);
+
+    /* Initialize the big mutex and list. */
+    Pthread_mutex_init(&gbl_all_cursors.lk, NULL);
+    TAILQ_INIT(&gbl_all_cursors);
+}
+
 /*
  * __db_init --
  *	Initialize a DB structure.
  */
-
-
-
 static int
 __db_init(dbp, flags)
 	DB *dbp;
@@ -191,9 +202,8 @@ __db_init(dbp, flags)
 	dbp->lid = DB_LOCK_INVALIDID;
 	LOCK_INIT(dbp->handle_lock);
 
-	TAILQ_INIT(&dbp->free_queue);
-	TAILQ_INIT(&dbp->active_queue);
-	TAILQ_INIT(&dbp->join_queue);
+	pthread_once(&tlcq_once, __db_tlcq_init_once);
+
 	LIST_INIT(&dbp->s_secondaries);
 
 	FLD_SET(dbp->am_ok,
@@ -859,8 +869,6 @@ __dbcl_init(dbp, dbenv, flags)
 	DB_ENV *dbenv;
 	u_int32_t flags;
 {
-	TAILQ_INIT(&dbp->free_queue);
-	TAILQ_INIT(&dbp->active_queue);
 	/* !!!
 	 * Note that we don't need to initialize the join_queue;  it's
 	 * not used in RPC clients.  See the comment in __dbcl_db_join_ret().
