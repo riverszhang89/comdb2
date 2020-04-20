@@ -95,7 +95,7 @@ DB_CQ *__db_acquire_cq(db, dbcqh)
 
 	*dbcqh = h;
 	Pthread_mutex_lock(&h->lk);
-	return hash_find(h->h, db);
+	return hash_find(h->h, &db);
 }
 
 /*

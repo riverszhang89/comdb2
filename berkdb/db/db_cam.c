@@ -176,16 +176,16 @@ __db_c_close_ll(dbc, countmein)
 		   If not, create one and add it to the global hashtable list. */
 		if (cqh == NULL) {
 			cqh = malloc(sizeof(DB_CQ_HASH));
-			cqh->h = hash_init(sizeof(DB));
+			cqh->h = hash_init(sizeof(DB *));
 			Pthread_mutex_init(&cqh->lk, NULL);
 			pthread_setspecific(tlcq_key, cqh);
 
 			Pthread_mutex_lock(&gbl_all_cursors.lk);
 			TAILQ_INSERT_TAIL(&gbl_all_cursors, cqh, links);
 			Pthread_mutex_unlock(&gbl_all_cursors.lk);
+			Pthread_mutex_lock(&cqh->lk);
 		}
 
-		Pthread_mutex_lock(&cqh->lk);
 		hash_add(cqh->h, cq);
 	}
 
