@@ -78,6 +78,7 @@ __db_c_close_ll(dbc, countmein)
 	DB_ENV *dbenv;
 	int ret, t_ret;
 	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 
 #ifdef LULU2
 	fprintf(stdout,
@@ -105,6 +106,7 @@ __db_c_close_ll(dbc, countmein)
 	cp = dbc->internal;
 	opd = cp->opd;
 	ret = 0;
+	cqh = NULL;
 
 	/*
 	 * Remove the cursor(s) from the active queue.  We may be closing two
@@ -161,29 +163,40 @@ __db_c_close_ll(dbc, countmein)
 
 	/* Move the cursor(s) to the free queue. */
 
-	/* See if we have a thread-local cursor queue. If not, create one
-	   and add it the the global list. */
-	cq = __db_acquire_cq(dbp, NULL);
+	/* Check if there is already a cursor queue for the DB.
+       If not, create one and add it to the thread-local hashtable. */
+	cq = __db_acquire_cq(dbp, &cqh);
 	if (cq == NULL) {
-		fq = calloc(1, sizeof(tlfq_t));
-		TAILQ_INIT(fq);
-		fq->dbp = dbp;
-		Pthread_mutex_init(&fq->lk, NULL);
-		Pthread_setspecific(dbp->tlfq, fq);
-		Pthread_mutex_lock(&gbl_tlfqs.lk);
-		TAILQ_INSERT_TAIL(&gbl_tlfqs, fq, links);
-		Pthread_mutex_unlock(&gbl_tlfqs.lk);
+		cq = malloc(sizeof(DB_CQ));
+		cq->db = dbp;
+		TAILQ_INIT(&cq->aq);
+		TAILQ_INIT(&cq->fq);
+
+		/* Check if there is already a thread-local cursor hashtable.
+		   If not, create one and add it to the global hashtable list. */
+		if (cqh == NULL) {
+			cqh = malloc(sizeof(DB_CQ_HASH));
+			cqh->h = hash_init(sizeof(DB));
+			Pthread_mutex_init(&cqh->lk, NULL);
+			pthread_setspecific(tlcq_key, cqh);
+
+			Pthread_mutex_lock(&gbl_all_cursors.lk);
+			TAILQ_INSERT_TAIL(&gbl_all_cursors, cqh, links);
+			Pthread_mutex_unlock(&gbl_all_cursors.lk);
+		}
+
+		Pthread_mutex_lock(&cqh->lk);
+		hash_add(cqh->h, cq);
 	}
 
-	Pthread_mutex_lock(&fq->lk);
 	if (opd != NULL) {
 		if (dbc->txn != NULL)
 			dbc->txn->cursors--;
-		TAILQ_INSERT_TAIL(fq, opd, links);
+		TAILQ_INSERT_TAIL(&cq->fq, opd, links);
 		opd = NULL;
 	}
-	TAILQ_INSERT_TAIL(fq, dbc, links);
-	Pthread_mutex_unlock(&fq->lk);
+	TAILQ_INSERT_TAIL(&cq->fq, dbc, links);
+	__db_release_cq(cqh);
 
 	return (ret);
 }
@@ -535,7 +548,6 @@ __db_c_destroy(dbc)
 	DB *dbp;
 	DB_ENV *dbenv;
 	int ret, t_ret;
-	tlfq_t *fq;
 
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;

@@ -68,10 +68,13 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	DBC_INTERNAL *cp;
 	DB_ENV *dbenv;
 	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int allocated, ret;
 
 	dbenv = dbp->dbenv;
 	allocated = 0;
+	dbc = NULL;
+	cqh = NULL;
 
 	/*
 	 * If dbcp is non-NULL it is assumed to point to an area to initialize
@@ -81,8 +84,7 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	 * right type.  With off page dups we may have different kinds
 	 * of cursors on the queue for a single database.
 	 */
-	dbc = NULL;
-	cq = __db_acquire_cq(dbp, NULL);
+	cq = __db_acquire_cq(dbp, &cqh);
 	if (cq != NULL) {
 		for (dbc = TAILQ_FIRST(&cq->fq);
 				dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
@@ -92,7 +94,7 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 				break;
 			}
 	}
-    __db_release_cq(NULL);
+	__db_release_cq(cqh);
 
 	if (dbc == NULL) {
 		if ((ret = __os_calloc(dbenv, 1, sizeof(DBC), &dbc)) != 0)
