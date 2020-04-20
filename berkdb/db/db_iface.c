@@ -151,7 +151,7 @@ __db_associate_pp(dbp, txn, sdbp, callback, flags)
 	if (handle_check && (ret = __db_rep_enter(dbp, 1, txn != NULL)) != 0)
 		goto err;
 
-	ret = __db_free_queue_invalidate(sdbp);
+	ret = __db_fq_invalidate(sdbp);
 
 	if (ret == 0)
 		ret = __db_associate(dbp, txn, sdbp, callback, flags);

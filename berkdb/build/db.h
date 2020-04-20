@@ -1369,7 +1369,7 @@ void timeval_add(struct timeval *tvp,
                   struct timeval *vvp);
 
 typedef struct __db_cq {
-	DB *dbp;
+	DB *db;
 	struct {
 		DBC *tqh_first;
 		DBC **tqh_last;
@@ -1381,7 +1381,7 @@ typedef struct __db_cq {
 } DB_CQ;
 
 typedef struct __db_cq_hash {
-	hash_t *cqs;
+	hash_t *h;
 	pthread_mutex_t lk;
 	struct {
 		struct __db_cq_hash *tqe_next;
@@ -1390,8 +1390,8 @@ typedef struct __db_cq_hash {
 } DB_CQ_HASH;
 
 typedef struct __db_cq_hash_list {
-	DB_CQ_HASH *tqe_next;
-	DB_CQ_HASH **tqe_prev;
+	DB_CQ_HASH *tqh_first;
+	DB_CQ_HASH **tqh_last;
 	pthread_mutex_t lk;
 } DB_CQ_HASH_LIST;
 extern DB_CQ_HASH_LIST gbl_all_cursors;

@@ -83,20 +83,19 @@ extern int gbl_is_physical_replicant;
 /*
  * __db_acquire_cq --
  *
- * PUBLIC: void __db_acquire_cq __P((DBC *, DB_CQ_HASH *));
+ * PUBLIC: DB_CQ *__db_acquire_cq __P((DB *, DB_CQ_HASH **));
  */
 DB_CQ *__db_acquire_cq(db, dbcqh)
-	DBC *db;
-	DB_CQ_HASH *dbcqh;
+	DB *db;
+	DB_CQ_HASH **dbcqh;
 {
-	if (dbcqh == NULL)
-		dbcqh = pthread_getspecific(tlcq_key);
-
-	if (dbcqh == NULL)
+	DB_CQ_HASH *h = *dbcqh;
+	if (h == NULL && (h = pthread_getspecific(tlcq_key)) == NULL)
 		return NULL;
 
-	Pthread_mutex_lock(&dbcqh.lk);
-	return hash_find(dbcqh, db);
+	*dbcqh = h;
+	Pthread_mutex_lock(&h->lk);
+	return hash_find(h->h, db);
 }
 
 /*
@@ -108,14 +107,13 @@ void __db_release_cq(dbcqh)
 	DB_CQ_HASH *dbcqh;
 {
 	if (dbcqh == NULL)
-		dbcqh = pthread_getspecific(tlcq_key);
-
-	if (dbcqh != NULL)
-		Pthread_mutex_unlock(&dbcqh.lk);
+		return;
+	Pthread_mutex_unlock(&dbcqh->lk);
 }
 
 /*
  * __db_fq_destroy --
+ *  Destroy all free cursors in the hashtable.
  *
  * PUBLIC: void __db_fq_destroy __P((void *));
  */
@@ -123,62 +121,66 @@ void
 __db_fq_destroy(arg)
 	void *arg;
 {
-	tlfq_t *fq = (tlfq_t *)arg;;
+	DB_CQ_HASH *h = arg;
+	DB_CQ *cq;
 	DBC *dbc;
+	void *hashent;
+	unsigned int pos;
 
-	if (fq == NULL)
+	if (h == NULL)
 		return;
 
-	Pthread_mutex_lock(&gbl_tlfqs.lk);
-	TAILQ_REMOVE(&gbl_tlfqs, fq, links);
-	Pthread_mutex_unlock(&gbl_tlfqs.lk);
+	Pthread_mutex_lock(&gbl_all_cursors.lk);
+	TAILQ_REMOVE(&gbl_all_cursors, h, links);
+	Pthread_mutex_unlock(&gbl_all_cursors.lk);
 
-	while ((dbc = TAILQ_FIRST(fq)) != NULL) {
-		TAILQ_REMOVE(fq, dbc, links);
-		(void)__db_c_destroy(dbc);
+	for (cq = hash_first(h->h, &hashent, &pos); cq != NULL;
+			cq = hash_next(h->h, &hashent, &pos)) {
+		while ((dbc = TAILQ_FIRST(&cq->fq)) != NULL) {
+			TAILQ_REMOVE(&cq->fq, dbc, links);
+			(void)__db_c_destroy(dbc);
+		}
 	}
-	Pthread_mutex_destroy(&fq->lk);
-	free(fq);
+	Pthread_mutex_destroy(&h->lk);
+	free(cq);
 }
 
 /*
- * __db_free_queue_invalidate --
+ * __db_fq_invalidate --
  *
- * PUBLIC: int __db_free_queue_invalidate __P((DB *));
+ * PUBLIC: int __db_fq_invalidate __P((DB *));
  */
-int
-__db_free_queue_invalidate(db)
+	int
+__db_fq_invalidate(db)
 	DB *db;
 {
 	DBC *dbc;
-	tlfq_t *tlfq;
+	DB_CQ *cq;
+	DB_CQ_HASH *h;
+	void *hashent;
+	unsigned int pos;
 	int ret;
 
 	ret = 0;
 
-	Pthread_mutex_lock(&gbl_tlfqs.lk);
-	int i = 0;
+	Pthread_mutex_lock(&gbl_all_cursors.lk);
 
-	/* Walk the global list to invalidate matching thread-local free queues. */
-	TAILQ_FOREACH(tlfq, &gbl_tlfqs, links) {
-		if (db != tlfq->dbp)
-			continue;
+	TAILQ_FOREACH(h, &gbl_all_cursors, links) {
 
-		Pthread_mutex_lock(&tlfq->lk);
-
-		/* Destroy free cursors. */
-		while ((dbc = TAILQ_FIRST(tlfq)) != NULL) {
-			TAILQ_REMOVE(tlfq, dbc, links);
-			if ((ret = __db_c_destroy(dbc)) != 0)
-				break;
+		Pthread_mutex_lock(&h->lk);
+		for (cq = hash_first(h->h, &hashent, &pos); cq != NULL;
+				cq = hash_next(h->h, &hashent, &pos)) {
+			if (db != cq->db)
+				continue;
+			while ((dbc = TAILQ_FIRST(&cq->fq)) != NULL) {
+				TAILQ_REMOVE(&cq->fq, dbc, links);
+				(void)__db_c_destroy(dbc);
+			}
 		}
-		/* Re-init the free queue. */
-		TAILQ_INIT(tlfq);
-
-		Pthread_mutex_unlock(&tlfq->lk);
+		Pthread_mutex_unlock(&h->lk);
 	}
 
-	Pthread_mutex_unlock(&gbl_tlfqs.lk);
+	Pthread_mutex_unlock(&gbl_all_cursors.lk);
 	return (ret);
 }
 
@@ -596,12 +598,6 @@ __db_dbenv_setup(dbp, txn, fname, id, flags)
 			return (ret);
 	}
 
-	/* Initialize the global list of thread-local free queues, if needed. */
-	Pthread_mutex_lock(&gbl_tlfqs.lk);
-	if (gbl_tlfqs.tqh_last == NULL)
-			TAILQ_INIT(&gbl_tlfqs);
-	Pthread_mutex_unlock(&gbl_tlfqs.lk);
-
 	/*
 	 * Set up a bookkeeping entry for this database in the log region,
 	 * if such a region exists.  Note that even if we're in recovery
@@ -1006,9 +1002,8 @@ __db_refresh(dbp, txn, flags, deferred_closep)
 	/* Comdb2 shouldn't close dbhandles with active cursors */
 	DB_ASSERT(TAILQ_FIRST(&dbp->active_queue) == NULL);
 
-	if ((t_ret = __db_free_queue_invalidate(dbp)) != 0 && (ret == 0))
+	if ((t_ret = __db_fq_invalidate(dbp)) != 0 && (ret == 0))
 		ret = t_ret;
-	Pthread_key_delete(dbp->tlfq);
 
 	/*
 	 * Close any outstanding join cursors.  Join cursors destroy
@@ -1395,7 +1390,7 @@ __db_disassociate(sdbp)
 	}
 	sdbp->s_refcnt = 0;
 
-	if ((ret = __db_free_queue_invalidate(sdbp)) == 0)
+	if ((ret = __db_fq_invalidate(sdbp)) == 0)
 		F_CLR(sdbp, DB_AM_SECONDARY);
 	return (ret);
 }
