@@ -77,7 +77,7 @@ __db_c_close_ll(dbc, countmein)
 	DBC_INTERNAL *cp;
 	DB_ENV *dbenv;
 	int ret, t_ret;
-	tlfq_t *fq;
+	DB_CQ *cq;
 
 #ifdef LULU2
 	fprintf(stdout,
@@ -161,10 +161,10 @@ __db_c_close_ll(dbc, countmein)
 
 	/* Move the cursor(s) to the free queue. */
 
-	/* See if we have a thread-local free queue. If not, create one
+	/* See if we have a thread-local cursor queue. If not, create one
 	   and add it the the global list. */
-	fq = pthread_getspecific(dbp->tlfq);
-	if (fq == NULL) {
+	cq = __db_acquire_cq(dbp, NULL);
+	if (cq == NULL) {
 		fq = calloc(1, sizeof(tlfq_t));
 		TAILQ_INIT(fq);
 		fq->dbp = dbp;

@@ -80,17 +80,47 @@ static int  __qam_testdocopy __P((DB *, const char *));
 
 extern int gbl_is_physical_replicant;
 
-tlfqs_t gbl_tlfqs = {
-	.lk = PTHREAD_MUTEX_INITIALIZER
-};
+/*
+ * __db_acquire_cq --
+ *
+ * PUBLIC: void __db_acquire_cq __P((DBC *, DB_CQ_HASH *));
+ */
+DB_CQ *__db_acquire_cq(db, dbcqh)
+	DBC *db;
+	DB_CQ_HASH *dbcqh;
+{
+	if (dbcqh == NULL)
+		dbcqh = pthread_getspecific(tlcq_key);
+
+	if (dbcqh == NULL)
+		return NULL;
+
+	Pthread_mutex_lock(&dbcqh.lk);
+	return hash_find(dbcqh, db);
+}
 
 /*
- * __db_free_queue_destroy --
+ * __db_release_cq --
  *
- * PUBLIC: void __db_free_queue_destroy __P((void *));
+ * PUBLIC: void __db_release_cq __P((DB_CQ_HASH *));
+ */
+void __db_release_cq(dbcqh)
+	DB_CQ_HASH *dbcqh;
+{
+	if (dbcqh == NULL)
+		dbcqh = pthread_getspecific(tlcq_key);
+
+	if (dbcqh != NULL)
+		Pthread_mutex_unlock(&dbcqh.lk);
+}
+
+/*
+ * __db_fq_destroy --
+ *
+ * PUBLIC: void __db_fq_destroy __P((void *));
  */
 void
-__db_free_queue_destroy(arg)
+__db_fq_destroy(arg)
 	void *arg;
 {
 	tlfq_t *fq = (tlfq_t *)arg;;

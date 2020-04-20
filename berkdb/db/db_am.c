@@ -67,6 +67,7 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	DBC *dbc, *adbc;
 	DBC_INTERNAL *cp;
 	DB_ENV *dbenv;
+	DB_CQ *cq;
 	int allocated, ret;
 
 	dbenv = dbp->dbenv;
@@ -81,21 +82,17 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	 * of cursors on the queue for a single database.
 	 */
 	dbc = NULL;
-	tlfq_t *fq = pthread_getspecific(dbp->tlfq);
-	if (fq != NULL) {
-		/* Try to take a cursor from the thread-local free queue. We still need
-		   to hold the mutex here as the free queue can be invalidated by another
-		   thread of control (e.g., schema change). */
-		Pthread_mutex_lock(&fq->lk);
-		for (dbc = TAILQ_FIRST(fq);
+	cq = __db_acquire_cq(dbp, NULL);
+	if (cq != NULL) {
+		for (dbc = TAILQ_FIRST(&cq->fq);
 				dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
 			if (dbtype == dbc->dbtype) {
-				TAILQ_REMOVE(fq, dbc, links);
+				TAILQ_REMOVE(&cq->fq, dbc, links);
 				F_CLR(dbc, ~DBC_OWN_LID);
 				break;
 			}
-		Pthread_mutex_unlock(&fq->lk);
 	}
+    __db_release_cq(NULL);
 
 	if (dbc == NULL) {
 		if ((ret = __os_calloc(dbenv, 1, sizeof(DBC), &dbc)) != 0)
