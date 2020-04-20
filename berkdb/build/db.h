@@ -1378,6 +1378,10 @@ typedef struct __db_cq {
 		DBC *tqh_first;
 		DBC **tqh_last;
 	} fq;
+	struct {
+		DBC *tqh_first;
+		DBC **tqh_last;
+	} jq;
 } DB_CQ;
 
 typedef struct __db_cq_hash {
@@ -1476,23 +1480,6 @@ struct __db {
 		struct __db *le_next;
 		struct __db **le_prev;
 	} dblistlinks;
-
-	/*
-	 * Cursor queues.
-	 *
-	 * !!!
-	 * Explicit representations of structures from queue.h.
-	 * TAILQ_HEAD(__cq_aq, __dbc) active_queue;
-	 * TAILQ_HEAD(__cq_jq, __dbc) join_queue;
-	 */
-	struct __cq_aq {
-		struct __dbc *tqh_first;
-		struct __dbc **tqh_last;
-	} active_queue;
-	struct __cq_jq {
-		struct __dbc *tqh_first;
-		struct __dbc **tqh_last;
-	} join_queue;
 
 	/*
 	 * Secondary index support.

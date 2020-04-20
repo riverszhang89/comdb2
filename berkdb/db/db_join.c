@@ -85,6 +85,8 @@ __db_join(primary, curslist, dbcp, flags)
 	DB_ENV *dbenv;
 	DBC *dbc;
 	JOIN_CURSOR *jc;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	size_t ncurs, nslots;
 	u_int32_t i;
 	int ret;
@@ -92,6 +94,7 @@ __db_join(primary, curslist, dbcp, flags)
 	dbenv = primary->dbenv;
 	dbc = NULL;
 	jc = NULL;
+	cqh = NULL;
 
 	if ((ret = __os_calloc(dbenv, 1, sizeof(DBC), &dbc)) != 0)
 		goto err;
@@ -218,9 +221,11 @@ __db_join(primary, curslist, dbcp, flags)
 
 	*dbcp = dbc;
 
-	MUTEX_THREAD_LOCK(dbenv, primary->mutexp);
-	TAILQ_INSERT_TAIL(&primary->join_queue, dbc, links);
-	MUTEX_THREAD_UNLOCK(dbenv, primary->mutexp);
+	cq = __db_acquire_cq(primary, &cqh);
+	if (cq == NULL)
+		cq = __db_new_cq(primary, &cqh);
+	TAILQ_INSERT_TAIL(&cq->jq, dbc, links);
+	__db_release_cq(cqh);
 
 	return (0);
 
@@ -716,6 +721,8 @@ __db_join_close(dbc)
 	DB *dbp;
 	DB_ENV *dbenv;
 	JOIN_CURSOR *jc;
+	DB_CQ *cq;
+	DB_CQ_HASH *cqh;
 	int ret, t_ret;
 	u_int32_t i;
 
@@ -723,15 +730,18 @@ __db_join_close(dbc)
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
 	ret = t_ret = 0;
+	cqh = NULL;
+	
 
 	/*
 	 * Remove from active list of join cursors.  Note that this
 	 * must happen before any action that can fail and return, or else
 	 * __db_close may loop indefinitely.
 	 */
-	MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-	TAILQ_REMOVE(&dbp->join_queue, dbc, links);
-	MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+	cq = __db_acquire_cq(dbp, &cqh);
+	DB_ASSERT(cq != NULL);
+	TAILQ_REMOVE(&cq->jq, dbc, links);
+	__db_release_cq(cqh);
 
 	PANIC_CHECK(dbenv);
 

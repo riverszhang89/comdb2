@@ -119,16 +119,15 @@ __db_c_close_ll(dbc, countmein)
 	 * access specific cursor close routine, btree depends on having that
 	 * order of operations.
 	 */
-	MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-
+	cq = __db_acquire_cq(dbp, &cqh);
+	DB_ASSERT(cq != NULL);
 	if (opd != NULL) {
 		F_CLR(opd, DBC_ACTIVE);
-		TAILQ_REMOVE(&dbp->active_queue, opd, links);
+		TAILQ_REMOVE(&cq->aq, opd, links);
 	}
 	F_CLR(dbc, DBC_ACTIVE);
-	TAILQ_REMOVE(&dbp->active_queue, dbc, links);
-
-	MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+	TAILQ_REMOVE(&cq->aq, dbc, links);
+	__db_release_cq(cqh);
 
 	/* Call the access specific cursor close routine. */
 	if ((t_ret =
@@ -162,33 +161,8 @@ __db_c_close_ll(dbc, countmein)
 		dbc->txn->cursors--;
 
 	/* Move the cursor(s) to the free queue. */
-
-	/* Check if there is already a cursor queue for the DB.
-       If not, create one and add it to the thread-local hashtable. */
 	cq = __db_acquire_cq(dbp, &cqh);
-	if (cq == NULL) {
-		cq = malloc(sizeof(DB_CQ));
-		cq->db = dbp;
-		TAILQ_INIT(&cq->aq);
-		TAILQ_INIT(&cq->fq);
-
-		/* Check if there is already a thread-local cursor hashtable.
-		   If not, create one and add it to the global hashtable list. */
-		if (cqh == NULL) {
-			cqh = malloc(sizeof(DB_CQ_HASH));
-			cqh->h = hash_init(sizeof(DB *));
-			Pthread_mutex_init(&cqh->lk, NULL);
-			pthread_setspecific(tlcq_key, cqh);
-
-			Pthread_mutex_lock(&gbl_all_cursors.lk);
-			TAILQ_INSERT_TAIL(&gbl_all_cursors, cqh, links);
-			Pthread_mutex_unlock(&gbl_all_cursors.lk);
-			Pthread_mutex_lock(&cqh->lk);
-		}
-
-		hash_add(cqh->h, cq);
-	}
-
+	DB_ASSERT(cq != NULL);
 	if (opd != NULL) {
 		if (dbc->txn != NULL)
 			dbc->txn->cursors--;
