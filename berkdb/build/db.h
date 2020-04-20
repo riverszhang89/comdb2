@@ -1368,25 +1368,34 @@ void timeval_add(struct timeval *tvp,
                   struct timeval *uvp,
                   struct timeval *vvp);
 
-/* Thread-local free queue */
-typedef struct tlfq {
-	struct __dbc *tqh_first;
-	struct __dbc **tqh_last;
-	pthread_mutex_t lk;
+typedef struct __db_cq {
 	DB *dbp;
 	struct {
-		struct tlfq *tqe_next;
-		struct tlfq **tqe_prev;
-	} links;
-} tlfq_t;
+		DBC *tqh_first;
+		DBC **tqh_last;
+	} aq;
+	struct {
+		DBC *tqh_first;
+		DBC **tqh_last;
+	} fq;
+} DB_CQ;
 
-/* List of all thread-local free queues */
-typedef struct {
-	tlfq_t *tqh_first;
-	tlfq_t **tqh_last;
+typedef struct __db_cq_hash {
+	hash_t *cqs;
 	pthread_mutex_t lk;
-} tlfqs_t;
-extern tlfqs_t gbl_tlfqs;
+	struct {
+		struct __db_cq_hash *tqe_next;
+		struct __db_cq_hash **tqe_prev;
+	} links;
+} DB_CQ_HASH;
+
+typedef struct __db_cq_hash_list {
+	DB_CQ_HASH *tqe_next;
+	DB_CQ_HASH **tqe_prev;
+	pthread_mutex_t lk;
+} DB_CQ_HASH_LIST;
+extern DB_CQ_HASH_LIST gbl_all_cursors;
+extern pthread_key_t tlcq_key;
 
 /* Database handle. */
 struct __db {
@@ -1476,7 +1485,6 @@ struct __db {
 	 * TAILQ_HEAD(__cq_aq, __dbc) active_queue;
 	 * TAILQ_HEAD(__cq_jq, __dbc) join_queue;
 	 */
-	pthread_key_t tlfq; /* Thread local free queue */
 	struct __cq_aq {
 		struct __dbc *tqh_first;
 		struct __dbc **tqh_last;
