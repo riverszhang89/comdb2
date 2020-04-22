@@ -81,93 +81,129 @@ static int  __qam_testdocopy __P((DB *, const char *));
 extern int gbl_is_physical_replicant;
 
 /*
+ * DB.C --
+ *	This file contains the utility functions for the DBP layer.
+ */
+
+/*
  * __db_new_cq --
  *  Create a new cursor queue and add it to the thread-local hashtable.
  *  If a thread-local hashtable does not exist, create one as well and
  *  hold its lock. __db_release_cq() must be called later to unlock.
  *
- * PUBLIC: DB_CQ *__db_new_cq __P((DB *, DB_CQ_HASH **));
+ * PUBLIC: DB_CQ *__db_new_cq __P((DB *));
  */
 DB_CQ *
-__db_new_cq(db, dbcqh)
+__db_new_cq(db)
 	DB *db;
-	DB_CQ_HASH **dbcqh;
 {
-	DB_CQ *cq;
-	DB_CQ_HASH *h = *dbcqh;
+	DB_CQ *cq, *head;
+	DB_CQ_HASH *h;
 
-	cq = malloc(sizeof(DB_CQ));
+	cq = calloc(1, sizeof(DB_CQ));
 	cq->db = db;
 	TAILQ_INIT(&cq->aq);
 	TAILQ_INIT(&cq->fq);
 	TAILQ_INIT(&cq->jq);
+	TAILQ_INIT(&cq->siblings);
+	Pthread_mutex_init(&h->lk, NULL);
 
-	if (h == NULL) {
+	if ((h = pthread_getspecific(tlcq_key)) == NULL) {
 		h = malloc(sizeof(DB_CQ_HASH));
 		h->h = hash_init(sizeof(DB *));
-		Pthread_mutex_init(&h->lk, NULL);
 		pthread_setspecific(tlcq_key, h);
 
-		Pthread_mutex_lock(&gbl_all_cursors.lk);
-		TAILQ_INSERT_TAIL(&gbl_all_cursors, h, links);
-		Pthread_mutex_unlock(&gbl_all_cursors.lk);
-		*dbcqh = h;
-		Pthread_mutex_lock(&h->lk);
+		Pthread_rwlock_wrlock(&gbl_all_cursors.lk);
+		TAILQ_INSERT_TAIL(&gbl_all_cursors.l, h, links);
+		Pthread_rwlock_unlock(&gbl_all_cursors.lk);
 	}
-
 	hash_add(h->h, cq);
-	return cq;
+	Pthread_rwlock_wrlock(&gbl_all_cursors.lk);
+	if ((head = hash_find(gbl_all_cursors.h, &db)) == NULL)
+		hash_add(gbl_all_cursors.h, cq);
+	else
+		TAILQ_INSERT_TAIL(&head.siblings, cq, links);
+	Pthread_rwlock_unlock(&gbl_all_cursors.lk);
+
+	Pthread_mutex_lock(&cq->lk);
+	return (cq);
 }
 
 /*
- * __db_acquire_cq --
+ * __db_acquire_tlcq --
  *  Given a DB structure, lock the thread-local hashtable and
  *  return its thread-local cursor queue. __db_release_cq()
  *  must be called later to unlock the hashtable.
  *
- * PUBLIC: DB_CQ *__db_acquire_cq __P((DB *, DB_CQ_HASH **));
+ * PUBLIC: DB_CQ *__db_acquire_tlcq __P((DB *));
  */
 DB_CQ *
-__db_acquire_cq(db, dbcqh)
+__db_acquire_tlcq(db)
 	DB *db;
-	DB_CQ_HASH **dbcqh;
 {
-	DB_CQ_HASH *h = *dbcqh;
-	if (h == NULL && (h = pthread_getspecific(tlcq_key)) == NULL)
+	DB_CQ *cq;
+	DB_CQ_HASH *h;
+
+	if ((h = pthread_getspecific(tlcq_key)) == NULL)
 		return NULL;
 
-	*dbcqh = h;
-	Pthread_mutex_lock(&h->lk);
-	return hash_find(h->h, &db);
+	cq = hash_find(h->h, &db);
+	if (cq != NULL)
+		Pthread_mutex_lock(&cq->lk);
+	return (cq);
+}
+
+/*
+ * __db_acquire_first_cq --
+ *  Given a DB structure, find a list of matching DB structures
+ *  across all threads and lock the head. __db_release_cq()
+ *  must be called later to unlock the head.
+ *
+ * PUBLIC: DB_CQ *__db_acquire_first_cq __P((DB *));
+ */
+DB_CQ *
+__db_acquire_tlcq(db)
+	DB *db;
+{
+	DB_CQ *cq;
+	DB_CQ_HASH *h;
+
+	if ((h = pthread_getspecific(tlcq_key)) == NULL)
+		return NULL;
+
+	cq = hash_find(h->h, &db);
+	if (cq != NULL)
+		Pthread_mutex_lock(&cq->lk);
+	return (cq);
 }
 
 /*
  * __db_release_cq --
  *  Unlock the thread-local hashtable.
  *
- * PUBLIC: void __db_release_cq __P((DB_CQ_HASH *));
+ * PUBLIC: void __db_release_cq __P((DB_CQ *));
  */
 void
-__db_release_cq(dbcqh)
-	DB_CQ_HASH *dbcqh;
+__db_release_cq(cq)
+	DB_CQ *cq;
 {
-	if (dbcqh == NULL)
+	if (cq == NULL)
 		return;
-	Pthread_mutex_unlock(&dbcqh->lk);
+	Pthread_mutex_unlock(&cq->lk);
 }
 
 /*
- * __db_fq_destroy --
- *  Destroy all thread-local free cursors.
+ * __db_cq_destroy --
+ *  Destroy all thread-local cursors.
  *
- * PUBLIC: void __db_fq_destroy __P((void *));
+ * PUBLIC: void __db_cq_destroy __P((void *));
  */
 void
-__db_fq_destroy(arg)
+__db_cq_destroy(arg)
 	void *arg;
 {
 	DB_CQ_HASH *h = arg;
-	DB_CQ *cq;
+	DB_CQ *cq, *head;
 	DBC *dbc;
 	void *hashent;
 	unsigned int pos;
@@ -175,83 +211,86 @@ __db_fq_destroy(arg)
 	if (h == NULL)
 		return;
 
-	Pthread_mutex_lock(&gbl_all_cursors.lk);
-	TAILQ_REMOVE(&gbl_all_cursors, h, links);
-	Pthread_mutex_unlock(&gbl_all_cursors.lk);
+	Pthread_rwlock_wrlock(&gbl_all_cursors.lk);
+	TAILQ_REMOVE(&gbl_all_cursors.l, h, links);
+	Pthread_rwlock_unlock(&gbl_all_cursors.lk);
 
 	for (cq = hash_first(h->h, &hashent, &pos); cq != NULL;
 			cq = hash_next(h->h, &hashent, &pos)) {
+
+		/* Comdb2 shouldn't close dbhandles with active cursors */
+		DB_ASSERT(TAILQ_EMPTY(&cq->aq));
+
+		Pthread_rwlock_wrlock(&gbl_all_cursors.lk);
+		head = hash_find(gbl_all_cursors.h, &db);
+		DB_ASSERT(head != NULL);
+		TAILQ_REMOVE(&head->siblings, cq, links);
+		Pthread_rwlock_unlock(&gbl_all_cursors.lk);
+
+		/* Close all free cursors. */
 		while ((dbc = TAILQ_FIRST(&cq->fq)) != NULL) {
 			TAILQ_REMOVE(&cq->fq, dbc, links);
 			(void)__db_c_destroy(dbc);
 		}
+
+		/* Close all join cursors. */
+		while ((dbc = TAILQ_FIRST(&cq->jq)) != NULL) {
+			TAILQ_REMOVE(&cq->jq, dbc, links);
+			(void)__db_join_close(dbc);
+		}
+
+		Pthread_mutex_destroy(&cq->lk);
+		free(cq);
 	}
-	Pthread_mutex_destroy(&h->lk);
-	free(cq);
 }
 
 /*
- * __db_fq_invalidate --
- *  Close all free and join cursors matching the DB structure.
+ * __db_cq_invalidate --
+ *  Close all free and join cursors on each matching DB structure.
  *
- * PUBLIC: int __db_fq_invalidate __P((DB *));
+ * PUBLIC: int __db_cq_invalidate __P((DB *));
  */
 int
-__db_fq_invalidate(db)
+__db_cq_invalidate(db)
 	DB *db;
 {
 	DBC *dbc;
-	DB_CQ *cq;
-	DB_CQ_HASH *h;
-	void *hashent;
-	unsigned int pos;
-	int ret, t_ret;
+	DB_CQ *cq, *head;
+	int ret;
 
 	ret = 0;
 
-	Pthread_mutex_lock(&gbl_all_cursors.lk);
-
-	TAILQ_FOREACH(h, &gbl_all_cursors, links) {
-
-		Pthread_mutex_lock(&h->lk);
-
-		for (cq = hash_first(h->h, &hashent, &pos); cq != NULL;
-				cq = hash_next(h->h, &hashent, &pos)) {
-			if (db != cq->db)
-				continue;
-
+	Pthread_rwlock_rdlock(&gbl_all_cursors.lk);
+	if ((head = hash_find(gbl_all_cursors.h, &db)) != NULL) {
+		TAILQ_FOREACH(cq, &head->siblings, links) {
+			DB_ASSERT(db == cq->db);
+			Pthread_mutex_lock(&cq->lk);
 			/* Comdb2 shouldn't close dbhandles with active cursors */
 			DB_ASSERT(TAILQ_EMPTY(&cq->aq));
 
+			/* Close all free cursors. */
 			while ((dbc = TAILQ_FIRST(&cq->fq)) != NULL) {
 				TAILQ_REMOVE(&cq->fq, dbc, links);
-				(void)__db_c_destroy(dbc);
+				if ((ret = __db_c_destroy(dbc)) != 0)
+					break;
 			}
 
 			/*
 			 * Close any outstanding join cursors.  Join cursors destroy
 			 * themselves on close and have no separate destroy routine.
 			 */
-			while ((dbc = TAILQ_FIRST(&cq->jq)) != NULL)
-				if ((t_ret = __db_join_close(dbc)) != 0) {
-					if (ret == 0)
-						ret = t_ret;
+			while ((dbc = TAILQ_FIRST(&cq->jq)) != NULL) {
+				TAILQ_REMOVE(&cq->jq, dbc, links);
+				if ((ret = __db_join_close(dbc)) != 0)
 					break;
-				}
+			}
+			Pthread_mutex_unlock(&cq->lk);
 		}
-
-		Pthread_mutex_unlock(&h->lk);
-
 	}
+	Pthread_rwlock_unlock(&gbl_all_cursors.lk);
 
-	Pthread_mutex_unlock(&gbl_all_cursors.lk);
 	return (ret);
 }
-
-/*
- * DB.C --
- *	This file contains the utility functions for the DBP layer.
- */
 
 /*
  * __db_master_open --

@@ -175,7 +175,7 @@ err:	if (dbp->mpf != NULL)
 }
 
 pthread_key_t tlcq_key;
-DB_CQ_HASH_LIST gbl_all_cursors;
+DB_CQ_ALL gbl_all_cursors;
 static pthread_once_t tlcq_once = PTHREAD_ONCE_INIT;
 static void __db_tlcq_init_once(void)
 {
@@ -183,9 +183,9 @@ static void __db_tlcq_init_once(void)
        On exit, destroy all free cursors. */
     Pthread_key_create(&tlcq_key, __db_fq_destroy);
 
-    /* Initialize the big mutex and list. */
-    Pthread_mutex_init(&gbl_all_cursors.lk, NULL);
-    TAILQ_INIT(&gbl_all_cursors);
+    Pthread_rwlock_init(&gbl_all_cursors.lk, NULL);
+    TAILQ_INIT(&gbl_all_cursors.l);
+	gbl_all_cursors.lk = hash_init(sizeof(DB *));
 }
 
 /*

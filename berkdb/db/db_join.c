@@ -721,8 +721,6 @@ __db_join_close(dbc)
 	DB *dbp;
 	DB_ENV *dbenv;
 	JOIN_CURSOR *jc;
-	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	int ret, t_ret;
 	u_int32_t i;
 
@@ -730,19 +728,7 @@ __db_join_close(dbc)
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
 	ret = t_ret = 0;
-	cqh = NULL;
 	
-
-	/*
-	 * Remove from active list of join cursors.  Note that this
-	 * must happen before any action that can fail and return, or else
-	 * __db_close may loop indefinitely.
-	 */
-	cq = __db_acquire_cq(dbp, &cqh);
-	DB_ASSERT(cq != NULL);
-	TAILQ_REMOVE(&cq->jq, dbc, links);
-	__db_release_cq(cqh);
-
 	PANIC_CHECK(dbenv);
 
 	/*

@@ -1382,23 +1382,34 @@ typedef struct __db_cq {
 		DBC *tqh_first;
 		DBC **tqh_last;
 	} jq;
+	struct {
+		struct __db_cq *tqh_first;
+		struct __db_cq **tqh_last;
+	} siblings;
+	struct {
+		struct __db_cq *tqe_next;
+		struct __db_cq **tqe_prev;
+	} links;
+	pthread_mutex_t lk;
 } DB_CQ;
 
 typedef struct __db_cq_hash {
 	hash_t *h;
-	pthread_mutex_t lk;
 	struct {
 		struct __db_cq_hash *tqe_next;
 		struct __db_cq_hash **tqe_prev;
 	} links;
 } DB_CQ_HASH;
 
-typedef struct __db_cq_hash_list {
-	DB_CQ_HASH *tqh_first;
-	DB_CQ_HASH **tqh_last;
-	pthread_mutex_t lk;
-} DB_CQ_HASH_LIST;
-extern DB_CQ_HASH_LIST gbl_all_cursors;
+typedef struct __db_cq_all {
+	struct {
+		DB_CQ_HASH *tqh_first;
+		DB_CQ_HASH **tqh_last;
+	} l;
+	hash_t *h;
+	pthread_rwlock_t lk;
+} DB_CQ_ALL;
+extern DB_CQ_ALL gbl_all_cursors;
 extern pthread_key_t tlcq_key;
 
 /* Database handle. */

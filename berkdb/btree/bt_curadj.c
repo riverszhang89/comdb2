@@ -73,11 +73,9 @@ __bam_ca_delete_int(dbp, pgno, indx, delete, fromclose)
 	DB_ENV *dbenv;
 	DBC *dbc;
 	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	int count;		/* !!!: Has to contain max number of cursors. */
 
 	dbenv = dbp->dbenv;
-	cqh = NULL;
 
 	/*
 	 * Adjust the cursors.  We have the page write locked, so the
