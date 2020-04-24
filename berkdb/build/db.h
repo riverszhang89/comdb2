@@ -1476,7 +1476,12 @@ struct __db {
 	 * TAILQ_HEAD(__cq_aq, __dbc) active_queue;
 	 * TAILQ_HEAD(__cq_jq, __dbc) join_queue;
 	 */
+    int is_tl;
 	pthread_key_t tlfq; /* Thread local free queue */
+	struct __cq_fq {
+		struct __dbc *tqh_first;
+		struct __dbc **tqh_last;
+	} free_queue;
 	struct __cq_aq {
 		struct __dbc *tqh_first;
 		struct __dbc **tqh_last;

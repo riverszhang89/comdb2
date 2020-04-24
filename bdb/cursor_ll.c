@@ -263,6 +263,7 @@ bdb_berkdb_t *bdb_berkdb_open(bdb_cursor_impl_t *cur, int type, int maxdata,
             }
             berkdb->u.rl.use_odh = 1;
 
+			/* RIVERS */
             db = bdb_state->dbp_data[0][cur->idx];
         } else {
             if (cur->idx < -1 || cur->idx > cur->state->numix) {

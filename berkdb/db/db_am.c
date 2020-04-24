@@ -81,21 +81,34 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	 * of cursors on the queue for a single database.
 	 */
 	dbc = NULL;
-	tlfq_t *fq = pthread_getspecific(dbp->tlfq);
-	if (fq != NULL) {
-		/* Try to take a cursor from the thread-local free queue. We still need
-		   to hold the mutex here as the free queue can be invalidated by another
-		   thread of control (e.g., schema change). */
-		Pthread_mutex_lock(&fq->lk);
-		for (dbc = TAILQ_FIRST(fq);
-				dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
-			if (dbtype == dbc->dbtype) {
-				TAILQ_REMOVE(fq, dbc, links);
-				F_CLR(dbc, ~DBC_OWN_LID);
-				break;
-			}
-		Pthread_mutex_unlock(&fq->lk);
-	}
+
+    if (dbp->is_tl) {
+        tlfq_t *fq = pthread_getspecific(dbp->tlfq);
+        if (fq != NULL) {
+            /* Try to take a cursor from the thread-local free queue. We still need
+               to hold the mutex here as the free queue can be invalidated by another
+               thread of control (e.g., schema change). */
+            Pthread_mutex_lock(&fq->lk);
+            for (dbc = TAILQ_FIRST(fq);
+                    dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
+                if (dbtype == dbc->dbtype) {
+                    TAILQ_REMOVE(fq, dbc, links);
+                    F_CLR(dbc, ~DBC_OWN_LID);
+                    break;
+                }
+            Pthread_mutex_unlock(&fq->lk);
+        }
+	} else {
+        MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
+        for (dbc = TAILQ_FIRST(&dbp->free_queue);
+                dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
+            if (dbtype == dbc->dbtype) {
+                TAILQ_REMOVE(&dbp->free_queue, dbc, links);
+                F_CLR(dbc, ~DBC_OWN_LID);
+                break;
+            }
+        MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+    }
 
 	if (dbc == NULL) {
 		if ((ret = __os_calloc(dbenv, 1, sizeof(DBC), &dbc)) != 0)

@@ -131,6 +131,9 @@ db_create(dbpp, dbenv, flags)
 	if (ret != 0)
 		goto err;
 
+    if (idxpri)
+        dbp->is_tl = 1;
+
 	/* If we don't have an environment yet, allocate a local one. */
 	if (dbenv == NULL) {
 		if ((ret = db_env_create(&dbenv, 0)) != 0)
@@ -191,7 +194,9 @@ __db_init(dbp, flags)
 	dbp->lid = DB_LOCK_INVALIDID;
 	LOCK_INIT(dbp->handle_lock);
 
+    dbp->is_tl = 0;
 	Pthread_key_create(&dbp->tlfq, __db_free_queue_destroy);
+    TAILQ_INIT(&dbp->free_queue);
 	TAILQ_INIT(&dbp->active_queue);
 	TAILQ_INIT(&dbp->join_queue);
 	LIST_INIT(&dbp->s_secondaries);

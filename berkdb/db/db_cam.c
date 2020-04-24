@@ -163,27 +163,39 @@ __db_c_close_ll(dbc, countmein)
 
 	/* See if we have a thread-local free queue. If not, create one
 	   and add it the the global list. */
-	fq = pthread_getspecific(dbp->tlfq);
-	if (fq == NULL) {
-		fq = calloc(1, sizeof(tlfq_t));
-		TAILQ_INIT(fq);
-		fq->dbp = dbp;
-		Pthread_mutex_init(&fq->lk, NULL);
-		Pthread_setspecific(dbp->tlfq, fq);
-		Pthread_mutex_lock(&gbl_tlfqs.lk);
-		TAILQ_INSERT_TAIL(&gbl_tlfqs, fq, links);
-		Pthread_mutex_unlock(&gbl_tlfqs.lk);
-	}
+    if (dbp->is_tl) {
+        fq = pthread_getspecific(dbp->tlfq);
+        if (fq == NULL) {
+            fq = calloc(1, sizeof(tlfq_t));
+            TAILQ_INIT(fq);
+            fq->dbp = dbp;
+            Pthread_mutex_init(&fq->lk, NULL);
+            Pthread_setspecific(dbp->tlfq, fq);
+            Pthread_mutex_lock(&gbl_tlfqs.lk);
+            TAILQ_INSERT_TAIL(&gbl_tlfqs, fq, links);
+            Pthread_mutex_unlock(&gbl_tlfqs.lk);
+        }
 
-	Pthread_mutex_lock(&fq->lk);
-	if (opd != NULL) {
-		if (dbc->txn != NULL)
-			dbc->txn->cursors--;
-		TAILQ_INSERT_TAIL(fq, opd, links);
-		opd = NULL;
-	}
-	TAILQ_INSERT_TAIL(fq, dbc, links);
-	Pthread_mutex_unlock(&fq->lk);
+        Pthread_mutex_lock(&fq->lk);
+        if (opd != NULL) {
+            if (dbc->txn != NULL)
+                dbc->txn->cursors--;
+            TAILQ_INSERT_TAIL(fq, opd, links);
+            opd = NULL;
+        }
+        TAILQ_INSERT_TAIL(fq, dbc, links);
+        Pthread_mutex_unlock(&fq->lk);
+    } else {
+        MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
+        if (opd != NULL) {
+            if (dbc->txn != NULL)
+                dbc->txn->cursors--;
+            TAILQ_INSERT_TAIL(&dbp->free_queue, opd, links);
+            opd = NULL;
+        }
+        TAILQ_INSERT_TAIL(&dbp->free_queue, dbc, links);
+        MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
+    }
 
 	return (ret);
 }

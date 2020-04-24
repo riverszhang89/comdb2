@@ -642,6 +642,7 @@ bdb_cursor_ifn_t *bdb_cursor_open(
             }
         }
     } else {
+		/* RIVERS */
         cur->idx = 0;
         cur->type = BDBC_DT;
     }
@@ -6297,6 +6298,7 @@ static int bdb_cursor_find_int(bdb_cursor_ifn_t *pcur_ifn, void *key,
 
         memcpy(&genid, key, sizeof(genid));
         dtafile = get_dtafile_from_genid(genid);
+		/* RIVERS */
         if (dtafile != cur->idx) {
             rc = bdb_switch_stripe(cur, dtafile, bdberr);
             if (rc)
