@@ -45,6 +45,7 @@ static const char revid[] = "$Id: lock.c,v 11.134 2003/11/18 21:30:38 ubell Exp 
 #include "locks_wrap.h"
 #include "thread_stats.h"
 #include "tohex.h"
+#include "comdb2_atomic.h"
 
 
 #ifdef TRACE_ON_ADDING_LOCKS
@@ -2470,7 +2471,8 @@ __lock_get_internal_int(lt, locker, in_locker, flags, obj, lock_mode, timeout,
 	case SECOND:
 	case GRANT:
 		/* Allocate a new lock. */
-		if (++region->stat.st_nlocks > region->stat.st_maxnlocks)
+		ATOMIC_ADD64(region->stat.st_nlocks, 1);
+		if (region->stat.st_nlocks > region->stat.st_maxnlocks)
 			region->stat.st_maxnlocks = region->stat.st_nlocks;
 
 		if ((newl =
@@ -3274,7 +3276,7 @@ __lock_put_internal(lt, lockp, lock, obj_ndx, need_dd, flags)
 		SH_TAILQ_INSERT_HEAD(&region->free_objs[partition], sh_obj,
 		    links, __db_lockobj);
 
-		region->stat.st_nobjects--;
+		ATOMIC_ADD64(region->stat.st_nobjects, -1);
 		state_changed = 1;
 		++sh_obj->generation;
 	}
@@ -3364,7 +3366,7 @@ __lock_freelock(lt, lockp, sh_locker, flags)
 		Pthread_mutex_unlock(&lockp->lsns_mtx);
 		SH_TAILQ_INSERT_HEAD(&region->free_locks[lockp->lpartition],
 		    lockp, links, __db_lock);
-		region->stat.st_nlocks--;
+		ATOMIC_ADD64(region->stat.st_nlocks, -1);
 #ifndef TESTSUITE
 		if (gbl_berkdb_track_locks)
 			thread_remove_resource(lockp->dbtobj, free);
@@ -4053,7 +4055,8 @@ __lock_getobj(lt, obj, ndx, partition, create, retp)
 		}
 		SH_TAILQ_REMOVE(&region->free_objs[partition], sh_obj,
 		    links, __db_lockobj);
-		if (++region->stat.st_nobjects > region->stat.st_maxnobjects)
+		ATOMIC_ADD64(region->stat.st_nobjects, 1);
+		if (region->stat.st_nobjects > region->stat.st_maxnobjects)
 			region->stat.st_maxnobjects = region->stat.st_nobjects;
 		/*
 		 * If we can fit this object in the structure, do so instead
