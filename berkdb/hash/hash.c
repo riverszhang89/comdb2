@@ -1813,15 +1813,12 @@ __ham_c_update(dbc, len, add, is_dup)
 	DB_LSN lsn;
 	DB_TXN *my_txn;
 	HASH_CURSOR *hcp, *lcp;
-	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	int found, ret;
 	u_int32_t order;
 
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
 	hcp = (HASH_CURSOR *)dbc->internal;
-	cqh = NULL;
 
 	/*
 	 * Adjustment will only be logged if this is a subtransaction.
@@ -1846,8 +1843,7 @@ __ham_c_update(dbc, len, add, is_dup)
 		    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 		    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
 			MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
-			cq = __db_acquire_cq(ldbp, &cqh);
-			for (cp = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq); cp != NULL;
+			for (cp = TAILQ_FIRST(&ldbp->active_queue); cp != NULL;
 			    cp = TAILQ_NEXT(cp, links)) {
 				if (cp == dbc || cp->dbtype != DB_HASH)
 					continue;
@@ -1859,7 +1855,7 @@ __ham_c_update(dbc, len, add, is_dup)
 				    (!is_dup || hcp->dup_off == lcp->dup_off))
 					order = lcp->order + 1;
 			}
-			__db_release_cq(cqh);
+			MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
 		}
 		hcp->order = order;
 	}
@@ -1867,8 +1863,8 @@ __ham_c_update(dbc, len, add, is_dup)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		cq = __db_acquire_cq(ldbp, &cqh);
-		for (cp = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq); cp != NULL;
+		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
+		for (cp = TAILQ_FIRST(&ldbp->active_queue); cp != NULL;
 		    cp = TAILQ_NEXT(cp, links)) {
 			if (cp == dbc || cp->dbtype != DB_HASH)
 				continue;
@@ -1969,7 +1965,7 @@ __ham_c_update(dbc, len, add, is_dup)
 				}
 			}
 		}
-		__db_release_cq(cqh);
+		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
@@ -2002,8 +1998,6 @@ __ham_get_clist(dbp, pgno, indx, listp)
 	DB *ldbp;
 	DBC *cp;
 	DB_ENV *dbenv;
-	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	int nalloc, nused, ret;
 
 	/*
@@ -2013,14 +2007,13 @@ __ham_get_clist(dbp, pgno, indx, listp)
 	nalloc = nused = 0;
 	*listp = NULL;
 	dbenv = dbp->dbenv;
-	cqh = NULL;
 
 	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		cq = __db_acquire_cq(ldbp, &cqh);
-		for (cp = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq); cp != NULL;
+		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
+		for (cp = TAILQ_FIRST(&ldbp->active_queue); cp != NULL;
 		    cp = TAILQ_NEXT(cp, links))
 			/*
 			 * We match if cp->pgno matches the specified
@@ -2039,7 +2032,8 @@ __ham_get_clist(dbp, pgno, indx, listp)
 				}
 				(*listp)[nused++] = cp;
 			}
-		__db_release_cq(cqh);
+
+		MUTEX_THREAD_UNLOCK(dbp->dbenv, dbp->mutexp);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 

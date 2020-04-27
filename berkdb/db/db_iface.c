@@ -107,12 +107,9 @@ __db_associate_pp(dbp, txn, sdbp, callback, flags)
 {
 	DBC *sdbc;
 	DB_ENV *dbenv;
-	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	int handle_check, ret, txn_local;
 
 	dbenv = dbp->dbenv;
-	cqh = NULL;
 
 	PANIC_CHECK(dbenv);
 
@@ -124,14 +121,12 @@ __db_associate_pp(dbp, txn, sdbp, callback, flags)
 	 * to make sure that no older cursors are lying around when we make
 	 * the transition.
 	 */
-	cq = __db_acquire_cq(sdbp, &cqh);
-	if (cq != NULL && (!TAILQ_EMPTY(&cq->aq) || !TAILQ_EMPTY(&cq->jq))) {
+	if (TAILQ_FIRST(&sdbp->active_queue) != NULL ||
+	    TAILQ_FIRST(&sdbp->join_queue) != NULL) {
 		__db_err(dbenv,
     "Databases may not become secondary indices while cursors are open");
-		__db_release_cq(cqh);
 		return (EINVAL);
 	}
-	__db_release_cq(cqh);
 
 	/*
 	 * Create a local transaction as necessary, check for consistent
@@ -156,7 +151,9 @@ __db_associate_pp(dbp, txn, sdbp, callback, flags)
 	if (handle_check && (ret = __db_rep_enter(dbp, 1, txn != NULL)) != 0)
 		goto err;
 
-	ret = __db_fq_invalidate(sdbp);
+	while ((sdbc = TAILQ_FIRST(&sdbp->free_queue)) != NULL)
+		if ((ret = __db_c_destroy(sdbc)) != 0)
+			break;
 
 	if (ret == 0)
 		ret = __db_associate(dbp, txn, sdbp, callback, flags);

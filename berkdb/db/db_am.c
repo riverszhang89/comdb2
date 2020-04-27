@@ -68,12 +68,10 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	DBC_INTERNAL *cp;
 	DB_ENV *dbenv;
 	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	int allocated, ret;
 
 	dbenv = dbp->dbenv;
 	allocated = 0;
-	cqh = NULL;
 
 	/*
 	 * If dbcp is non-NULL it is assumed to point to an area to initialize
@@ -83,7 +81,7 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	 * right type.  With off page dups we may have different kinds
 	 * of cursors on the queue for a single database.
 	 */
-	cq = __db_acquire_cq(dbp, &cqh);
+	cq = __db_acquire_cq(dbp);
 	for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->fq);
 		dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
 		if (dbtype == dbc->dbtype) {
@@ -91,7 +89,7 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 			F_CLR(dbc, ~DBC_OWN_LID);
 			break;
 		}
-	__db_release_cq(cqh);
+	__db_release_cq(cq);
 
 	if (dbc == NULL) {
 		if ((ret = __os_calloc(dbenv, 1, sizeof(DBC), &dbc)) != 0)
@@ -331,12 +329,12 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 		goto err;
 	}
 
-	cq = __db_acquire_cq(dbp, &cqh);
+	cq = __db_acquire_cq(dbp);
 	if (cq == NULL)
-		cq = __db_new_cq(dbp, &cqh);
+		cq = __db_new_cq(dbp);
 	TAILQ_INSERT_TAIL(&cq->aq, dbc, links);
 	F_SET(dbc, DBC_ACTIVE);
-	__db_release_cq(cqh);
+	__db_release_cq(cq);
 
 	*dbcp = dbc;
 	return (0);

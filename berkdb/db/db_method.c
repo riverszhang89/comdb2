@@ -181,7 +181,7 @@ static void __db_tlcq_init_once(void)
 {
     /* Create a pthread key for per-thread cursor queues.
        On exit, destroy all free cursors. */
-    Pthread_key_create(&tlcq_key, __db_fq_destroy);
+    Pthread_key_create(&tlcq_key, __db_delete_cq);
 
     /* Initialize the big mutex and list. */
     Pthread_mutex_init(&gbl_all_cursors.lk, NULL);

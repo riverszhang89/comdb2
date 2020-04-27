@@ -1083,8 +1083,6 @@ __ham_chgpg_recover(dbenv, dbtp, lsnp, op, info)
 	int ret;
 	DBC *cp;
 	HASH_CURSOR *lcp;
-	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	u_int32_t order, indx;
 
 	COMPQUIET(info, NULL);
@@ -1097,15 +1095,14 @@ __ham_chgpg_recover(dbenv, dbtp, lsnp, op, info)
 	/* Overloaded fields for DB_HAM_DEL*PG */
 	indx = argp->old_indx;
 	order = argp->new_indx;
-	cqh = NULL;
 
 	MUTEX_THREAD_LOCK(dbenv, dbenv->dblist_mutexp);
 	for (ldbp = __dblist_get(dbenv, file_dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == file_dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
+		MUTEX_THREAD_LOCK(dbenv, file_dbp->mutexp);
 
-		cq = __db_acquire_cq(ldbp, &cqh);
-		for (cp = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
+		for (cp = TAILQ_FIRST(&ldbp->active_queue); cp != NULL;
 		    cp = TAILQ_NEXT(cp, links)) {
 			lcp = (HASH_CURSOR *)cp->internal;
 
@@ -1177,7 +1174,7 @@ __ham_chgpg_recover(dbenv, dbtp, lsnp, op, info)
 				break;
 			}
 		}
-		__db_release_cq(cqh);
+		MUTEX_THREAD_UNLOCK(dbenv, file_dbp->mutexp);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 

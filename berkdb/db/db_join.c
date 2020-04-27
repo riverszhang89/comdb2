@@ -221,11 +221,9 @@ __db_join(primary, curslist, dbcp, flags)
 
 	*dbcp = dbc;
 
-	cq = __db_acquire_cq(primary, &cqh);
-	if (cq == NULL)
-		cq = __db_new_cq(primary, &cqh);
-	TAILQ_INSERT_TAIL(&cq->jq, dbc, links);
-	__db_release_cq(cqh);
+	MUTEX_THREAD_LOCK(dbenv, primary->mutexp);
+	TAILQ_INSERT_TAIL(&primary->join_queue, dbc, links);
+	MUTEX_THREAD_UNLOCK(dbenv, primary->mutexp);
 
 	return (0);
 
@@ -722,7 +720,6 @@ __db_join_close(dbc)
 	DB_ENV *dbenv;
 	JOIN_CURSOR *jc;
 	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	int ret, t_ret;
 	u_int32_t i;
 
@@ -730,7 +727,6 @@ __db_join_close(dbc)
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
 	ret = t_ret = 0;
-	cqh = NULL;
 	
 
 	/*
@@ -738,10 +734,9 @@ __db_join_close(dbc)
 	 * must happen before any action that can fail and return, or else
 	 * __db_close may loop indefinitely.
 	 */
-	cq = __db_acquire_cq(dbp, &cqh);
-	DB_ASSERT(cq != NULL);
-	TAILQ_REMOVE(&cq->jq, dbc, links);
-	__db_release_cq(cqh);
+	MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
+	TAILQ_REMOVE(&dbp->join_queue, dbc, links);
+	MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
 
 	PANIC_CHECK(dbenv);
 

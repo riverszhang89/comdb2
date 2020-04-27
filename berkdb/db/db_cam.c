@@ -76,9 +76,8 @@ __db_c_close_ll(dbc, countmein)
 	DBC *opd;
 	DBC_INTERNAL *cp;
 	DB_ENV *dbenv;
-	int ret, t_ret;
 	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
+	int ret, t_ret;
 
 #ifdef LULU2
 	fprintf(stdout,
@@ -106,7 +105,6 @@ __db_c_close_ll(dbc, countmein)
 	cp = dbc->internal;
 	opd = cp->opd;
 	ret = 0;
-	cqh = NULL;
 
 	/*
 	 * Remove the cursor(s) from the active queue.  We may be closing two
@@ -119,7 +117,7 @@ __db_c_close_ll(dbc, countmein)
 	 * access specific cursor close routine, btree depends on having that
 	 * order of operations.
 	 */
-	cq = __db_acquire_cq(dbp, &cqh);
+	cq = __db_acquire_cq(dbp);
 	DB_ASSERT(cq != NULL);
 	if (opd != NULL) {
 		F_CLR(opd, DBC_ACTIVE);
@@ -127,7 +125,7 @@ __db_c_close_ll(dbc, countmein)
 	}
 	F_CLR(dbc, DBC_ACTIVE);
 	TAILQ_REMOVE(&cq->aq, dbc, links);
-	__db_release_cq(cqh);
+	__db_release_cq(cq);
 
 	/* Call the access specific cursor close routine. */
 	if ((t_ret =
@@ -161,7 +159,7 @@ __db_c_close_ll(dbc, countmein)
 		dbc->txn->cursors--;
 
 	/* Move the cursor(s) to the free queue. */
-	cq = __db_acquire_cq(dbp, &cqh);
+	cq = __db_acquire_cq(dbp);
 	DB_ASSERT(cq != NULL);
 	if (opd != NULL) {
 		if (dbc->txn != NULL)
@@ -170,7 +168,7 @@ __db_c_close_ll(dbc, countmein)
 		opd = NULL;
 	}
 	TAILQ_INSERT_TAIL(&cq->fq, dbc, links);
-	__db_release_cq(cqh);
+	__db_release_cq(cq);
 
 	return (ret);
 }

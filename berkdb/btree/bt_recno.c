@@ -743,7 +743,6 @@ __ram_ca(dbc_arg, op)
 	DB_ENV *dbenv;
 	DBC *dbc;
 	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	db_recno_t recno;
 	int adjusted, found;
 	u_int32_t order;
@@ -752,7 +751,6 @@ __ram_ca(dbc_arg, op)
 	dbenv = dbp->dbenv;
 	cp_arg = (BTREE_CURSOR *)dbc_arg->internal;
 	recno = cp_arg->recno;
-	cqh = NULL;
 
 	found = 0;
 
@@ -778,7 +776,7 @@ __ram_ca(dbc_arg, op)
 		for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 		    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 		    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-			cq = __db_acquire_cq(ldbp, &cqh);
+			cq = __db_acquire_cq(ldbp);
 			for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 			    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 				cp = (BTREE_CURSOR *)dbc->internal;
@@ -787,7 +785,7 @@ __ram_ca(dbc_arg, op)
 				    order <= cp->order)
 					order = cp->order + 1;
 			}
-			__db_release_cq(cqh);
+			__db_release_cq(cq);
 		}
 	} else
 		order = INVALID_ORDER;
@@ -796,7 +794,7 @@ __ram_ca(dbc_arg, op)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		cq = __db_acquire_cq(ldbp, &cqh);
+		cq = __db_acquire_cq(ldbp);
 		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			cp = (BTREE_CURSOR *)dbc->internal;
@@ -866,7 +864,7 @@ iafter:				if (!adjusted && C_LESSTHAN(cp_arg, cp)) {
 				break;
 			}
 		}
-		__db_release_cq(cqh);
+		__db_release_cq(cq);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 
