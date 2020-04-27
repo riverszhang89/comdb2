@@ -1479,6 +1479,9 @@ struct __db {
 		struct __db **le_prev;
 	} dblistlinks;
 
+	/* 1 if using thread-local cursor queues. */
+	int use_tlcq;
+
 	/*
 	 * Cursor queues.
 	 *

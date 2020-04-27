@@ -131,6 +131,11 @@ db_create(dbpp, dbenv, flags)
 	if (ret != 0)
 		goto err;
 
+#if 0
+	if (idxpri)
+		dbp->use_tlcq = 1;
+#endif
+
 	/* If we don't have an environment yet, allocate a local one. */
 	if (dbenv == NULL) {
 		if ((ret = db_env_create(&dbenv, 0)) != 0)
@@ -203,6 +208,9 @@ __db_init(dbp, flags)
 	LOCK_INIT(dbp->handle_lock);
 
 	pthread_once(&tlcq_once, __db_tlcq_init_once);
+	TAILQ_INIT(&dbp->free_queue);
+	TAILQ_INIT(&dbp->active_queue);
+	TAILQ_INIT(&dbp->join_queue);
 
 	LIST_INIT(&dbp->s_secondaries);
 
@@ -869,6 +877,8 @@ __dbcl_init(dbp, dbenv, flags)
 	DB_ENV *dbenv;
 	u_int32_t flags;
 {
+	TAILQ_INIT(&dbp->free_queue);
+	TAILQ_INIT(&dbp->active_queue);
 	/* !!!
 	 * Note that we don't need to initialize the join_queue;  it's
 	 * not used in RPC clients.  See the comment in __dbcl_db_join_ret().

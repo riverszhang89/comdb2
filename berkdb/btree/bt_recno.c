@@ -776,8 +776,7 @@ __ram_ca(dbc_arg, op)
 		for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 		    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 		    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-			cq = __db_acquire_cq(ldbp);
-			for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
+			for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 			    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 				cp = (BTREE_CURSOR *)dbc->internal;
 				if (cp_arg->root == cp->root &&
@@ -785,7 +784,7 @@ __ram_ca(dbc_arg, op)
 				    order <= cp->order)
 					order = cp->order + 1;
 			}
-			__db_release_cq(cq);
+			__db_unlock_aq(dbp, ldbp, cq);
 		}
 	} else
 		order = INVALID_ORDER;
@@ -794,8 +793,7 @@ __ram_ca(dbc_arg, op)
 	for (ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		cq = __db_acquire_cq(ldbp);
-		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
+		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			cp = (BTREE_CURSOR *)dbc->internal;
 			if (cp_arg->root != cp->root)
@@ -864,7 +862,7 @@ iafter:				if (!adjusted && C_LESSTHAN(cp_arg, cp)) {
 				break;
 			}
 		}
-		__db_release_cq(cq);
+		__db_unlock_aq(dbp, ldbp, cq);
 	}
 	MUTEX_THREAD_UNLOCK(dbenv, dbenv->dblist_mutexp);
 

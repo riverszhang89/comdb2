@@ -81,6 +81,11 @@ static int  __qam_testdocopy __P((DB *, const char *));
 extern int gbl_is_physical_replicant;
 
 /*
+ * DB.C --
+ *	This file contains the utility functions for the DBP layer.
+ */
+
+/*
  * __db_new_cq --
  *  Create a new cursor queue and add it to the thread-local hashtable.
  *  If a thread-local hashtable does not exist, create one as well and
@@ -245,9 +250,53 @@ __db_close_cq(db)
 }
 
 /*
- * DB.C --
- *	This file contains the utility functions for the DBP layer.
+ * __db_lock_aq --
+ *  Lock active queue and return the 1st active cursor.
+ *
+ * PUBLIC: DBC *__db_lock_aq __P((DB *, DB *, DB_CQ **));
  */
+DBC *
+__db_lock_aq(db, ldb, cqp)
+	DB *db;
+	DB *ldb;
+	DB_CQ **cqp;
+{
+	DBC *dbc;
+	DB_ENV *dbenv;
+	DB_CQ *cq;
+	
+	dbenv = db->dbenv;
+
+	if (ldb->use_tlcq) {
+		*cqp = cq = __db_acquire_cq(ldb);
+		dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
+	} else {
+		MUTEX_THREAD_LOCK(dbenv, db->mutexp);
+		dbc = TAILQ_FIRST(&ldb->active_queue);
+	}
+
+	return (dbc);
+}
+
+/*
+ * __db_unlock_aq --
+ *  Unlock active queue.
+ *
+ * PUBLIC: void __db_unlock_aq __P((DB *, DB *, DB_CQ *));
+ */
+void
+__db_unlock_aq(db, ldb, cq)
+	DB *db;
+	DB *ldb;
+	DB_CQ *cq;
+{
+	DB_ENV *dbenv = db->dbenv;
+
+	if (ldb->use_tlcq)
+		__db_release_cq(cq);
+	else
+		MUTEX_THREAD_UNLOCK(dbenv, db->mutexp);
+}
 
 /*
  * __db_master_open --
@@ -1062,8 +1111,20 @@ __db_refresh(dbp, txn, flags, deferred_closep)
 	    (t_ret = __db_sync(dbp)) != 0 && ret == 0)
 		ret = t_ret;
 
-	if ((t_ret = __db_close_cq(dbp)) != 0 && (ret == 0))
-		ret = t_ret;
+	if (dbp->use_tlcq) {
+		if ((t_ret = __db_close_cq(dbp)) != 0 && (ret == 0))
+			ret = t_ret;
+	} else {
+		/* Comdb2 shouldn't close dbhandles with active cursors */
+		DB_ASSERT(TAILQ_FIRST(&dbp->active_queue) == NULL);
+
+		while ((dbc = TAILQ_FIRST(&dbp->free_queue)) != NULL)
+			if ((t_ret = __db_c_destroy(dbc)) != 0) {
+				if (ret == 0)
+					ret = t_ret;
+				break;
+			}
+	}
 
 	/*
 	 * Close any outstanding join cursors.  Join cursors destroy
@@ -1075,6 +1136,7 @@ __db_refresh(dbp, txn, flags, deferred_closep)
 				ret = t_ret;
 			break;
 		}
+
 
 	/*
 	 * Sync the memory pool, even though we've already called DB->sync,
@@ -1445,7 +1507,6 @@ __db_disassociate(sdbp)
 	 * Complain, but proceed, if we have any active cursors.  (We're in
 	 * the middle of a close, so there's really no turning back.)
 	 */
-
 	if (sdbp->s_refcnt != 1 ||
 	    TAILQ_FIRST(&sdbp->active_queue) != NULL ||
 	    TAILQ_FIRST(&sdbp->join_queue) != NULL) {

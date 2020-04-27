@@ -181,15 +181,14 @@ __db_cursor_check(dbp)
 	for (found = 0, ldbp = __dblist_get(dbenv, dbp->adj_fileid);
 	    ldbp != NULL && ldbp->adj_fileid == dbp->adj_fileid;
 	    ldbp = LIST_NEXT(ldbp, dblistlinks)) {
-		cq = __db_acquire_cq(ldbp);
-		for (dbc = (cq == NULL) ? NULL : TAILQ_FIRST(&cq->aq);
+		for (dbc = __db_lock_aq(dbp, ldbp, &cq);
 		    dbc != NULL; dbc = TAILQ_NEXT(dbc, links)) {
 			if (IS_INITIALIZED(dbc)) {
 				found = 1;
 				break;
 			}
 		}
-		__db_release_cq(cq);
+		__db_unlock_aq(dbp, ldbp, cq);
 		if (found == 1)
 			break;
 	}
