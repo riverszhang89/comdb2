@@ -2562,11 +2562,10 @@ static int t2t_without_plan(const struct schema *from, const void *from_buf,
  * 0-length blobs via the 'ptr' element in the client-side blob (a NULL ptr
  * signified a NULL blob).  This is a special case which we want to eliminate.
  */
-int static_tag_blob_conversion(const char *table, const char *ctag,
+int static_tag_blob_conversion(const struct schema *scm,
                                void *record, blob_buffer_t *blobs,
                                size_t maxblobs)
 {
-    struct schema *scm;
     struct field *fld;
     client_blob_tp *clb;
     int ii;
@@ -2577,7 +2576,7 @@ int static_tag_blob_conversion(const char *table, const char *ctag,
     }
 
     /* If we can't find the tag, it is probably a not-yet-added dynamic tag. */
-    if (NULL == (scm = find_tag_schema(table, ctag))) {
+    if (scm == NULL) {
         return 0;
     }
 
@@ -2587,7 +2586,7 @@ int static_tag_blob_conversion(const char *table, const char *ctag,
     }
 
     /* If this is an ondisk then we are in an sql statement.  */
-    if (0 == strcmp(ctag, ".ONDISK")) {
+    if (0 == strcmp(scm->tag, ".ONDISK")) {
         return 0;
     }
 
@@ -3707,8 +3706,8 @@ void *stag_to_ctag(const char *table, const char *stag, const char *inbuf,
 
 /* forward */
 static int _stag_to_stag_buf_flags_blobs(
-    struct schema *fromsch, const char *fromtag, const char *inbuf,
-    const char *totable, const char *totag, char *outbuf, int flags,
+    struct schema *fromsch, struct schema *tosch,
+    const char *inbuf, char *outbuf, int flags,
     struct convert_failure *fail_reason, blob_buffer_t *inblobs,
     blob_buffer_t *outblobs, int maxblobs, const char *tzname);
 
@@ -3739,10 +3738,10 @@ int stag_to_stag_buf_blobs(const char *table, const char *fromtag,
         maxblobs = 0;
     }
 
-    struct schema *fromsch = find_tag_schema(table, fromtag);
-    rc = _stag_to_stag_buf_flags_blobs(fromsch, fromtag, inbuf, table, totag,
-                                       outbuf, 0 /*flags*/, reason, blobs,
-                                       p_newblobs, maxblobs, NULL /*tzname*/);
+    rc = _stag_to_stag_buf_flags_blobs(find_tag_schema(table, fromtag),
+            find_tag_schema(table, totag), inbuf,
+            outbuf, 0 /*flags*/, reason, blobs,
+            p_newblobs, maxblobs, NULL /*tzname*/);
 
     if (blobs && get_new_blobs) /* if we were given blobs */
     {
@@ -3774,7 +3773,7 @@ int stag_to_stag_buf_tz(struct schema *fromsch, const char *table,
                         struct convert_failure *reason, const char *tzname)
 {
     return _stag_to_stag_buf_flags_blobs(
-        fromsch, fromtag, inbuf, table, totag, outbuf, 0 /*flags*/, reason,
+        fromsch, find_tag_schema(table, totag), inbuf, outbuf, 0 /*flags*/, reason,
         NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, tzname);
 }
 
@@ -3791,10 +3790,11 @@ int stag_to_stag_buf_update_tz(const char *table, const char *fromtag,
                                char *outbuf, struct convert_failure *reason,
                                const char *tzname)
 {
-    struct schema *fromsch = find_tag_schema(table, fromtag);
     return _stag_to_stag_buf_flags_blobs(
-        fromsch, fromtag, inbuf, table, totag, outbuf, CONVERT_UPDATE, reason,
-        NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, tzname);
+            find_tag_schema(table, fromtag),
+            find_tag_schema(table, totag),
+            inbuf, outbuf, CONVERT_UPDATE, reason,
+            NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, tzname);
 }
 
 /*
@@ -4102,12 +4102,11 @@ static int stag_to_stag_field(const char *inbuf, char *outbuf, int flags,
  * On failure the caller should free inblobs and outblobs.
  */
 static int _stag_to_stag_buf_flags_blobs(
-    struct schema *fromsch, const char *fromtag, const char *inbuf,
-    const char *totable, const char *totag, char *outbuf, int flags,
+    struct schema *fromsch, struct schema *tosch,
+    const char *inbuf, char *outbuf, int flags,
     struct convert_failure *fail_reason, blob_buffer_t *inblobs,
     blob_buffer_t *outblobs, int maxblobs, const char *tzname)
 {
-    struct schema *tosch;
     int same_tag = 0;
 
     if (fail_reason)
@@ -4121,7 +4120,6 @@ static int _stag_to_stag_buf_flags_blobs(
     if (fail_reason)
         fail_reason->source_schema = fromsch;
 
-    tosch = find_tag_schema(totable, totag);
     if (tosch == NULL) {
         if (fail_reason)
             fail_reason->reason = CONVERT_FAILED_INVALID_OUTPUT_TAG;
@@ -4130,7 +4128,7 @@ static int _stag_to_stag_buf_flags_blobs(
     if (fail_reason)
         fail_reason->target_schema = tosch;
 
-    if (strcmp(fromtag, totag) == 0)
+    if (strcmp(fromsch->tag, tosch->tag) == 0)
         same_tag = 1;
 
     for (int field = 0; field < tosch->nmembers; field++) {
@@ -4244,10 +4242,11 @@ int stag_to_stag_buf_flags(const char *table, const char *fromtag,
                            const char *totag, char *outbuf, int flags,
                            struct convert_failure *fail_reason)
 {
-    struct schema *fromsch = find_tag_schema(table, fromtag);
     return _stag_to_stag_buf_flags_blobs(
-        fromsch, fromtag, inbuf, totable, totag, outbuf, flags, fail_reason,
-        NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, NULL);
+            find_tag_schema(table, fromtag),
+            find_tag_schema(totable, totag),
+            inbuf, outbuf, flags, fail_reason,
+            NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, NULL);
 }
 
 /*
@@ -7547,15 +7546,18 @@ int extract_decimal_quantum(const dbtable *db, int ix, char *inbuf,
 }
 
 int create_key_from_ondisk_sch_blobs(const dbtable *db, struct schema *fromsch,
+        struct schema *tosch,
                                      int ixnum, char **tail, int *taillen,
-                                     char *mangled_key, const char *fromtag,
+                                     char *mangled_key,
                                      const char *inbuf, int inbuflen,
-                                     const char *totag, char *outbuf,
+                                     char *outbuf,
                                      struct convert_failure *reason,
                                      blob_buffer_t *inblobs, int maxblobs,
                                      const char *tzname)
 {
     int rc = 0;
+    const char *fromtag = fromsch->tag,
+          *totag = tosch->tag;
 
     for (int i = 0; i != maxblobs; ++i) {
         rc = unodhfy_blob_buffer(db, inblobs + i, i);
@@ -7564,7 +7566,7 @@ int create_key_from_ondisk_sch_blobs(const dbtable *db, struct schema *fromsch,
     }
 
     rc = _stag_to_stag_buf_flags_blobs(
-        fromsch, fromtag, inbuf, db->tablename, totag, outbuf, 0 /*flags*/,
+        fromsch, tosch, inbuf, outbuf, 0 /*flags*/,
         reason, inblobs, NULL /*outblobs*/, maxblobs, tzname);
     if (rc)
         return rc;
@@ -7633,8 +7635,8 @@ int create_key_from_ondisk_sch(dbtable *db, struct schema *fromsch, int ixnum,
                                const char *tzname)
 {
     return create_key_from_ondisk_sch_blobs(
-        db, fromsch, ixnum, tail, taillen, mangled_key, fromtag, inbuf,
-        inbuflen, totag, outbuf, reason, NULL /*inblobs*/, 0 /*maxblobs*/,
+        db, fromsch, find_tag_schema(db->tablename, totag), ixnum, tail, taillen, mangled_key, inbuf,
+        inbuflen, outbuf, reason, NULL /*inblobs*/, 0 /*maxblobs*/,
         tzname);
 }
 
@@ -7658,11 +7660,12 @@ inline int create_key_from_ondisk_blobs(
     char *outbuf, struct convert_failure *reason, blob_buffer_t *inblobs,
     int maxblobs, const char *tzname)
 {
-    struct schema *fromsch = find_tag_schema(db->tablename, fromtag);
+    struct schema *fromsch = find_tag_schema(db->tablename, fromtag),
+                  *tosch = find_tag_schema(db->tablename, totag);
 
     return create_key_from_ondisk_sch_blobs(
-        db, fromsch, ixnum, tail, taillen, mangled_key, fromtag, inbuf,
-        inbuflen, totag, outbuf, reason, inblobs, maxblobs, tzname);
+        db, fromsch, tosch, ixnum, tail, taillen, mangled_key, inbuf,
+        inbuflen, outbuf, reason, inblobs, maxblobs, tzname);
 }
 
 int create_key_from_ireq(struct ireq *iq, int ixnum, int isDelete, char **tail,

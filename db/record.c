@@ -54,8 +54,7 @@ extern int gbl_partial_indexes;
 extern int gbl_expressions_indexes;
 
 static int check_blob_buffers(struct ireq *iq, blob_buffer_t *blobs,
-                              size_t maxblobs, const char *tblname,
-                              const char *tagname, struct schema *sc,
+                              size_t maxblobs, struct schema *sc,
                               void *record, const void *nulls);
 
 static int check_blob_sizes(struct ireq *iq, blob_buffer_t *blobs,
@@ -243,10 +242,18 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
         fldnullmap = lclnulls;
     }
 
+    int tag_same_as_ondisktag = (strcmp(tag, ondisktag) == 0);
+
+    struct schema *dbname_schema;
+    if (tag_same_as_ondisktag)
+        dbname_schema = iq->schemas[0];
+    else
+        dbname_schema = find_tag_schema(iq->usedb->tablename, tag);
+
     /* Tweak blob-descriptors for static tags. */
     if (gbl_disallow_null_blobs && !dynschema &&
         (flags & RECFLAGS_DYNSCHEMA_NULLS_ONLY)) {
-        static_tag_blob_conversion(iq->usedb->tablename, tag, record, blobs,
+        static_tag_blob_conversion(dbname_schema, record, blobs,
                                    maxblobs);
     }
 
@@ -255,7 +262,6 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
         prefixes++;
     }
 
-    struct schema *dbname_schema = find_tag_schema(iq->usedb->tablename, tag);
     if (dbname_schema == NULL) {
         if (iq->debug)
             reqprintf(iq, "UNKNOWN TAG %s TABLE %s\n", tag,
@@ -296,7 +302,8 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
     reclen = expected_dat_len;
 
     if (!(flags & RECFLAGS_NO_BLOBS) &&
-        (rc = check_blob_buffers(iq, blobs, maxblobs, iq->usedb->tablename, tag,
+            /*rz*/
+        (rc = check_blob_buffers(iq, blobs, maxblobs,
                                  dbname_schema, record, fldnullmap)) != 0) {
         reqerrstrhdr(iq, "Table '%s' ", iq->usedb->tablename);
         reqerrstr(iq, COMDB2_ADD_RC_INVL_BLOB,
@@ -315,7 +322,6 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
     }
 
     struct schema *ondisktagsc; // schema for .ONDISK
-    int tag_same_as_ondisktag = (strcmp(tag, ondisktag) == 0);
 
     if (tag_same_as_ondisktag) {
         /* we have the ondisk data already, no conversion needed */
@@ -374,7 +380,7 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
             ERR;
         }
 
-        ondisktagsc = find_tag_schema(iq->usedb->tablename, ondisktag);
+        ondisktagsc = iq->schemas[0];
     }
 
     rc = verify_check_constraints(iq->usedb, od_dta, blobs, maxblobs, 1);
@@ -795,13 +801,6 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
         fldnullmap = lclnulls;
     }
 
-    /* Tweak blob-descriptors for static tags. */
-    if (gbl_disallow_null_blobs && !dynschema &&
-        (flags & RECFLAGS_DYNSCHEMA_NULLS_ONLY)) {
-        static_tag_blob_conversion(iq->usedb->tablename, tag, record, blobs,
-                                   maxblobs);
-    }
-
     struct schema *dbname_schema = find_tag_schema(iq->usedb->tablename, tag);
     if (dbname_schema == NULL) {
         if (iq->debug)
@@ -811,6 +810,13 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
         *opfailcode = OP_FAILED_BAD_REQUEST;
         retrc = ERR_BADREQ;
         ERR;
+    }
+
+    /* Tweak blob-descriptors for static tags. */
+    if (gbl_disallow_null_blobs && !dynschema &&
+        (flags & RECFLAGS_DYNSCHEMA_NULLS_ONLY)) {
+        static_tag_blob_conversion(dbname_schema, record, blobs,
+                                   maxblobs);
     }
 
     expected_dat_len = get_size_of_schema(dbname_schema);
@@ -841,7 +847,7 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
     reclen = expected_dat_len;
 
     if (!(flags & RECFLAGS_NO_BLOBS) &&
-        check_blob_buffers(iq, blobs, maxblobs, iq->usedb->tablename, tag,
+        check_blob_buffers(iq, blobs, maxblobs,
                            dbname_schema, record, fldnullmap) != 0) {
         *opfailcode = OP_FAILED_BAD_REQUEST;
         retrc = ERR_BADREQ;
@@ -2303,8 +2309,7 @@ err:
 
 /* copied and pasted from toblock.c */
 static int check_blob_buffers(struct ireq *iq, blob_buffer_t *blobs,
-                              size_t maxblobs, const char *tblname,
-                              const char *tagname, struct schema *schema,
+                              size_t maxblobs, struct schema *schema,
                               void *record, const void *nulls)
 {
     extern int gbl_disable_blob_check;
@@ -2316,11 +2321,9 @@ static int check_blob_buffers(struct ireq *iq, blob_buffer_t *blobs,
     if (gbl_disable_blob_check)
         return 0;
 
-    ondisk = is_tag_ondisk(tblname, tagname);
-
     if (num_cblobs > maxblobs) {
         if (iq->debug)
-            reqprintf(iq, "TOO FEW BLOBS - TAG %s HAS %d BLOBS", tagname,
+            reqprintf(iq, "TOO FEW BLOBS - TAG %s HAS %d BLOBS", schema->tag,
                       num_cblobs);
         return maxblobs + 1;
     }
@@ -2556,17 +2559,6 @@ int updbykey_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
         fldnullmap = lclnulls;
     }
 
-    /* Tweak blob-descriptors for static tags. */
-    if (gbl_disallow_null_blobs && !dynschema &&
-        (flags & RECFLAGS_DYNSCHEMA_NULLS_ONLY)) {
-        static_tag_blob_conversion(iq->usedb->tablename, tag, record, blobs,
-                                   maxblobs);
-    }
-
-    if (iq->debug) {
-        reqpushprefixf(iq, "TAG %s ", tag);
-        prefixes++;
-    }
     struct schema *dbname_schema = find_tag_schema(iq->usedb->tablename, tag);
     if (dbname_schema == NULL) {
         if (iq->debug)
@@ -2576,6 +2568,18 @@ int updbykey_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
         *opfailcode = OP_FAILED_BAD_REQUEST;
         retrc = ERR_BADREQ;
         ERR;
+    }
+
+    /* Tweak blob-descriptors for static tags. */
+    if (gbl_disallow_null_blobs && !dynschema &&
+        (flags & RECFLAGS_DYNSCHEMA_NULLS_ONLY)) {
+        static_tag_blob_conversion(dbname_schema, record, blobs,
+                                   maxblobs);
+    }
+
+    if (iq->debug) {
+        reqpushprefixf(iq, "TAG %s ", tag);
+        prefixes++;
     }
 
     expected_dat_len = get_size_of_schema(dbname_schema);
@@ -2595,7 +2599,7 @@ int updbykey_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
     reclen = expected_dat_len;
 
     if (!(flags & RECFLAGS_NO_BLOBS) &&
-        check_blob_buffers(iq, blobs, maxblobs, iq->usedb->tablename, tag,
+        check_blob_buffers(iq, blobs, maxblobs,
                            dbname_schema, record, fldnullmap) != 0) {
         reqerrstrhdr(iq, "Table '%s' ", iq->usedb->tablename);
         reqerrstr(iq, COMDB2_ADD_RC_INVL_BLOB,

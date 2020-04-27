@@ -5925,6 +5925,15 @@ int osql_set_usedb(struct ireq *iq, const char *tablename, int tableversion,
         err->errcode = OP_FAILED_VERIFY;
         return ERR_VERIFY;
     }
+
+    iq->schemas = calloc(1 + iq->usedb->nix, sizeof(struct schema *));
+    iq->schemas[0] = find_tag_schema(iq->usedb->tablename, ".ONDISK");
+    char keyname[MAXTAGLEN];
+    for (int ixnum = 0; ixnum < iq->usedb->nix; ++ixnum) {
+        snprintf(keyname, sizeof(keyname), ".ONDISK_IX_%d", ixnum);
+        iq->schemas[ixnum + 1] = find_tag_schema(iq->usedb->tablename, keyname);
+    }
+
     return 0;
 }
 

@@ -1418,6 +1418,8 @@ struct ireq {
 
     int written_row_count;
     int sc_running;
+
+    struct schema **schemas;
     /* REVIEW COMMENTS AT BEGINING OF STRUCT BEFORE ADDING NEW VARIABLES */
 };
 

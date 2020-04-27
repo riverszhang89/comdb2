@@ -173,7 +173,6 @@ static int check_index(struct ireq *iq, void *trans, int ixnum,
 {
     int ixkeylen;
     int rc;
-    char ixtag[MAXTAGLEN];
     char key[MAXKEYLEN];
     char mangled_key[MAXKEYLEN];
     char *od_dta_tail = NULL;
@@ -194,15 +193,13 @@ static int check_index(struct ireq *iq, void *trans, int ixnum,
         return 1;
     }
 
-    snprintf(ixtag, sizeof(ixtag), "%s_IX_%d", ondisktag, ixnum);
-
     if (iq->idxInsert)
         rc = create_key_from_ireq(iq, ixnum, 0, &od_dta_tail, &od_tail_len,
                                   mangled_key, od_dta, od_len, key);
     else
         rc = create_key_from_ondisk_sch_blobs(
-            iq->usedb, ondisktagsc, ixnum, &od_dta_tail, &od_tail_len,
-            mangled_key, ondisktag, od_dta, od_len, ixtag, key, NULL, blobs,
+            iq->usedb, ondisktagsc, iq->schemas[ixnum + 1], ixnum, &od_dta_tail, &od_tail_len,
+            mangled_key, od_dta, od_len, key, NULL, blobs,
             maxblobs, iq->tzname);
     if (rc == -1) {
         if (iq->debug)
@@ -366,11 +363,10 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
             rc = create_key_from_ireq(iq, ixnum, 0, &od_dta_tail, &od_tail_len,
                                       mangled_key, od_dta, od_len, key);
         else {
-            char ixtag[MAXTAGLEN];
-            snprintf(ixtag, sizeof(ixtag), "%s_IX_%d", ondisktag, ixnum);
+            /* rz :*/
             rc = create_key_from_ondisk_sch_blobs(
-                iq->usedb, ondisktagsc, ixnum, &od_dta_tail, &od_tail_len,
-                mangled_key, ondisktag, od_dta, od_len, ixtag, key, NULL, blobs,
+                iq->usedb, ondisktagsc, iq->schemas[ixnum + 1], ixnum, &od_dta_tail, &od_tail_len,
+                mangled_key, od_dta, od_len, key, NULL, blobs,
                 maxblobs, iq->tzname);
         }
         if (rc == -1) {

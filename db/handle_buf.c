@@ -535,6 +535,8 @@ static void *thd_req(void *vthd)
                 thd->iq->vfy_genid_pool = NULL;
             }
             thd->iq->vfy_genid_track = 0;
+            free(thd->iq->schemas);
+            thd->iq->schemas = 0;
 #if 0
             fprintf(stderr, "%s:%d: THD=%d relablk iq=%p\n", __func__, __LINE__, pthread_self(), thd->iq);
 #endif
