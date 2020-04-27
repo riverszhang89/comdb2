@@ -85,8 +85,6 @@ __db_join(primary, curslist, dbcp, flags)
 	DB_ENV *dbenv;
 	DBC *dbc;
 	JOIN_CURSOR *jc;
-	DB_CQ *cq;
-	DB_CQ_HASH *cqh;
 	size_t ncurs, nslots;
 	u_int32_t i;
 	int ret;
@@ -94,7 +92,6 @@ __db_join(primary, curslist, dbcp, flags)
 	dbenv = primary->dbenv;
 	dbc = NULL;
 	jc = NULL;
-	cqh = NULL;
 
 	if ((ret = __os_calloc(dbenv, 1, sizeof(DBC), &dbc)) != 0)
 		goto err;
@@ -719,7 +716,6 @@ __db_join_close(dbc)
 	DB *dbp;
 	DB_ENV *dbenv;
 	JOIN_CURSOR *jc;
-	DB_CQ *cq;
 	int ret, t_ret;
 	u_int32_t i;
 
@@ -728,7 +724,6 @@ __db_join_close(dbc)
 	dbenv = dbp->dbenv;
 	ret = t_ret = 0;
 	
-
 	/*
 	 * Remove from active list of join cursors.  Note that this
 	 * must happen before any action that can fail and return, or else

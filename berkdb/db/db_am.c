@@ -93,7 +93,7 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 			}
 		__db_release_cq(cq);
 	} else {
-		MUTEX_THREAD_LOCK(dbenv, dbp->mutexp);
+		MUTEX_THREAD_LOCK(dbenv, dbp->free_mutexp);
 		for (dbc = TAILQ_FIRST(&dbp->free_queue);
 			dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
 			if (dbtype == dbc->dbtype) {
@@ -101,7 +101,7 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 				F_CLR(dbc, ~DBC_OWN_LID);
 				break;
 			}
-		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);	
+		MUTEX_THREAD_UNLOCK(dbenv, dbp->free_mutexp);
 	}
 
 	if (dbc == NULL) {
@@ -589,6 +589,7 @@ __db_cprint(dbp)
 			dbc != NULL; dbc = TAILQ_NEXT(dbc, links))
 			if ((t_ret = __db_cprint_item(dbc)) != 0 && ret == 0)
 				ret = t_ret;
+		MUTEX_THREAD_UNLOCK(dbp->dbenv, dbp->mutexp);
 	} else {
 
 		Pthread_mutex_lock(&gbl_all_cursors.lk);

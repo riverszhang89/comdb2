@@ -131,10 +131,8 @@ db_create(dbpp, dbenv, flags)
 	if (ret != 0)
 		goto err;
 
-#if 0
 	if (idxpri)
 		dbp->use_tlcq = 1;
-#endif
 
 	/* If we don't have an environment yet, allocate a local one. */
 	if (dbenv == NULL) {
@@ -211,7 +209,6 @@ __db_init(dbp, flags)
 	TAILQ_INIT(&dbp->free_queue);
 	TAILQ_INIT(&dbp->active_queue);
 	TAILQ_INIT(&dbp->join_queue);
-
 	LIST_INIT(&dbp->s_secondaries);
 
 	FLD_SET(dbp->am_ok,
