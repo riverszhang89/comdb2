@@ -53,7 +53,6 @@ extern int gbl_skip_cget_in_db_put;
  * PUBLIC: int __db_cursor_int
  * PUBLIC:     __P((DB *, DB_TXN *, DBTYPE, db_pgno_t, int, u_int32_t, DBC **, u_int32_t));
  */
-int wtf = 0;
 int
 __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	DB *dbp;
@@ -105,10 +104,6 @@ __db_cursor_int(dbp, txn, dbtype, root, is_opd, lockerid, dbcp, flags)
 	}
 
 	if (dbc == NULL) {
-		wtf++;
-		if (wtf > 10000)  {
-			printf("%s\n", dbp->fname);
-		}
 		if ((ret = __os_calloc(dbenv, 1, sizeof(DBC), &dbc)) != 0)
 			return (ret);
 		allocated = 1;
