@@ -98,7 +98,7 @@ __db_new_cq(db)
 	DB *db;
 {
 	DB_CQ *cq;
-	DB_CQ_HASH *h = Pthread_getspecific(tlcq_key);
+	DB_CQ_HASH *h = pthread_getspecific(tlcq_key);
 
 	cq = malloc(sizeof(DB_CQ));
 	cq->db = db;
@@ -144,7 +144,7 @@ __db_acquire_cq(db)
 	DB_CQ *cq;
 	DB_CQ_HASH *h;
 
-	if ((h = Pthread_getspecific(tlcq_key)) == NULL)
+	if ((h = pthread_getspecific(tlcq_key)) == NULL)
 		return NULL;
 
 	Pthread_mutex_lock(&h->lk);
