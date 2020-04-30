@@ -509,7 +509,6 @@ __db_count_cursors(DB *dbp)
 
 	if (!dbp->use_tlcq) {
 		MUTEX_THREAD_LOCK(dbp->dbenv, dbp->mutexp);
-		/* fprintf(stderr, "Active queue:\n"); */
 		for (dbc = TAILQ_FIRST(&dbp->active_queue); dbc != NULL;
 			dbc = TAILQ_NEXT(dbc, links))
 			ncur++;
@@ -1230,10 +1229,10 @@ __db_check_all_btree_cursors(dbp, pgno)
 
 			tmp_pgno = __bam_get_dbc_page(dbc);
 			if (tmp_pgno == pgno) {
-				fprintf(stderr,
-					"Cursor %p locks the page %u [%u %u] txn=%p %d\n",
-					dbc, pgno, dbc->lid, dbc->locker, dbc->txn,
-					dbc->pp_allocated);
+				logmsg(LOGMSG_ERROR,
+						"Cursor %p locks the page %u [%u %u] txn=%p %d\n",
+						dbc, pgno, dbc->lid, dbc->locker, dbc->txn,
+						dbc->pp_allocated);
 			}
 		}
 		MUTEX_THREAD_UNLOCK(dbenv, dbp->mutexp);
@@ -1251,7 +1250,7 @@ __db_check_all_btree_cursors(dbp, pgno)
 
 					tmp_pgno = __bam_get_dbc_page(dbc);
 					if (tmp_pgno == pgno) {
-						fprintf(stderr,
+						logmsg(LOGMSG_ERROR,
 								"Cursor %p locks the page %u [%u %u] txn=%p %d\n",
 								dbc, pgno, dbc->lid, dbc->locker, dbc->txn,
 								dbc->pp_allocated);

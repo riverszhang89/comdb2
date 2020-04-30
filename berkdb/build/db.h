@@ -1431,7 +1431,7 @@ typedef struct __db_cq_hash {
 	hash_t *h;
 	/* Although the structure is mostly single-threaded, cursors may be
 	   modified by another thread of control (e.g., a schema change
-       invalidates all free cursors). So guard the structure with a lock. */
+	   invalidates all free cursors). So guard the structure with a lock. */
 	pthread_mutex_t lk;
 	struct {
 		struct __db_cq_hash *tqe_next;

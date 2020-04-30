@@ -209,7 +209,7 @@ __db_init(dbp, flags)
 	dbp->lid = DB_LOCK_INVALIDID;
 	LOCK_INIT(dbp->handle_lock);
 
-	pthread_once(&tlcq_once, __db_tlcq_init_once);
+	Pthread_once(&tlcq_once, __db_tlcq_init_once);
 	TAILQ_INIT(&dbp->free_queue);
 	TAILQ_INIT(&dbp->active_queue);
 	TAILQ_INIT(&dbp->join_queue);

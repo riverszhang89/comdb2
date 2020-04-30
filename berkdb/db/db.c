@@ -98,7 +98,7 @@ __db_new_cq(db)
 	DB *db;
 {
 	DB_CQ *cq;
-	DB_CQ_HASH *h = pthread_getspecific(tlcq_key);
+	DB_CQ_HASH *h = Pthread_getspecific(tlcq_key);
 
 	cq = malloc(sizeof(DB_CQ));
 	cq->db = db;
@@ -110,7 +110,7 @@ __db_new_cq(db)
 		h = malloc(sizeof(DB_CQ_HASH));
 		h->h = hash_init(sizeof(DB *));
 		Pthread_mutex_init(&h->lk, NULL);
-		pthread_setspecific(tlcq_key, h);
+		Pthread_setspecific(tlcq_key, h);
 
 		Pthread_mutex_lock(&gbl_all_cursors.lk);
 		TAILQ_INSERT_TAIL(&gbl_all_cursors, h, links);
@@ -144,7 +144,7 @@ __db_acquire_cq(db)
 	DB_CQ *cq;
 	DB_CQ_HASH *h;
 
-	if ((h = pthread_getspecific(tlcq_key)) == NULL)
+	if ((h = Pthread_getspecific(tlcq_key)) == NULL)
 		return NULL;
 
 	Pthread_mutex_lock(&h->lk);
