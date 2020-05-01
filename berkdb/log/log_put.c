@@ -811,7 +811,7 @@ __write_inmemory_buffer_lk(dblp, bytes_written, write_all)
 	/* Write to the buffer end. */
 	if (nxwseg > curseg) {
 		/* Actually do the write. */
-		if ((ret = __log_write(dblp, dblp->bufp + lp->l_off,
+		if ((ret = __log_write(dblp, DB_LOG_BUFP(dblp) + lp->l_off,
 			    lp->buffer_size - lp->l_off)) != 0) {
 			dbenv = dblp->dbenv;
 			__db_err(dbenv,
@@ -836,7 +836,7 @@ __write_inmemory_buffer_lk(dblp, bytes_written, write_all)
 		if (write_all) {
 			/* Write if there's anything to write. */
 			if (lp->b_off != lp->l_off)
-				ret = __log_write(dblp, dblp->bufp + lp->l_off,
+				ret = __log_write(dblp, DB_LOG_BUFP(dblp) + lp->l_off,
 				    lp->b_off - lp->l_off);
 
 			/* Update bytes_written. */
@@ -870,7 +870,7 @@ __write_inmemory_buffer_lk(dblp, bytes_written, write_all)
 
 			/* Write up to that point. */
 			ret =
-			    __log_write(dblp, dblp->bufp + lp->l_off,
+			    __log_write(dblp, DB_LOG_BUFP(dblp) + lp->l_off,
 			    begseg - lp->l_off);
 
 			/* Update bytes written. */
@@ -910,7 +910,10 @@ __write_inmemory_buffer(dblp, write_all)
 		Pthread_mutex_unlock(&log_write_lk);
 		return ret;
 	} else {
-		return __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off);
+        /* RZ */
+        void *addr = DB_LOG_BUFP(dblp);
+        dblp->bufpidx = !dblp->bufpidx;
+		return __log_write(dblp, addr, (u_int32_t)lp->b_off);
 	}
 }
 
@@ -973,7 +976,7 @@ __log_flush_commit(dbenv, lsnp, flags)
 	 * it out to disk before there was a failure, we can't know for sure.
 	 */
 	if (__txn_force_abort(dbenv,
-	    dblp->bufp + flush_lsn.offset - lp->w_off) == 0)
+	    DB_LOG_BUFP(dblp) + flush_lsn.offset - lp->w_off) == 0)
 		(void)__log_flush_int(dblp, &flush_lsn, 0);
 
 	return (ret);
@@ -1830,7 +1833,7 @@ __log_fill_segments(dblp, startlsn, lsn, addr, len)
 		copyamt = (segspace > len) ? len : segspace;
 
 		/* Copy into the log-buffer. */
-		memcpy(dblp->bufp + lp->b_off, addr, copyamt);
+		memcpy(DB_LOG_BUFP(dblp) + lp->b_off, addr, copyamt);
 
 		/* Increment addr. */
 		addr = (u_int8_t *)addr + copyamt;
@@ -1868,6 +1871,27 @@ __log_fill_segments(dblp, startlsn, lsn, addr, len)
 		lp->b_off = (lp->b_off + copyamt) % lp->buffer_size;
 	}
 	return (0);
+}
+
+static pthread_mutex_t log_write_lk2 = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t log_write_simple_td;
+typedef struct __log_write_args {
+    DB_LOG *dblp;
+    void *addr;
+    size_t len;
+} LOG_WRITE_ARGS;
+
+/* Wakeup when signaled and write the log-buffer to disk. */
+static void *
+__log_write_simple_td(arg)
+	void *arg;
+{
+    LOG_WRITE_ARGS *lwargs = (LOG_WRITE_ARGS *)arg;
+
+    __log_write(lwargs->dblp, lwargs->addr, lwargs->len);
+
+    free(lwargs);
+    return NULL;
 }
 
 /*
@@ -1917,15 +1941,28 @@ __log_fill(dblp, lsn, addr, len)
 		/* Figure out how many bytes we can copy this time. */
 		remain = bsize - lp->b_off;
 		nw = remain > len ? len : remain;
-		memcpy(dblp->bufp + lp->b_off, addr, nw);
+		memcpy(DB_LOG_BUFP(dblp) + lp->b_off, addr, nw);
 		addr = (u_int8_t *)addr + nw;
 		len -= (u_int32_t)nw;
 		lp->b_off += nw;
 
 		/* If we fill the buffer, flush it. */
-		if (lp->b_off == bsize) {
-			if ((ret = __log_write(dblp, dblp->bufp, bsize)) != 0)
+        if (lp->b_off == bsize) {
+            LOG_WRITE_ARGS *lwargs = malloc(sizeof(LOG_WRITE_ARGS));
+            lwargs->dblp = dblp;
+            lwargs->addr = DB_LOG_BUFP(dblp);
+            lwargs->len = bsize;
+            pthread_mutex_lock(&log_write_lk2);
+            pthread_create(&log_write_simple_td, NULL, __log_write_simple_td,
+                    lwargs);
+            pthread_mutex_unlock(&log_write_lk2);
+
+            /* RZ */
+#if 0
+			if ((ret = __log_write(dblp, DB_LOG_BUFP(dblp), bsize)) != 0)
 				return (ret);
+#endif
+            dblp->bufpidx = !dblp->bufpidx;
 			lp->b_off = 0;
 			++lp->stat.st_wcount_fill;
 		}
@@ -1951,13 +1988,17 @@ __log_write(dblp, addr, len)
 	dbenv = dblp->dbenv;
 	lp = dblp->reginfo.primary;
 
+    pthread_mutex_lock(&log_write_lk2);
+
 	/*
 	 * If we haven't opened the log file yet or the current one
 	 * has changed, acquire a new log file.
 	 */
 	if (dblp->lfhp == NULL || dblp->lfname != lp->lsn.file)
-		if ((ret = __log_newfh(dblp)) != 0)
+		if ((ret = __log_newfh(dblp)) != 0) {
+            pthread_mutex_unlock(&log_write_lk2);
 			return (ret);
+        }
 
 	/*
 	 * Seek to the offset in the file (someone may have written it
@@ -1965,8 +2006,10 @@ __log_write(dblp, addr, len)
 	 */
 	if ((ret = __os_seek(dbenv,
 	    dblp->lfhp, 0, 0, lp->w_off, 0, DB_OS_SEEK_SET)) != 0 ||
-	    (ret = __os_write(dbenv, dblp->lfhp, addr, len, &nw)) != 0)
+	    (ret = __os_write(dbenv, dblp->lfhp, addr, len, &nw)) != 0) {
+        pthread_mutex_unlock(&log_write_lk2);
 		return (ret);
+    }
 
 	/* Reset the buffer offset and update the seek offset. */
 	lp->w_off += len;
@@ -1988,6 +2031,7 @@ __log_write(dblp, addr, len)
 	}
 	++lp->stat.st_wcount;
 
+    pthread_mutex_unlock(&log_write_lk2);
 	return (0);
 }
 

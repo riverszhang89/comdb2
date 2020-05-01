@@ -920,7 +920,7 @@ segmented_copy(dblp, lp, to_p, buf_offset, cp_sz)
 	assert(cp_sz <= lp->buffer_size);
 
 	/* Set pointer to the correct offset. */
-	p = dblp->bufp + buf_offset;
+	p = DB_LOG_BUFP(dblp) + buf_offset;
 
 	/* Handle the wrap-case. */
 	if (buf_offset + cp_sz > lp->buffer_size) {
@@ -934,7 +934,7 @@ segmented_copy(dblp, lp, to_p, buf_offset, cp_sz)
 		to_p += lp->buffer_size - buf_offset;
 
 		/* Resume copy at the beginning of the buffer. */
-		memcpy(to_p, dblp->bufp, cp_sz);
+		memcpy(to_p, DB_LOG_BUFP(dblp), cp_sz);
 
 		/* Increment wrap-copy count. */
 		lp->stat.st_wrap_copy++;
@@ -1134,7 +1134,7 @@ __log_c_inregion_int(logc, lsn, rlockp, last_lsn, hdr, pp)
 			/* Probe for a non-existant log record (for rep-verify) */
 			if (w_off > lsn->offset)
 				return (DB_NOTFOUND);
-			p = dblp->bufp + (lsn->offset - w_off);
+			p = DB_LOG_BUFP(dblp) + (lsn->offset - w_off);
 			memcpy(hdr, p, hdr->size);
 		}
 		if (LOG_SWAPPED())
@@ -1271,15 +1271,15 @@ __log_c_inregion_int(logc, lsn, rlockp, last_lsn, hdr, pp)
 		 * equal to what we're looking for.
 		 */
 		else {
-			for (p = dblp->bufp + (lp->b_off - lp->len);;) {
+			for (p = DB_LOG_BUFP(dblp) + (lp->b_off - lp->len);;) {
 				memcpy(hdr, p, hdr->size);
 				if (LOG_SWAPPED())
 					__log_hdrswap(hdr, CRYPTO_ON(dbenv));
 				if (hdr->prev == lsn->offset) {
-					b_region = (u_int32_t)(p - dblp->bufp);
+					b_region = (u_int32_t)(p - DB_LOG_BUFP(dblp));
 					break;
 				}
-				p = dblp->bufp + (hdr->prev - lp->w_off);
+				p = DB_LOG_BUFP(dblp) + (hdr->prev - lp->w_off);
 			}
 		}
 	}
@@ -1313,7 +1313,7 @@ __log_c_inregion_int(logc, lsn, rlockp, last_lsn, hdr, pp)
 		 * cursor's buffer.
 		 */
 		p = (logc->bp + logc->bp_size) - b_region;
-		memcpy(p, dblp->bufp, b_region);
+		memcpy(p, DB_LOG_BUFP(dblp), b_region);
 	}
 
 	/* Release the region lock. */

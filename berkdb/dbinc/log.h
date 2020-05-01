@@ -99,7 +99,8 @@ struct __db_log {
 	u_int32_t lfname;		/* Log file "name". */
 	DB_FH	 *lfhp;			/* Log file handle. */
 
-	u_int8_t *bufp;			/* Region buffer. */
+    int bufpidx;
+	u_int8_t *bufp[2];			/* Region buffer. */
 
 /* These fields are not protected. */
 	DB_ENV	 *dbenv;		/* Reference to error information. */
@@ -110,6 +111,8 @@ struct __db_log {
 					 * to be deleted. */
 	u_int32_t flags;
 };
+
+#define DB_LOG_BUFP(dblp) ((dblp)->bufp[(dblp)->bufpidx])
 
 /*
  * HDR --
@@ -241,7 +244,7 @@ struct __log {
 	 */
 	DB_LSN	cached_ckp_lsn;
 
-	roff_t	  buffer_off;		/* Log buffer offset in the region. */
+	roff_t	  buffer_off[2];	/* Log buffer offset in the region. */
 	u_int32_t buffer_size;		/* Log buffer size. */
 	u_int32_t segment_size;		/* Size of a buffer segment. */
 	u_int32_t num_segments;		/* Number of segments. */

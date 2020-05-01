@@ -85,7 +85,9 @@ __log_open(dbenv)
 		goto err;
 
 	/* Initialize the rest of the structure. */
-	dblp->bufp = R_ADDR(&dblp->reginfo, lp->buffer_off);
+    dblp->bufpidx = 0;
+	dblp->bufp[0] = R_ADDR(&dblp->reginfo, lp->buffer_off[0]);
+	dblp->bufp[1] = R_ADDR(&dblp->reginfo, lp->buffer_off[1]);
 
 	/*
 	 * Set the handle -- we may be about to run recovery, which allocates
@@ -175,7 +177,7 @@ __log_init(dbenv, dblp)
 	DB_MUTEX *flush_mutexp;
 	LOG *region;
 	int ret;
-	void *p;
+	void *p, *q;
 #ifdef  HAVE_MUTEX_SYSTEM_RESOURCES
 	u_int8_t *addr;
 #endif
@@ -242,10 +244,15 @@ __log_init(dbenv, dblp)
 	    __os_malloc(dbenv, dbenv->lg_bsize, &p)) != 0) {
 		goto mem_err;
 	}
+	if ((ret =
+	    __os_malloc(dbenv, dbenv->lg_bsize, &q)) != 0) {
+		goto mem_err;
+	}
 	region->num_segments = dbenv->lg_nsegs;
 	region->segment_size = dbenv->lg_bsize / dbenv->lg_nsegs;
 	region->buffer_size = dbenv->lg_nsegs * region->segment_size;
-	region->buffer_off = R_OFFSET(&dblp->reginfo, p);
+	region->buffer_off[0] = R_OFFSET(&dblp->reginfo, p);
+	region->buffer_off[1] = R_OFFSET(&dblp->reginfo, q);
 	region->log_size = region->log_nsize = dbenv->lg_size;
 
 	/* Initialize an array of segment lsns. */
@@ -867,8 +874,10 @@ __log_dbenv_refresh(dbenv)
 		__os_free(dbenv, dblp->dbentry);
 
     LOG *region = dblp->reginfo.primary;
-	void *p = R_ADDR(&dblp->reginfo, region->buffer_off);
+	void *p = R_ADDR(&dblp->reginfo, region->buffer_off[0]);
 	__os_free(dbenv, p);
+	void *q = R_ADDR(&dblp->reginfo, region->buffer_off[1]);
+	__os_free(dbenv, q);
 
 	__os_free(dbenv, dblp);
 
