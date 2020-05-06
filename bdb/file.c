@@ -5765,8 +5765,11 @@ static bdb_state_type *bdb_open_int(
               log files to the database files, allowing us to remove
               log files.
               */
+#if 0
             rc = pthread_create(&(bdb_state->checkpoint_thread), &attr,
                                 checkpoint_thread, bdb_state);
+#endif
+            rc = 0;
             if (rc != 0) {
                 logmsg(LOGMSG_ERROR, "unable to create checkpoint thread - rc=%d "
                                 "errno=%d %s\n",
@@ -5781,8 +5784,11 @@ static bdb_state_type *bdb_open_int(
               so that a read can be done without incurring a last minute
               write in an effort to make memory available for the read
               */
+#if 0
             rc = pthread_create(&(bdb_state->memp_trickle_thread), &attr,
                                 memp_trickle_thread, bdb_state);
+#endif
+            rc = 0;
             if (rc != 0) {
                 logmsg(LOGMSG_ERROR, "unable to create memp_trickle thread - rc=%d "
                                 "errno=%d %s\n",

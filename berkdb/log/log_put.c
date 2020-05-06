@@ -264,14 +264,14 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 
 	ZERO_LSN(old_lsn);
 
-    Pthread_mutex_lock(&gbl_logput_lk);
+    //Pthread_mutex_lock(&gbl_logput_lk);
 	if ((ret =
 		__log_put_next(dbenv, lsnp, contextp, dbt, udbt, &hdr, &old_lsn,
 		    off_context, key, flags)) != 0)
 		goto panic_check;
 
-    Pthread_cond_broadcast(&gbl_logput_cond);
-    Pthread_mutex_unlock(&gbl_logput_lk);
+    //Pthread_cond_broadcast(&gbl_logput_cond);
+    //Pthread_mutex_unlock(&gbl_logput_lk);
 
 	lsn = *lsnp;
 
@@ -899,9 +899,13 @@ __write_inmemory_buffer(dblp, write_all)
 	int write_all;
 {
 	LOG *lp;
+    DB_ENV *dbenv;
+	DB_MUTEX *flush_mutexp;
 	int ret;
 
 	lp = dblp->reginfo.primary;
+	flush_mutexp = R_ADDR(&dblp->reginfo, lp->flush_mutex_off);
+    dbenv = dblp->dbenv;
 
 	if (lp->num_segments > 1) {
 		Pthread_mutex_lock(&log_write_lk);
@@ -913,7 +917,13 @@ __write_inmemory_buffer(dblp, write_all)
         /* RZ */
         void *addr = DB_LOG_BUFP(dblp);
         dblp->bufpidx = !dblp->bufpidx;
-		return __log_write(dblp, addr, (u_int32_t)lp->b_off);
+        /* RZ- remember lp->b_off before unlock */
+        R_UNLOCK(dbenv, &dblp->reginfo);
+		ret = __log_write(dblp, addr, (u_int32_t)lp->b_off);
+		MUTEX_UNLOCK(dbenv, flush_mutexp);
+        R_LOCK(dblp->dbenv, &dblp->reginfo);
+        MUTEX_LOCK(dbenv, flush_mutexp);
+        return (ret);
 	}
 }
 
@@ -984,6 +994,8 @@ __log_flush_commit(dbenv, lsnp, flags)
 
 extern int wait_for_running_transactions(DB_ENV *);
 
+static pthread_t someone_is_in_log_newfie;
+
 /*
  * __log_newfile --
  *	Initialize and switch to a new log file.  (Note that this is
@@ -1006,6 +1018,11 @@ __log_newfile(dblp, lsnp)
 	u_int32_t lastoff;
 	size_t tsize;
 	u_int8_t *tmp;
+
+    if (someone_is_in_log_newfie)
+        return 0;
+
+    someone_is_in_log_newfie = pthread_self();
 
 	dbenv = dblp->dbenv;
 
@@ -1094,6 +1111,7 @@ __log_newfile(dblp, lsnp)
 err:
 	if (need_free)
 		__os_free(dbenv, tmp);
+    someone_is_in_log_newfie = 0;
 	return (ret);
 }
 
