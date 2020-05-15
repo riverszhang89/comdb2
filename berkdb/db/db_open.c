@@ -82,6 +82,9 @@ __db_open(dbp, txn, fname, dname, type, flags, mode, meta_pgno)
 
 	DB_TEST_RECOVERY(dbp, DB_TEST_PREOPEN, ret, fname);
 
+    if (LF_ISSET(DB_THREAD))
+        dbp->use_tlcq = 1;
+
 	/*
 	 * If the environment was configured with threads, the DB handle
 	 * must also be free-threaded, so we force the DB_THREAD flag on.

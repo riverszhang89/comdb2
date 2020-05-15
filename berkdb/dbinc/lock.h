@@ -124,9 +124,11 @@ struct __db_lockerid_latch_list;
 typedef struct __db_lockregion {
 	u_int32_t	need_dd;	/* flag for deadlock detector */
 	u_int32_t	detect;		/* run dd on every conflict */
+    u_int32_t   dd_cookie;
 	db_timeval_t	next_timeout;	/* next time to expire a lock */
 	SH_TAILQ_HEAD(__dobj, __db_lockobj) dd_objs;	/* objects with waiters */
 	SH_TAILQ_HEAD(__lkrs, __db_locker) lockers;	/* list of lockers */
+	SH_TAILQ_HEAD(__wlkrs, __db_locker) wlockers;	/* list of lockers */
 	db_timeout_t	lk_timeout;	/* timeout for locks. */
 	db_timeout_t	tx_timeout;	/* timeout for txns. */
 	roff_t		conf_off;	/* offset of conflicts array */
@@ -263,6 +265,7 @@ typedef struct __db_locker {
 					   list. */
 	SH_TAILQ_ENTRY(__db_locker) links;		/* Links for free and hash list. */
 	SH_TAILQ_ENTRY(__db_locker) ulinks;	/* Links in-use list. */
+	SH_TAILQ_ENTRY(__db_locker) wlinks;	/* Links in-use list. */
 	SH_LIST_HEAD(_held, __db_lock) heldby;	/* Locks held by this locker. */
 	db_timeval_t	lk_expire;	/* When current lock expires. */
 	db_timeval_t	tx_expire;	/* When this txn expires. */
@@ -293,6 +296,8 @@ typedef struct __db_locker {
 	u_int32_t flags;
 	u_int8_t has_pglk_lsn;
 	u_int8_t wstatus;  /* master locker waiting, for deadlock detection */
+    u_int32_t   dd_cookie;
+    u_int32_t   dd_in_wlocks;
 } DB_LOCKER;
 
 /*
