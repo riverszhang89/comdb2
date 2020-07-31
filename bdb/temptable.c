@@ -1500,7 +1500,10 @@ int bdb_temp_table_close(bdb_state_type *bdb_state, struct temp_table *tbl,
                __func__, rc);
     }
 
-    if (tbl->dbenv_temp != NULL) {
+    /* Check for temp_table_type here instead of dbenv_temp. A temparray has
+       dbenv_temp too if it previously spilled to btree. Do not double-count
+       the btree statistics. */
+    if (tbl->temp_table_type == TEMP_TABLE_TYPE_BTREE) {
         Pthread_mutex_lock(&(bdb_state->temp_list_lock));
 
         if ((tbl->dbenv_temp->memp_stat(tbl->dbenv_temp, &tmp, NULL,
@@ -1597,7 +1600,10 @@ int bdb_temp_table_destroy_lru(struct temp_table *tbl,
 
     *last = 0;
 
-    if ((tbl->dbenv_temp != NULL) &&
+    /* Check for temp_table_type here instead of dbenv_temp. A temparray has
+       dbenv_temp too if it previously spilled to btree. Do not double-count
+       the btree statistics. */
+    if ((tbl->temp_table_type == TEMP_TABLE_TYPE_BTREE) &&
         (tbl->dbenv_temp->memp_stat(tbl->dbenv_temp, &tmp, NULL,
                                     DB_STAT_CLEAR)) == 0) {
         bdb_state->temp_stats->st_gbytes += tmp->st_gbytes;
@@ -1846,35 +1852,40 @@ int bdb_temp_table_find(bdb_state_type *bdb_state, struct temp_cursor *cur,
     tmptbl_cmp cmpfn;
     arr_elem_t *elem;
     DBT dkey, ddata;
+    struct temp_table *tbl = cur->tbl;
 
-    if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_LIST) {
+    if (tbl->temp_table_type == TEMP_TABLE_TYPE_LIST) {
         logmsg(LOGMSG_ERROR, 
                 "bdb_temp_table_find operation not supported for temp list.\n");
         return -1;
     }
-    else if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_HASH) {
+    else if (tbl->temp_table_type == TEMP_TABLE_TYPE_HASH) {
         return bdb_temp_table_find_hash(cur, key, keylen);
     }
 
-    if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_ARRAY) {
+    if (tbl->temp_table_type == TEMP_TABLE_TYPE_ARRAY) {
 
         /* Find the 1st occurrence of `key'. If `key' is not found,
            find the smallest element greater than `key' */
 
-        if (cur->tbl->num_mem_entries == 0) {
+        if (tbl->num_mem_entries == 0) {
             cur->valid = 0;
             return IX_EMPTY;
         }
 
         lo = 0;
-        hi = cur->tbl->num_mem_entries - 1;
+        hi = tbl->num_mem_entries - 1;
         found = -1;
-        cmpfn = cur->tbl->cmpfunc;
+        cmpfn = tbl->cmpfunc;
 
         while (lo <= hi) {
             mid = (lo + hi) >> 1;
-            elem = &cur->tbl->elements[mid];
-            cmp = cmpfn(NULL, elem->keylen, elem->key, keylen, key);
+            elem = &tbl->elements[mid];
+
+            if (unpacked != NULL)
+                cmp = cmpfn(NULL, elem->keylen, elem->key, -1, unpacked);
+            else
+                cmp = cmpfn(tbl->usermem, elem->keylen, elem->key, keylen, key);
 
             if (cmp < 0)
                 lo = mid + 1;
@@ -1888,9 +1899,13 @@ int bdb_temp_table_find(bdb_state_type *bdb_state, struct temp_cursor *cur,
 
         if (found != -1)
             cur->ind = found;
-        else if (lo < cur->tbl->num_mem_entries)
+        else if (lo < tbl->num_mem_entries)
             cur->ind = lo;
-        else {
+        else if (lo == tbl->num_mem_entries) {
+            /* If nothing can be found, return the last element.
+               See the btree code below. */
+            cur->ind = (lo - 1);
+        } else {
             cur->valid = 0;
             return IX_NOTFND;
         }
@@ -2001,34 +2016,35 @@ int bdb_temp_table_find_exact(bdb_state_type *bdb_state,
     int exists = 0;
     arr_elem_t *elem;
     void *keydup;
+    struct temp_table *tbl = cur->tbl;
 
-    if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_LIST) {
+    if (tbl->temp_table_type == TEMP_TABLE_TYPE_LIST) {
         logmsg(LOGMSG_ERROR, "bdb_temp_table_find_exact operation not supported for "
                         "temp list.\n");
         return -1;
     }
 
-    if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_HASH) {
+    if (tbl->temp_table_type == TEMP_TABLE_TYPE_HASH) {
         return bdb_temp_table_find_exact_hash(cur, key, keylen);
     }
 
-    if (cur->tbl->temp_table_type == TEMP_TABLE_TYPE_ARRAY) {
+    if (tbl->temp_table_type == TEMP_TABLE_TYPE_ARRAY) {
 
         /* Find the 1st occurrence of `key'. */
 
-        if (cur->tbl->num_mem_entries == 0) {
+        if (tbl->num_mem_entries == 0) {
             cur->valid = 0;
             return IX_EMPTY;
         }
 
         lo = 0;
-        hi = cur->tbl->num_mem_entries - 1;
+        hi = tbl->num_mem_entries - 1;
         found = -1;
-        cmpfn = cur->tbl->cmpfunc;
+        cmpfn = tbl->cmpfunc;
 
         while (lo <= hi) {
             mid = (lo + hi) >> 1;
-            elem = &cur->tbl->elements[mid];
+            elem = &tbl->elements[mid];
             cmp = cmpfn(NULL, elem->keylen, elem->key, keylen, key);
 
             if (cmp < 0)
