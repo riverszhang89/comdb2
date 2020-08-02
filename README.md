@@ -30,7 +30,7 @@ On every machine in the cluster:
 
 2. Install prerequisites: 
    
-   **Ubuntu 16.04, 16.10, 17.04, Windows Subsystem for Linux (WSL)**
+   **Debian/Ubuntu**
         
    ```
    sudo apt-get install -y  \

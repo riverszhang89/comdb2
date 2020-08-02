@@ -819,13 +819,29 @@ int main(int argc, char **argv)
         }
     }
     init_router_mode(unix_bind_path);
+
+    evutil_socket_t fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        syslog(LOG_CRIT, "failed to create a unix domain socket: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
+    evutil_make_socket_nonblocking(fd);
+
+    /* Attempt to set KEEPALIVE. Keep going if it fails. */
+    int on = 1;
+    (void)setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void *)&on, sizeof(on));
+
     sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
     strcpy(addr.sun_path, unix_bind_path.c_str());
     socklen_t len = sizeof(addr);
-    listener = evconnlistener_new_bind(
-            base, unix_cb, NULL, LEV_OPT_CLOSE_ON_FREE, SOMAXCONN,
-            (sockaddr *)&addr, len);
+
+    if (bind(fd, (const struct sockaddr *)&addr, len) < 0) {
+        syslog(LOG_CRIT, "failed to bind: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
+
+    listener = evconnlistener_new(base, unix_cb, NULL, LEV_OPT_CLOSE_ON_FREE, SOMAXCONN, fd);
     if (listener) {
         evconnlistener_set_error_cb(listener, accept_errorcb);
         listeners.push_back(listener);
