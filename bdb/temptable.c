@@ -387,6 +387,8 @@ static int bdb_array_copy_to_temp_db(bdb_state_type *bdb_state,
         }
 
         /* New cursor does not point to any data */
+        free(cur->key);
+        free(cur->data);
         cur->key = cur->data = NULL;
         cur->keylen = cur->datalen = 0;
     }
