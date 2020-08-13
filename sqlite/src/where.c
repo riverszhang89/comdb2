@@ -5464,7 +5464,9 @@ void sqlite3WhereEnd(WhereInfo *pWInfo){
       pIdx = pLevel->u.pCovidx;
     }
     if( pIdx
+#if !defined(SQLITE_BUILDING_FOR_COMDB2) 
      && (pWInfo->eOnePass==ONEPASS_OFF || !HasRowid(pIdx->pTable))
+#endif
      && !db->mallocFailed
     ){
       last = sqlite3VdbeCurrentAddr(v);
