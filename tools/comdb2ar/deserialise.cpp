@@ -371,6 +371,7 @@ void deserialise_a_block(
         std::map<std::string, FileInfo>& manifest_map,
         std::set<std::string>& extracted_files,
         const tar_block_header &head,
+        off_t offset,
         unsigned long long filesize,
         const std::string &filename,
         std::string &sha_fingerprint,
@@ -394,6 +395,7 @@ void deserialise_a_block(
     unsigned long long nblocks = (filesize + 511ULL) >> 9;
     void *empty_page = calloc(1, 65536); 
     unsigned long long skipped_bytes = 0;
+    file_offset_t fo;
 
     // If this is an .lrl file then we have to read it into memory and
     // then rewrite it to disk.  In getting the extension it is important
@@ -522,6 +524,7 @@ void deserialise_a_block(
     RIIA_malloc free_guard(buf);
 
     // Read the tar data in and write it out
+    init_file_offset(0, &fo, offset);
     unsigned long long bytesleft = filesize;
     unsigned long long pageno = 0;
 
@@ -546,7 +549,7 @@ void deserialise_a_block(
         if (readbytes > bytesleft)
             readbytes = bytesleft;
 
-        if(readall(0, &buf[0], readbytes) != readbytes)
+        if(read_offset(&fo, &buf[0], readbytes) != readbytes)
         {
             std::ostringstream ss;
 
@@ -686,7 +689,7 @@ void deserialise_a_block(
     // Read and discard the null padding
     unsigned long long padding_bytes = (nblocks << 9) - filesize;
     if(padding_bytes) {
-        if(readall(0, &buf[0], padding_bytes) != padding_bytes) {
+        if(read_offset(&fo, &buf[0], padding_bytes) != padding_bytes) {
             std::ostringstream ss;
 
             if (filename == "FLUFF")
@@ -778,6 +781,7 @@ void deserialise_a_block_threaded(
         std::map<std::string, FileInfo>& manifest_map,
         std::set<std::string>& extracted_files,
         const tar_block_header &head,
+        off_t offset,
         unsigned long long filesize,
         const std::string &filename,
         std::string &sha_fingerprint,
@@ -804,6 +808,7 @@ void deserialise_a_block_threaded(
                 manifest_map,
                 extracted_files,
                 head,
+                offset,
                 filesize,
                 filename,
                 sha_fingerprint,
@@ -931,6 +936,8 @@ void deserialise_database(
        unlink(done_file_string.c_str());
     }
 
+    file_offset_t fo;
+    init_file_offset(0, &fo, 0);
 
     while(true) {
 
@@ -988,7 +995,7 @@ void deserialise_database(
 
         // Read the tar block header
         tar_block_header head;
-        if(readall(0, head.c, sizeof(head.c)) != sizeof(head.c)) {
+        if(read_offset(&fo, head.c, sizeof(head.c)) != sizeof(head.c)) {
             // Failed to read a full block header
             std::ostringstream ss;
             ss << "Error reading tar block header: "
@@ -1024,10 +1031,8 @@ void deserialise_database(
         // TODO: verify the block check sum
 
         // Get the file name
-        puts("what?");
         if(head.h.filename[sizeof(head.h.filename) - 1] != '\0') {
             wait_for_all_threads(completes, nthds);
-            puts("now?");
             throw Error("Bad block: filename is not null terminated");
         }
         const std::string filename(head.h.filename);
@@ -1048,6 +1053,7 @@ void deserialise_database(
                     manifest_map,
                     extracted_files,
                     head,
+                    fo.ofs,
                     filesize,
                     filename,
                     sha_fingerprint,
@@ -1089,6 +1095,7 @@ void deserialise_database(
                     std::ref(manifest_map),
                     std::ref(extracted_files),
                     std::ref(head),
+                    fo.ofs,
                     filesize,
                     std::ref(filename),
                     std::ref(sha_fingerprint),
@@ -1105,6 +1112,10 @@ void deserialise_database(
                     strip_consumer_info,
                     std::ref(completes[initialize_at])).detach();
         }
+
+        fo.ofs += filesize;
+        off_t padding = ((filesize + 511) & ~511) - filesize;
+        fo.ofs += padding;
     }
 
     wait_for_all_threads(completes, nthds);

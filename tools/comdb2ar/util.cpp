@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <ctime>
+#include <mutex>
 
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -197,6 +198,35 @@ ssize_t readall(int fd, void *buf, size_t nbytes)
     }
 
     return total;
+}
+
+static std::mutex filemtx;
+
+ssize_t read_offset(file_offset_t *fo, void *buf, size_t nb)
+{
+    char *cbuf = static_cast<char *>(buf);
+    size_t remain = nb;
+    ssize_t bytesread;
+    std::unique_lock<std::mutex> lck(filemtx);
+    if (lseek(0, fo->ofs, SEEK_SET) < 0) {
+        return -1;
+    }
+
+    while(remain > 0) {
+        if ((bytesread = read(fo->fd, cbuf, remain)) <= 0)
+            return -1;
+        cbuf += bytesread;
+        remain -= bytesread;
+    }
+
+    fo->ofs += nb;
+    return nb;
+}
+
+void init_file_offset(int fd, file_offset_t *fo, off_t ofs)
+{
+    fo->fd = fd;
+    fo->ofs = ofs;
 }
 
 bool isDirectory(const std::string& file) {

@@ -85,6 +85,13 @@ ssize_t readall(int fd, void *buf, size_t nbytes);
 
 bool read_octal_ull(const char *str, size_t len, unsigned long long& number);
 
+typedef struct file_offset {
+    int fd;
+    off_t ofs;
+} file_offset_t;
+ssize_t read_offset(file_offset_t *, void *, size_t);
+void init_file_offset(int, file_offset_t *, off_t);
+
 std::unique_ptr<fdostream> output_file(
   const std::string& filename,
   bool make_sav, bool direct
