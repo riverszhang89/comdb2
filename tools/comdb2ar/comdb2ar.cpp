@@ -111,6 +111,7 @@ int main(int argc, char *argv[])
     bool incr_path_specified = false;
     bool dryrun = false;
     bool copy_physical = false;
+    int nthds = 0;
 
     std::string new_db_name = "";
     std::string new_type = "default";
@@ -127,7 +128,7 @@ int main(int argc, char *argv[])
     ss << root << "/bin/comdb2";
     std::string comdb2_task(ss.str());
 
-    while((c = getopt(argc, argv, "hsSLC:I:b:x:u:rRSkKfODE:T:")) != EOF) {
+    while((c = getopt(argc, argv, "hsSLC:I:b:x:u:rRSkKfODE:T:t:")) != EOF) {
         switch(c) {
             case 'O':
                 legacy_mode = true;
@@ -228,6 +229,10 @@ int main(int argc, char *argv[])
 
             case 'T':
                 new_type = std::string(optarg);
+                break;
+
+            case 't':
+                nthds = std::atoi(optarg);
                 break;
 
             case '?':
@@ -348,7 +353,8 @@ int main(int argc, char *argv[])
              is_disk_full,
              run_with_done_file,
              incr_ex,
-             dryrun
+             dryrun,
+             nthds
            );
         } catch(std::exception& e) {
             std::cerr << e.what() << std::endl;

@@ -19,6 +19,9 @@
 #include <fstream>
 #include <vector>
 #include <memory>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -353,7 +356,494 @@ static bool check_dest_dir(const std::string& dir)
     return true;
 }
 
+
 #define write_size (1000*1024)
+
+static std::mutex mtx;
+static std::condition_variable cv;
+static std::exception_ptr thdex;
+
+void deserialise_a_block(
+        std::string& datadestdir,
+        const std::string& lrldestdir,
+        std::string& dbname,
+        std::string& main_lrl_file,
+        std::map<std::string, FileInfo>& manifest_map,
+        std::set<std::string>& extracted_files,
+        const tar_block_header &head,
+        unsigned long long filesize,
+        const std::string &filename,
+        std::string &sha_fingerprint,
+        std::set<std::string>& table_set,
+        std::string& origlrlname,
+        std::vector<std::string> &options,
+        unsigned percent_full,
+        bool& is_disk_full,
+        bool force_mode,
+        bool legacy_mode,
+        bool incr_mode,
+        bool run_full_recovery,
+        bool strip_cluster_info,
+        bool strip_consumer_info
+)
+{
+    // Try to find this file in our manifest
+    std::map<std::string, FileInfo>::const_iterator manifest_it = manifest_map.find(filename);
+    std::string fullpath;
+    bool file_is_sparse = false;
+    unsigned long long nblocks = (filesize + 511ULL) >> 9;
+    void *empty_page = calloc(1, 65536); 
+    unsigned long long skipped_bytes = 0;
+
+    // If this is an .lrl file then we have to read it into memory and
+    // then rewrite it to disk.  In getting the extension it is important
+    // to use the **first** dot, as this will affect the data file
+    // recognition code below where we don't want "fstblk.dta" to
+    // match the pattern "dta*"
+    std::string ext;
+    size_t dot_pos = filename.find_first_of('.');
+    bool is_lrl = false;
+    if(dot_pos != std::string::npos) {
+        ext = filename.substr(dot_pos + 1);
+    }
+    if(ext == "lrl") {
+        is_lrl = true;
+    }
+
+    if(ext == "sha") {
+        sha_fingerprint = read_serialised_sha_file();
+        return;
+    }
+
+    bool is_manifest = false;
+    if(filename == "MANIFEST") {
+        is_manifest = true;
+    }
+
+    // Gather the text of the file for lrls and manifests
+    std::string text;
+    bool is_text = is_lrl || is_manifest;
+
+    // If it's not a text file then look at the extension to see if it looks
+    // like a data file.  If it does then add it to our list of tables if
+    // not already present.  I was going to trust the lrl file for this
+    // (and use the dbname_file_vers_map for llmeta dbs) but the old
+    // comdb2backup script doesn't serialise the file_vers_map, so I can't
+    // do that yet. This way the onus is on the serialising side to get
+    // the list of files right.
+    if(!is_text && filename.find_first_of('/') == std::string::npos) {
+        bool is_data_file = false;
+        bool is_queue_file = false;
+        bool is_queuedb_file = false;
+        std::string table_name;
+
+        if(recognize_data_file(filename, is_data_file,
+                    is_queue_file, is_queuedb_file, table_name)) {
+            if(table_set.insert(table_name).second) {
+                std::clog << "Discovered table " << table_name
+                    << " from data file " << filename << std::endl;
+            }
+        }
+    }
+
+    std::unique_ptr<fdostream> of_ptr;
+
+    if(is_text) {
+        text.reserve(filesize);
+    } else {
+        // Verify that we will have enough disk space for this file
+        struct statvfs stfs;
+        int rc = statvfs(datadestdir.c_str(), &stfs);
+        if(rc == -1) {
+            std::ostringstream ss;
+            ss << "Error running statvfs on " << datadestdir
+                << ": " << strerror(errno);
+            throw Error(ss);
+        }
+
+        // Calculate how full the file system would be if we were to
+        // add this file to it.
+        fsblkcnt_t fsblocks = filesize / stfs.f_bsize;
+        double percent_free = 100.00 * ((double)(stfs.f_bavail - fsblocks) / (double)stfs.f_blocks);
+        if(100.00 - percent_free >= percent_full) {
+            is_disk_full = true;
+            std::ostringstream ss;
+            ss << "Not enough space to deserialise " << filename
+                << " (" << filesize << " bytes) - would leave only "
+                << percent_free << "% free space";
+            throw Error(ss);
+        }
+
+
+        // All good?  Open file.  All non-lrls go into the data directory.
+        if(datadestdir.empty()) {
+            throw Error("Stream contains files for data directory before data dir is known");
+        }
+
+        bool direct = false;
+
+        if (manifest_it != manifest_map.end() && manifest_it->second.get_type() == FileInfo::BERKDB_FILE)
+            direct = 1;
+
+        std::string outfilename(datadestdir + "/" + filename);
+        fullpath = outfilename;
+        of_ptr = output_file(outfilename, false, direct);
+        extracted_files.insert(outfilename);
+    }
+
+
+    // Determine buffer size to read this data in.  If there is a known
+    // page size then use that so that we can verify checksums as we go.
+    size_t pagesize = 0;
+    bool checksums = false;
+    file_is_sparse = false;
+    if(manifest_it != manifest_map.end()) {
+        pagesize = manifest_it->second.get_pagesize();
+        checksums = manifest_it->second.get_checksums();
+        file_is_sparse = manifest_it->second.get_sparse();
+    }
+    if(pagesize == 0) {
+        pagesize = 4096;
+    }
+    size_t bufsize = pagesize;
+
+    while((bufsize << 1) <= MAX_BUF_SIZE) {
+        bufsize <<= 1;
+    }
+
+
+    uint8_t *buf;
+#if defined _HP_SOURCE || defined _SUN_SOURCE
+    buf = (uint8_t*) memalign(512, bufsize);
+#else
+    if (posix_memalign((void**) &buf, 512, bufsize))
+        throw Error("Failed to allocate output buffer");
+#endif
+    RIIA_malloc free_guard(buf);
+
+    // Read the tar data in and write it out
+    unsigned long long bytesleft = filesize;
+    unsigned long long pageno = 0;
+
+    // Recheck the filesystem periodically while writing
+    unsigned long long recheck_count = FS_PERIODIC_CHECK;
+
+    bool checksum_failure = false;
+
+    unsigned long long readbytes = 0;
+    while(bytesleft > 0)
+    {
+        readbytes = bytesleft;
+
+        if(bytesleft > bufsize)
+        {
+            readbytes = bufsize;
+        }
+
+        if (file_is_sparse) {
+            readbytes = pagesize;
+        }
+        if (readbytes > bytesleft)
+            readbytes = bytesleft;
+
+        if(readall(0, &buf[0], readbytes) != readbytes)
+        {
+            std::ostringstream ss;
+
+            if (filename == "FLUFF")
+                return;
+
+            ss << "Error reading " << readbytes << " bytes for file "
+                << filename << " after "
+                << (filesize - bytesleft) << " bytes, with "
+                << bytesleft << " bytes left to read:"
+                << errno << " " << strerror(errno);
+            throw Error(ss);
+        }
+
+
+        if(is_text)
+        {
+            text.append((char*) &buf[0], readbytes);
+        }
+        else if (file_is_sparse &&
+                (readbytes == pagesize) && (bytesleft > readbytes) )
+        {
+            if (memcmp(empty_page, &buf[0], pagesize) == 0)
+            {
+                skipped_bytes += pagesize;
+                /* This data won't be counted towards file size.*/
+                recheck_count += readbytes;
+            }
+            else
+            {
+                if (skipped_bytes)
+                {
+                    if((of_ptr->skip(skipped_bytes)))
+                    {
+                        std::ostringstream ss;
+
+                        if (filename == "FLUFF")
+                            return;
+
+                        ss << "Error skipping " << filename << " after "
+                            << (filesize - bytesleft) << " bytes";
+                        throw Error(ss);
+                    }
+                    skipped_bytes = 0;
+                }
+                if (!of_ptr->write((char*) buf, pagesize))
+                {
+                    std::ostringstream ss;
+
+                    if (filename == "FLUFF")
+                        return;
+
+                    ss << "Error Writing " << filename << " after "
+                        << (filesize - bytesleft) << " bytes";
+                    throw Error(ss);
+                }
+            }
+        }
+        else
+        {
+            uint64_t off = 0;
+            uint64_t nwrites = 0;
+            uint64_t bytes = readbytes;
+
+            if (file_is_sparse && skipped_bytes)
+            {
+                if((of_ptr->skip(skipped_bytes)))
+                {
+                    std::ostringstream ss;
+
+                    if (filename == "FLUFF")
+                        return;
+
+                    ss << "Error skipping " << filename << " after "
+                        << (filesize - bytesleft) << " bytes";
+                    throw Error(ss);
+                }
+                skipped_bytes = 0;
+            }
+
+            while (bytes > 0)
+            {
+                int lim;
+                if (bytes < write_size)
+                    lim = bytes;
+                else
+                    lim = write_size;
+                if (!of_ptr->write((char*) &buf[off], lim))
+                {
+                    std::ostringstream ss;
+
+                    if (filename == "FLUFF")
+                        return;
+
+                    ss << "Error Writing " << filename << " after "
+                        << (filesize - bytesleft) << " bytes";
+                    throw Error(ss);
+                }
+                nwrites++;
+                off += lim;
+                bytes -= lim;
+            }
+            // std::cerr << "wrote " << readbytes << " bytes in " << nwrites << " chunks" << std::endl;
+        }
+        bytesleft -= readbytes;
+        recheck_count -= readbytes;
+
+        // don't fill the fs - copied & massaged from above
+        if( recheck_count <= 0 )
+        {
+            struct statvfs stfs;
+            int rc = statvfs(datadestdir.c_str(), &stfs);
+            if(rc == -1) {
+                std::ostringstream ss;
+                ss << "Error running statvfs on " << datadestdir
+                    << ": " << strerror(errno);
+                throw Error(ss);
+            }
+
+            // Calculate how full the file system would be if we were to
+            // add this file to it.
+            fsblkcnt_t fsblocks = bytesleft / stfs.f_bsize;
+            double percent_free = 100.00 * ((double)(stfs.f_bavail - fsblocks) / (double)stfs.f_blocks);
+            if(100.00 - percent_free >= percent_full) {
+                is_disk_full = true;
+                std::ostringstream ss;
+                ss << "Not enough space to deserialise remaining part of " << filename
+                    << " (" << bytesleft << " bytes) - would leave only "
+                    << percent_free << "% free space";
+                throw Error(ss);
+            }
+
+            recheck_count = FS_PERIODIC_CHECK;
+        }
+    }
+
+    // Read and discard the null padding
+    unsigned long long padding_bytes = (nblocks << 9) - filesize;
+    if(padding_bytes) {
+        if(readall(0, &buf[0], padding_bytes) != padding_bytes) {
+            std::ostringstream ss;
+
+            if (filename == "FLUFF")
+                return;
+
+            ss << "Error reading padding after " << filename
+                << ": " << errno << " " << strerror(errno);
+            throw Error(ss);
+        }
+    }
+
+    std::clog << "x " << filename << " size=" << filesize
+        << " pagesize=" << pagesize;
+
+    if (file_is_sparse)
+        std::clog << " SPARSE ";
+    else
+        std::clog << " not sparse ";
+
+
+    std::clog << std::endl;
+
+    if(checksum_failure && !force_mode) {
+        std::ostringstream ss;
+        ss << "Checksum verification failures in " << filename;
+        throw Error(ss);
+    }
+
+    /* Restore the permissions. */
+    uid_t uid = (uid_t)strtol(head.h.uid, NULL, 8);
+    gid_t gid = (gid_t)strtol(head.h.gid, NULL, 8);
+    mode_t modes = (mode_t)strtol(head.h.mode, NULL, 8);
+    if (chown(fullpath.c_str(), uid, gid)==-1)
+        perror(fullpath.c_str());
+    if (chmod(fullpath.c_str(), modes)==-1)
+        perror(fullpath.c_str());
+
+    if (is_manifest) {
+        process_manifest(text, manifest_map, run_full_recovery, origlrlname, options);
+    } else if (is_lrl) {
+        std::ostringstream lrldata;
+        process_lrl(lrldata, filename, text, strip_cluster_info,
+                strip_consumer_info, datadestdir, lrldestdir, dbname,
+                table_set);
+        if (!datadestdir.empty()) {
+            make_dirs(datadestdir);
+            if (empty_dir(datadestdir)) {
+                std::string dbtxndir(datadestdir + "/" + dbname + ".txn");
+                make_dirs(dbtxndir);
+                dbtxndir = datadestdir + "/" + "logs";
+                make_dirs(dbtxndir);
+            } else if (check_dest_dir(datadestdir)) {
+                /* Remove old log files.  This used to remove all files in
+                   the directory, which can be problematic if hi. */
+                if (!legacy_mode) {
+                    // remove files in the txn directory
+                    std::string dbtxndir(datadestdir + "/" + dbname +
+                            ".txn");
+                    make_dirs(dbtxndir);
+                    if (!incr_mode)
+                        remove_all_old_files(dbtxndir);
+                    dbtxndir = datadestdir + "/" + "logs";
+                    make_dirs(dbtxndir);
+                    if (!incr_mode)
+                        remove_all_old_files(dbtxndir);
+                }
+            }
+        }
+        // If the lrl was renames, restore the orginal name
+        std::string outfilename;
+        if (origlrlname != "")
+            outfilename = (lrldestdir + "/" + origlrlname);
+        else
+            outfilename = (lrldestdir + "/" + filename);
+        of_ptr = output_file(outfilename, true, false);
+        *of_ptr << lrldata.str();
+        if (main_lrl_file.empty()) {
+            main_lrl_file = outfilename;
+        }
+        extracted_files.insert(outfilename);
+    }
+}
+
+void deserialise_a_block_threaded(
+        std::string& datadestdir,
+        const std::string& lrldestdir,
+        std::string& dbname,
+        std::string& main_lrl_file,
+        std::map<std::string, FileInfo>& manifest_map,
+        std::set<std::string>& extracted_files,
+        const tar_block_header &head,
+        unsigned long long filesize,
+        const std::string &filename,
+        std::string &sha_fingerprint,
+        std::set<std::string>& table_set,
+        std::string& origlrlname,
+        std::vector<std::string> &options,
+        unsigned percent_full,
+        bool& is_disk_full,
+        bool force_mode,
+        bool legacy_mode,
+        bool incr_mode,
+        bool run_full_recovery,
+        bool strip_cluster_info,
+        bool strip_consumer_info,
+        bool &complete
+)
+{
+    try {
+        deserialise_a_block(
+                datadestdir,
+                lrldestdir,
+                dbname,
+                main_lrl_file,
+                manifest_map,
+                extracted_files,
+                head,
+                filesize,
+                filename,
+                sha_fingerprint,
+                table_set,
+                origlrlname,
+                options,
+                percent_full,
+                is_disk_full,
+                force_mode,
+                legacy_mode,
+                incr_mode,
+                run_full_recovery,
+                strip_cluster_info,
+                strip_consumer_info);
+
+    } catch (...) {
+        /* do not throw here */
+    }
+    std::unique_lock<std::mutex> lck(mtx);
+    complete = true;
+    thdex = std::current_exception();
+    cv.notify_one();
+}
+
+static void wait_for_all_threads(bool *completes, int len)
+{
+    /* Make sure all deserialization threads are complete. */
+    std::unique_lock<std::mutex> lck(mtx);
+    for (int i = 0; i != len; ++i)
+        if (!completes[i]) {
+            cv.wait(lck);
+            i = 0;
+            continue;
+        }
+
+    /* If a child thread has signaled an error,
+       throw it here in the main thread. */
+    if (thdex)
+        std::rethrow_exception(thdex);
+}
 
 void deserialise_database(
         const std::string *p_lrldestdir,
@@ -368,7 +858,8 @@ void deserialise_database(
         bool& is_disk_full,
         bool run_with_done_file,
         bool incr_mode,
-        bool dryrun
+        bool dryrun,
+        unsigned nthds
 )
 // Deserialise a database from serialised from received on stdin.
 // If lrldestdir and datadestdir are not NULL then the lrl and data files
@@ -381,12 +872,8 @@ void deserialise_database(
     static const char zero_head[512] = {0};
     int stlen;
     is_disk_full = false;
-    void *empty_page = NULL;
-    unsigned long long skipped_bytes = 0;
     int rc =0;
     std::vector<std::string> options;
-
-    bool file_is_sparse = false;
 
     std::string fingerprint;
 
@@ -405,10 +892,13 @@ void deserialise_database(
 
     std::string datadestdir;
 
-    std::string fullpath;
+    if (nthds < 0)
+        nthds = 0;
 
-    empty_page = malloc(65536);
-    memset(empty_page, 0, 65536);
+    /* Some compilers do not like zero-length arrays. */
+    bool completes[nthds + 1];
+    for (int i = 0; i != nthds; ++i)
+        completes[i] = true;
 
     if (p_datadestdir == NULL && p_lrldestdir)
         p_datadestdir = p_lrldestdir;
@@ -503,6 +993,7 @@ void deserialise_database(
             std::ostringstream ss;
             ss << "Error reading tar block header: "
                 << errno << " " << strerror(errno);
+            wait_for_all_threads(completes, nthds);
             throw Error(ss);
         }
 
@@ -533,396 +1024,90 @@ void deserialise_database(
         // TODO: verify the block check sum
 
         // Get the file name
+        puts("what?");
         if(head.h.filename[sizeof(head.h.filename) - 1] != '\0') {
+            wait_for_all_threads(completes, nthds);
+            puts("now?");
             throw Error("Bad block: filename is not null terminated");
         }
         const std::string filename(head.h.filename);
 
-        // Try to find this file in our manifest
-        std::map<std::string, FileInfo>::const_iterator manifest_it = manifest_map.find(filename);
-
         // Get the file size
         unsigned long long filesize;
         if(!read_octal_ull(head.h.size, sizeof(head.h.size), filesize)) {
+            wait_for_all_threads(completes, nthds);
             throw Error("Bad block: bad size");
         }
-        unsigned long long nblocks = (filesize + 511ULL) >> 9;
 
-
-        // If this is an .lrl file then we have to read it into memory and
-        // then rewrite it to disk.  In getting the extension it is important
-        // to use the **first** dot, as this will affect the data file
-        // recognition code below where we don't want "fstblk.dta" to
-        // match the pattern "dta*"
-        std::string ext;
-        size_t dot_pos = filename.find_first_of('.');
-        bool is_lrl = false;
-        if(dot_pos != std::string::npos) {
-            ext = filename.substr(dot_pos + 1);
-        }
-        if(ext == "lrl") {
-            is_lrl = true;
-        }
-
-        if(ext == "sha") {
-            sha_fingerprint = read_serialised_sha_file();
-            continue;
-        }
-
-        bool is_manifest = false;
-        if(filename == "MANIFEST") {
-            is_manifest = true;
-        }
-
-        // Gather the text of the file for lrls and manifests
-        std::string text;
-        bool is_text = is_lrl || is_manifest;
-
-        // If it's not a text file then look at the extension to see if it looks
-        // like a data file.  If it does then add it to our list of tables if
-        // not already present.  I was going to trust the lrl file for this
-        // (and use the dbname_file_vers_map for llmeta dbs) but the old
-        // comdb2backup script doesn't serialise the file_vers_map, so I can't
-        // do that yet. This way the onus is on the serialising side to get
-        // the list of files right.
-        if(!is_text && filename.find_first_of('/') == std::string::npos) {
-            bool is_data_file = false;
-            bool is_queue_file = false;
-            bool is_queuedb_file = false;
-            std::string table_name;
-
-            if(recognize_data_file(filename, is_data_file,
-                        is_queue_file, is_queuedb_file, table_name)) {
-                if(table_set.insert(table_name).second) {
-                    std::clog << "Discovered table " << table_name
-                        << " from data file " << filename << std::endl;
-                }
-            }
-        }
-
-        std::unique_ptr<fdostream> of_ptr;
-
-        if(is_text) {
-            text.reserve(filesize);
+        if (nthds < 1) {
+            deserialise_a_block(
+                    datadestdir,
+                    lrldestdir,
+                    dbname,
+                    main_lrl_file,
+                    manifest_map,
+                    extracted_files,
+                    head,
+                    filesize,
+                    filename,
+                    sha_fingerprint,
+                    table_set,
+                    origlrlname,
+                    options,
+                    percent_full,
+                    is_disk_full,
+                    force_mode,
+                    legacy_mode,
+                    incr_mode,
+                    run_full_recovery,
+                    strip_cluster_info,
+                    strip_consumer_info);
         } else {
-            // Verify that we will have enough disk space for this file
-            struct statvfs stfs;
-            int rc = statvfs(datadestdir.c_str(), &stfs);
-            if(rc == -1) {
-                std::ostringstream ss;
-                ss << "Error running statvfs on " << datadestdir
-                    << ": " << strerror(errno);
-                throw Error(ss);
-            }
-
-            // Calculate how full the file system would be if we were to
-            // add this file to it.
-            fsblkcnt_t fsblocks = filesize / stfs.f_bsize;
-            double percent_free = 100.00 * ((double)(stfs.f_bavail - fsblocks) / (double)stfs.f_blocks);
-            if(100.00 - percent_free >= percent_full) {
-                is_disk_full = true;
-                std::ostringstream ss;
-                ss << "Not enough space to deserialise " << filename
-                    << " (" << filesize << " bytes) - would leave only "
-                    << percent_free << "% free space";
-                throw Error(ss);
-            }
-
-
-            // All good?  Open file.  All non-lrls go into the data directory.
-            if(datadestdir.empty()) {
-                throw Error("Stream contains files for data directory before data dir is known");
-            }
-
-            bool direct = false;
-
-            if (manifest_it != manifest_map.end() && manifest_it->second.get_type() == FileInfo::BERKDB_FILE)
-                direct = 1;
-
-            std::string outfilename(datadestdir + "/" + filename);
-            fullpath = outfilename;
-            of_ptr = output_file(outfilename, false, direct);
-            extracted_files.insert(outfilename);
-        }
-
-
-        // Determine buffer size to read this data in.  If there is a known
-        // page size then use that so that we can verify checksums as we go.
-        size_t pagesize = 0;
-        bool checksums = false;
-        file_is_sparse = false;
-        if(manifest_it != manifest_map.end()) {
-            pagesize = manifest_it->second.get_pagesize();
-            checksums = manifest_it->second.get_checksums();
-            file_is_sparse = manifest_it->second.get_sparse();
-        }
-        if(pagesize == 0) {
-            pagesize = 4096;
-        }
-        size_t bufsize = pagesize;
-
-        while((bufsize << 1) <= MAX_BUF_SIZE) {
-            bufsize <<= 1;
-        }
-
-
-        uint8_t *buf;
-#if defined _HP_SOURCE || defined _SUN_SOURCE
-        buf = (uint8_t*) memalign(512, bufsize);
-#else
-        if (posix_memalign((void**) &buf, 512, bufsize))
-            throw Error("Failed to allocate output buffer");
-#endif
-        RIIA_malloc free_guard(buf);
-
-        // Read the tar data in and write it out
-        unsigned long long bytesleft = filesize;
-        unsigned long long pageno = 0;
-
-        // Recheck the filesystem periodically while writing
-        unsigned long long recheck_count = FS_PERIODIC_CHECK;
-
-        bool checksum_failure = false;
-
-        unsigned long long readbytes = 0;
-        while(bytesleft > 0)
-        {
-            readbytes = bytesleft;
-
-            if(bytesleft > bufsize)
-            {
-               readbytes = bufsize;
-            }
-
-            if (file_is_sparse) {
-                readbytes = pagesize;
-            }
-            if (readbytes > bytesleft)
-                readbytes = bytesleft;
-
-            if(readall(0, &buf[0], readbytes) != readbytes)
-            {
-               std::ostringstream ss;
-
-               if (filename == "FLUFF")
-                  return;
-
-               ss << "Error reading " << readbytes << " bytes for file "
-                  << filename << " after "
-                  << (filesize - bytesleft) << " bytes, with "
-                  << bytesleft << " bytes left to read:"
-                  << errno << " " << strerror(errno);
-               throw Error(ss);
-            }
-
-
-            if(is_text)
-            {
-               text.append((char*) &buf[0], readbytes);
-            }
-            else if (file_is_sparse &&
-               (readbytes == pagesize) && (bytesleft > readbytes) )
-            {
-               if (memcmp(empty_page, &buf[0], pagesize) == 0)
-               {
-                  skipped_bytes += pagesize;
-                  /* This data won't be counted towards file size.*/
-                  recheck_count += readbytes;
-               }
-               else
-               {
-                  if (skipped_bytes)
-                  {
-                     if((of_ptr->skip(skipped_bytes)))
-                     {
-                        std::ostringstream ss;
-
-                        if (filename == "FLUFF")
-                           return;
-
-                        ss << "Error skipping " << filename << " after "
-                           << (filesize - bytesleft) << " bytes";
-                        throw Error(ss);
-                     }
-                     skipped_bytes = 0;
-                  }
-                  if (!of_ptr->write((char*) buf, pagesize))
-                  {
-                     std::ostringstream ss;
-
-                     if (filename == "FLUFF")
-                        return;
-
-                     ss << "Error Writing " << filename << " after "
-                        << (filesize - bytesleft) << " bytes";
-                     throw Error(ss);
-                  }
-               }
-            }
-            else
-            {
-                uint64_t off = 0;
-                uint64_t nwrites = 0;
-                uint64_t bytes = readbytes;
-
-                if (file_is_sparse && skipped_bytes)
-                {
-                    if((of_ptr->skip(skipped_bytes)))
-                    {
-                        std::ostringstream ss;
-
-                        if (filename == "FLUFF")
-                            return;
-
-                        ss << "Error skipping " << filename << " after "
-                           << (filesize - bytesleft) << " bytes";
-                        throw Error(ss);
-                    }
-                    skipped_bytes = 0;
-                }
-
-                while (bytes > 0)
-                {
-                    int lim;
-                    if (bytes < write_size)
-                        lim = bytes;
-                    else
-                        lim = write_size;
-                    if (!of_ptr->write((char*) &buf[off], lim))
-                    {
-                        std::ostringstream ss;
-
-                        if (filename == "FLUFF")
-                            return;
-
-                            ss << "Error Writing " << filename << " after "
-                               << (filesize - bytesleft) << " bytes";
-                            throw Error(ss);
-                    }
-                    nwrites++;
-                    off += lim;
-                    bytes -= lim;
-                }
-                // std::cerr << "wrote " << readbytes << " bytes in " << nwrites << " chunks" << std::endl;
-            }
-            bytesleft -= readbytes;
-            recheck_count -= readbytes;
-
-            // don't fill the fs - copied & massaged from above
-            if( recheck_count <= 0 )
-            {
-	            struct statvfs stfs;
-	            int rc = statvfs(datadestdir.c_str(), &stfs);
-	            if(rc == -1) {
-	                std::ostringstream ss;
-	                ss << "Error running statvfs on " << datadestdir
-	                    << ": " << strerror(errno);
-	                throw Error(ss);
-	            }
-
-	            // Calculate how full the file system would be if we were to
-	            // add this file to it.
-	            fsblkcnt_t fsblocks = bytesleft / stfs.f_bsize;
-	            double percent_free = 100.00 * ((double)(stfs.f_bavail - fsblocks) / (double)stfs.f_blocks);
-	            if(100.00 - percent_free >= percent_full) {
-	                is_disk_full = true;
-	                std::ostringstream ss;
-	                ss << "Not enough space to deserialise remaining part of " << filename
-	                    << " (" << bytesleft << " bytes) - would leave only "
-	                    << percent_free << "% free space";
-	                throw Error(ss);
-	            }
-
-                recheck_count = FS_PERIODIC_CHECK;
-            }
-        }
-
-        // Read and discard the null padding
-        unsigned long long padding_bytes = (nblocks << 9) - filesize;
-        if(padding_bytes) {
-            if(readall(0, &buf[0], padding_bytes) != padding_bytes) {
-                std::ostringstream ss;
-
-                if (filename == "FLUFF")
-                   return;
-
-                ss << "Error reading padding after " << filename
-                    << ": " << errno << " " << strerror(errno);
-                throw Error(ss);
-            }
-        }
-
-        std::clog << "x " << filename << " size=" << filesize
-                  << " pagesize=" << pagesize;
-
-        if (file_is_sparse)
-           std::clog << " SPARSE ";
-        else
-           std::clog << " not sparse ";
-
-
-        std::clog << std::endl;
-
-        if(checksum_failure && !force_mode) {
-            std::ostringstream ss;
-            ss << "Checksum verification failures in " << filename;
-            throw Error(ss);
-        }
-
-        /* Restore the permissions. */
-        uid_t uid = (uid_t)strtol(head.h.uid, NULL, 8);
-        gid_t gid = (gid_t)strtol(head.h.gid, NULL, 8);
-        mode_t modes = (mode_t)strtol(head.h.mode, NULL, 8);
-        if (chown(fullpath.c_str(), uid, gid)==-1)
-		perror(fullpath.c_str());
-        if (chmod(fullpath.c_str(), modes)==-1)
-		perror(fullpath.c_str());
-
-        if (is_manifest) {
-            process_manifest(text, manifest_map, run_full_recovery, origlrlname, options);
-        } else if (is_lrl) {
-            std::ostringstream lrldata;
-            process_lrl(lrldata, filename, text, strip_cluster_info,
-                        strip_consumer_info, datadestdir, lrldestdir, dbname,
-                        table_set);
-            if (!datadestdir.empty()) {
-                make_dirs(datadestdir);
-                if (empty_dir(datadestdir)) {
-                    std::string dbtxndir(datadestdir + "/" + dbname + ".txn");
-                    make_dirs(dbtxndir);
-                    dbtxndir = datadestdir + "/" + "logs";
-                    make_dirs(dbtxndir);
-                } else if (check_dest_dir(datadestdir)) {
-                    /* Remove old log files.  This used to remove all files in
-                       the directory, which can be problematic if hi. */
-                    if (!legacy_mode) {
-                        // remove files in the txn directory
-                        std::string dbtxndir(datadestdir + "/" + dbname +
-                                             ".txn");
-                        make_dirs(dbtxndir);
-                        if (!incr_mode)
-                            remove_all_old_files(dbtxndir);
-                        dbtxndir = datadestdir + "/" + "logs";
-                        make_dirs(dbtxndir);
-                        if (!incr_mode)
-                            remove_all_old_files(dbtxndir);
-                    }
+            int initialize_at;
+            std::unique_lock<std::mutex> lck(mtx);
+            for (initialize_at = 0; initialize_at != nthds; ++initialize_at)
+                if (completes[initialize_at])
+                    break;
+            if (initialize_at == nthds) {
+                cv.wait(lck);
+                for (initialize_at = 0; initialize_at != nthds; ++initialize_at)
+                    if (completes[initialize_at])
+                        break;
+                if (initialize_at == nthds) {
+                    wait_for_all_threads(completes, nthds);
+                    throw Error("could not get a vacant thread slot");
                 }
             }
-            // If the lrl was renames, restore the orginal name
-            std::string outfilename;
-            if (origlrlname != "")
-                outfilename = (lrldestdir + "/" + origlrlname);
-            else
-                outfilename = (lrldestdir + "/" + filename);
-            of_ptr = output_file(outfilename, true, false);
-            *of_ptr << lrldata.str();
-            if (main_lrl_file.empty()) {
-                main_lrl_file = outfilename;
-            }
-            extracted_files.insert(outfilename);
+
+            completes[initialize_at] = false;
+            std::thread(
+                    deserialise_a_block_threaded,
+                    std::ref(datadestdir),
+                    std::ref(lrldestdir),
+                    std::ref(dbname),
+                    std::ref(main_lrl_file),
+                    std::ref(manifest_map),
+                    std::ref(extracted_files),
+                    std::ref(head),
+                    filesize,
+                    std::ref(filename),
+                    std::ref(sha_fingerprint),
+                    std::ref(table_set),
+                    std::ref(origlrlname),
+                    std::ref(options),
+                    percent_full,
+                    std::ref(is_disk_full),
+                    force_mode,
+                    legacy_mode,
+                    incr_mode,
+                    run_full_recovery,
+                    strip_cluster_info,
+                    strip_consumer_info,
+                    std::ref(completes[initialize_at])).detach();
         }
     }
+
+    wait_for_all_threads(completes, nthds);
 
     // If we never inited the txn dir then we must never have had a valid lrl;
     // fail in this case.
