@@ -337,6 +337,7 @@ std::unique_ptr<fdostream> output_file(
         if(unlink(filename.c_str()) == -1 && errno != ENOENT) {
             std::cerr << "Cannot unlink " << filename << ": "
                     << errno << " " << strerror(errno) << std::endl;
+            abort();
         }
     }
 

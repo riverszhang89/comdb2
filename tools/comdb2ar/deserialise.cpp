@@ -108,6 +108,9 @@ bool read_octal_ull(const char *str, size_t len, unsigned long long& number)
     return true;
 }
 
+static std::mutex mtx;
+static std::condition_variable cv;
+static std::exception_ptr thdex;
 
 static void process_manifest(
         const std::string& text,
@@ -139,6 +142,7 @@ static void process_manifest(
         if(ss >> tok) {
             if(tok == "File") {
                 if(read_FileInfo(line, tmp_file)) {
+                    std::unique_lock<std::mutex> lck(mtx);
                     manifest_map[tmp_file.get_filename()] = tmp_file;
                     tmp_file.reset();
                 } else {
@@ -359,10 +363,6 @@ static bool check_dest_dir(const std::string& dir)
 
 #define write_size (1000*1024)
 
-static std::mutex mtx;
-static std::condition_variable cv;
-static std::exception_ptr thdex;
-
 void deserialise_a_block(
         std::string& datadestdir,
         const std::string& lrldestdir,
@@ -490,6 +490,8 @@ void deserialise_a_block(
         std::string outfilename(datadestdir + "/" + filename);
         fullpath = outfilename;
         of_ptr = output_file(outfilename, false, direct);
+
+        std::unique_lock<std::mutex> lck(mtx);
         extracted_files.insert(outfilename);
     }
 
@@ -702,15 +704,7 @@ void deserialise_a_block(
     }
 
     std::clog << "x " << filename << " size=" << filesize
-        << " pagesize=" << pagesize;
-
-    if (file_is_sparse)
-        std::clog << " SPARSE ";
-    else
-        std::clog << " not sparse ";
-
-
-    std::clog << std::endl;
+        << " pagesize=" << pagesize << ((file_is_sparse) ? " SPARSE " : " not sparse ") << std::endl;
 
     if(checksum_failure && !force_mode) {
         std::ostringstream ss;
@@ -722,10 +716,12 @@ void deserialise_a_block(
     uid_t uid = (uid_t)strtol(head.h.uid, NULL, 8);
     gid_t gid = (gid_t)strtol(head.h.gid, NULL, 8);
     mode_t modes = (mode_t)strtol(head.h.mode, NULL, 8);
+#if 0
     if (chown(fullpath.c_str(), uid, gid)==-1)
         perror(fullpath.c_str());
     if (chmod(fullpath.c_str(), modes)==-1)
         perror(fullpath.c_str());
+#endif
 
     if (is_manifest) {
         process_manifest(text, manifest_map, run_full_recovery, origlrlname, options);
@@ -769,6 +765,7 @@ void deserialise_a_block(
         if (main_lrl_file.empty()) {
             main_lrl_file = outfilename;
         }
+        std::unique_lock<std::mutex> lck(mtx);
         extracted_files.insert(outfilename);
     }
 }
