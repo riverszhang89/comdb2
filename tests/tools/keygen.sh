@@ -75,25 +75,43 @@ fi
 ssubj="/C=US/ST=New York/L=New York/O=Bloomberg/OU=Comdb2/CN=$SCN/host=ssldbname*/UID=roborivers"
 csubj="/C=US/ST=New York/L=New York/O=Bloomberg/OU=Comdb2/CN=$CCN/host=ssldbname*/UID=roborivers"
 
+# Create req config file for server
+cp /etc/ssl/openssl.cnf $CADIR/req.san.cnf
+echo "
+[SAN]
+subjectAltName=DNS:$SCN
+" >>$CADIR/req.san.cnf
 # Create server key
 openssl genrsa -out $CADIR/server.key 4096
 # Create signing request
 openssl req -new -key $CADIR/server.key -out $CADIR/server.key.csr \
-            -subj "$ssubj"
+            -subj "$ssubj" \
+            -reqexts SAN    \
+            -config $CADIR/req.san.cnf
 # Sign server key
 openssl x509 -req -in $CADIR/server.key.csr -CA $CADIR/root.crt -CAkey $CADIR/root.key \
-             -CAcreateserial -out $CADIR/server.crt -days 10
+             -CAcreateserial -out $CADIR/server.crt -days 10    \
+             -extfile $CADIR/req.san.cnf -extensions SAN
 # Change key permissions
 chmod 400 $CADIR/server.key
 
+# Create req config file for server
+cp /etc/ssl/openssl.cnf $CADIR/req.san.cnf
+echo "
+[SAN]
+subjectAltName=DNS:$CCN
+" >>$CADIR/req.san.cnf
 # Create client key
 openssl genrsa -out $CADIR/client.key 4096
 # Create signing request. The STREET attribute is for jdbc testing.
 openssl req -new -key $CADIR/client.key -out $CADIR/client.key.csr \
-            -subj "/street=jdbc*$csubj"
+            -subj "/street=jdbc*$csubj" \
+            -reqexts SAN    \
+            -config $CADIR/req.san.cnf
 # Sign client key
 openssl x509 -req -in $CADIR/client.key.csr -CA $CADIR/root.crt -CAkey $CADIR/root.key \
-             -CAserial $CADIR/root.srl -out $CADIR/client.crt -days 10
+             -CAserial $CADIR/root.srl -out $CADIR/client.crt -days 10  \
+             -extfile $CADIR/req.san.cnf -extensions SAN
 # Change key permissions
 chmod 400 $CADIR/client.key
 
@@ -101,10 +119,13 @@ chmod 400 $CADIR/client.key
 openssl genrsa -out $CADIR/revoked.key 4096
 # Create signing request
 openssl req -new -key $CADIR/revoked.key -out $CADIR/revoked.key.csr \
-            -subj "$csubj"
+            -subj "$csubj"  \
+            -reqexts SAN    \
+            -config $CADIR/req.san.cnf
 # Sign revoked key
 openssl x509 -req -in $CADIR/revoked.key.csr -CA $CADIR/root.crt -CAkey $CADIR/root.key \
-             -CAserial $CADIR/root.srl -out $CADIR/revoked.crt -days 10
+             -CAserial $CADIR/root.srl -out $CADIR/revoked.crt -days 10 \
+             -extfile $CADIR/req.san.cnf -extensions SAN
 # Change key permissions
 chmod 400 $CADIR/revoked.key
 ## Revoke
@@ -122,14 +143,20 @@ for node in $CLUSTER; do
   ssh -o StrictHostKeyChecking=no $node "mkdir -p $CADIR"
   fqdn=`ssh -o StrictHostKeyChecking=no $node 'hostname -f'`
 
+  # Create req config file for server
+  cp /etc/ssl/openssl.cnf $CADIR/req.san.cnf
+  printf "\n[SAN]\nsubjectAltName=DNS:$CCN\n" >>$CADIR/req.san.cnf
   # Create server_$fqdn key
   openssl genrsa -out $CADIR/server_$fqdn.key 4096
   # Create signing request
   openssl req -new -key $CADIR/server_$fqdn.key -out $CADIR/server_$fqdn.key.csr \
-              -subj "/C=US/ST=New York/L=New York/O=Bloomberg/OU=Comdb2/CN=$fqdn/host=ssldbname*"
+              -subj "/C=US/ST=New York/L=New York/O=Bloomberg/OU=Comdb2/CN=$fqdn/host=ssldbname*" \
+              -reqexts SAN    \
+              -config $CADIR/req.san.cnf
   # Sign server_$fqdn key
   openssl x509 -req -in $CADIR/server_$fqdn.key.csr -CA $CADIR/root.crt -CAkey $CADIR/root.key \
-               -CAcreateserial -out $CADIR/server_$fqdn.crt -days 10
+               -CAcreateserial -out $CADIR/server_$fqdn.crt -days 10    \
+               -extfile $CADIR/req.san.cnf -extensions SAN
   # Change key permissions
   chmod 400 $CADIR/server_$fqdn.key
 

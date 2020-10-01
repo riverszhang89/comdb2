@@ -165,6 +165,7 @@ static int ssl_verify_san(const char *hostname, const X509 *cert)
     }
 
     sk_GENERAL_NAME_pop_free(peersan, GENERAL_NAME_free);
+    printf("rc is %d\n", rc);
     return rc;
 }
 
@@ -292,10 +293,12 @@ static int ssl_verify_ca(SBUF2 *sb)
     if (!found_addr)
         return 1;
 
+#if 0
     /* Trust localhost */
     if (strcasecmp(peerhost, "localhost") == 0 ||
             strcasecmp(peerhost, "localhost.localdomain") == 0)
         return 0;
+#endif
 
     /* Per RFC 6125, If SANs are presented, they must be used and
        the Comman Name must be ignored. */
