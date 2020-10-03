@@ -243,7 +243,7 @@ static int temp_table_compare(DB *db, const DBT *dbt1, const DBT *dbt2);
 /* refactored both insert and put code paths here */
 static int bdb_temp_table_insert_put(bdb_state_type *, struct temp_table *,
                                      void *key, int keylen, void *data,
-                                     int dtalen, int *bdberr);
+                                     int dtalen, void *unpacked, int *bdberr);
 
 void *bdb_temp_table_get_cur(struct temp_cursor *skippy) { return skippy->cur; }
 
@@ -889,7 +889,7 @@ int bdb_temp_table_insert(bdb_state_type *bdb_state, struct temp_cursor *cur,
     struct temp_table *tbl = cur->tbl;
 
     int rc = bdb_temp_table_insert_put(bdb_state, tbl, key, keylen, data,
-                                       dtalen, bdberr);
+                                       dtalen, NULL, bdberr);
     if (rc <= 0)
         goto done;
 
@@ -999,7 +999,7 @@ int bdb_temp_table_put(bdb_state_type *bdb_state, struct temp_table *tbl,
     DBT dkey, ddata;
 
     int rc = bdb_temp_table_insert_put(bdb_state, tbl, key, keylen, data,
-                                       dtalen, bdberr);
+                                       dtalen, unpacked, bdberr);
     if (rc <= 0)
         goto done;
 
@@ -2318,7 +2318,7 @@ int bdb_temp_table_maybe_reset_priority_thread(bdb_state_type *bdb_state,
 static int bdb_temp_table_insert_put(bdb_state_type *bdb_state,
                                      struct temp_table *tbl, void *key,
                                      int keylen, void *data, int dtalen,
-                                     int *bdberr)
+                                     void *unpacked, int *bdberr)
 {
     int rc, cmp, lo, hi, mid;
     tmptbl_cmp cmpfn;
@@ -2386,7 +2386,10 @@ static int bdb_temp_table_insert_put(bdb_state_type *bdb_state,
             while (lo <= hi) {
                 mid = (lo + hi) >> 1;
                 elem = &tbl->elements[mid];
-                cmp = cmpfn(NULL, elem->keylen, elem->key, keylen, key);
+                if (unpacked != NULL)
+                    cmp = cmpfn(NULL, elem->keylen, elem->key, -1, unpacked);
+                else
+                    cmp = cmpfn(tbl->usermem, elem->keylen, elem->key, keylen, key);
 
                 if (cmp < 0)
                     lo = mid + 1;
