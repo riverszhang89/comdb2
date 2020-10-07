@@ -2325,7 +2325,7 @@ static int bdb_temp_table_insert_put(bdb_state_type *bdb_state,
                                      int keylen, void *data, int dtalen,
                                      void *unpacked, int *bdberr)
 {
-    int rc, cmp, lo, hi, mid;
+    int rc, cmp, lo, hi, mid, found;
     tmptbl_cmp cmpfn;
     arr_elem_t *elem;
     uint8_t *keycopy, *dtacopy;
@@ -2386,6 +2386,7 @@ static int bdb_temp_table_insert_put(bdb_state_type *bdb_state,
         lo = 0;
         hi = tbl->num_mem_entries - 1;
         if (hi >= 0) {
+            found = -1;
             cmpfn = tbl->cmpfunc;
 
             while (lo <= hi) {
@@ -2400,13 +2401,28 @@ static int bdb_temp_table_insert_put(bdb_state_type *bdb_state,
                     lo = mid + 1;
                 else if (cmp > 0)
                     hi = mid - 1;
-                else
+                else {
+                    found = mid;
                     lo = mid + 1;
+                }
             }
 
-            elem = &tbl->elements[lo];
-            memmove(elem + 1, elem,
-                    sizeof(arr_elem_t) * (tbl->num_mem_entries - lo));
+            if (found != -1) {
+                /*
+                ** We do not support duplicate items.
+                ** The existing entry will be replaced.
+                */
+                elem = &tbl->elements[found];
+                tbl->inmemsz -= (elem->keylen + elem->dtalen);
+                free(elem->key);
+                --tbl->num_mem_entries;
+                lo = found;
+            } else {
+                /* Make room for the new entry. */
+                elem = &tbl->elements[lo];
+                memmove(elem + 1, elem,
+                        sizeof(arr_elem_t) * (tbl->num_mem_entries - lo));
+            }
         }
 
         elem = &tbl->elements[lo];
