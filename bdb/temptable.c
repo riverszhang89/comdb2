@@ -1764,7 +1764,7 @@ int bdb_temp_table_delete(bdb_state_type *bdb_state, struct temp_cursor *cur,
         /* Reposition all open cursors: if a cursor is on the right of
            the deletion point, left-shift it by one. */
         LISTC_FOR_EACH(&cur->tbl->cursors, opencur, lnk) {
-            if (opencur->ind >= cur->ind)
+            if (opencur != cur && opencur->ind >= cur->ind)
                 --opencur->ind;
         }
         rc = 0;
