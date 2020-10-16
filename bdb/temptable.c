@@ -1767,6 +1767,10 @@ int bdb_temp_table_delete(bdb_state_type *bdb_state, struct temp_cursor *cur,
             if (opencur != cur && opencur->ind >= cur->ind)
                 --opencur->ind;
         }
+        --cur->ind;
+        free(cur->key);
+        free(cur->data);
+        cur->key = cur->data = NULL;
         rc = 0;
         goto done;
     }
