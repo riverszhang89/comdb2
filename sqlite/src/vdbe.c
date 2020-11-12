@@ -5420,6 +5420,7 @@ case OP_Insert: {
   assert( pData->flags & (MEM_Blob|MEM_Str) );
 #if defined(SQLITE_BUILDING_FOR_COMDB2)
   if( pData->flags & MEM_Cdb2Data ){
+    seekResult = ((pOp->p5 & OPFLAG_USESEEKRESULT) ? pC->seekResult : 0);
     rc = sqlite3BtreeInsert(pC->uc.pCursor, NULL,
         (pOp->p5 & OPFLAG_ISUPDATE)!=0, seekResult, pOp->p5
     );
