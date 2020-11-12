@@ -8495,6 +8495,10 @@ int sqlite3BtreeInsert(
 
     if (pPayload == NULL) {
         pblobs = pCur->ondisk_blobs;
+        pKey = NULL;
+        nKey = 0;
+        pData = NULL;
+        nData = 0;
     } else {
         pKey = pPayload->pKey;
         nKey = pPayload->nKey;
