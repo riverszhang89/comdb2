@@ -38,6 +38,7 @@ int get_datacopy(BtCursor *pCur, int fnum, Mem *m);
 extern void comdb2_handle_limit(Vdbe*,Mem*);
 extern void sqlite3BtreeCursorSetFieldUsed(BtCursor *, unsigned long long);
 extern i64 sqlite3BtreeNewRowid(BtCursor *pCur);
+extern int sqlite3MakeRecordForComdb2(BtCursor *pCur, Mem *m, int nf, int *fallback);
 
 #define cur_is_raw(pCur)                               \
     (pCur ?                                            \
@@ -3402,6 +3403,8 @@ case OP_MakeRecord: {
   int i;                 /* Space used in zNewRecord[] header */
   int j;                 /* Space used in zNewRecord[] content */
   u32 len;               /* Length of a field */
+  VdbeCursor *pC;
+  int fallback;
 
   /* Assuming the record contains N fields, the record format looks
   ** like this:
@@ -3516,6 +3519,24 @@ case OP_MakeRecord: {
     if( nVarint<sqlite3VarintLen(nHdr) ) nHdr++;
   }
   nByte = nHdr+nData;
+
+#if defined(SQLITE_BUILDING_FOR_COMDB2)
+  if( pOp->p5 & OPFLAG_MKREC_DATA ){
+    if( nByte+nZero>db->aLimit[SQLITE_LIMIT_LENGTH] ){
+      goto too_big;
+    }
+    pC = p->apCsr[pOut->u.i];
+    rc = sqlite3MakeRecordForComdb2(pC->uc.pCursor, pData0, nField, &fallback);
+    if( rc!=0 ){
+      goto abort_due_to_error;
+    }else if( !fallback ){
+      /* Make it a placeholder */
+      sqlite3VdbeMemRelease(pOut);
+      pOut->flags = MEM_Cdb2Data | MEM_Blob;
+      break;
+    }
+  }
+#endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */
 
   /* Make sure the output register has a buffer large enough to store 
   ** the new record. The output register (pOp->p3) is not allowed to
@@ -5397,6 +5418,13 @@ case OP_Insert: {
   if( pOp->p5 & OPFLAG_NCHANGE ) p->nChange++;
   if( pOp->p5 & OPFLAG_LASTROWID ) db->lastRowid = x.nKey;
   assert( pData->flags & (MEM_Blob|MEM_Str) );
+#if defined(SQLITE_BUILDING_FOR_COMDB2)
+  if( pData->flags & MEM_Cdb2Data ){
+    rc = sqlite3BtreeInsert(pC->uc.pCursor, NULL,
+        (pOp->p5 & OPFLAG_ISUPDATE)!=0, seekResult, pOp->p5
+    );
+  }else{
+#endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */
   x.pData = pData->z;
   x.nData = pData->n;
   seekResult = ((pOp->p5 & OPFLAG_USESEEKRESULT) ? pC->seekResult : 0);
@@ -5410,6 +5438,7 @@ case OP_Insert: {
   rc = sqlite3BtreeInsert(pC->uc.pCursor, &x,
       (pOp->p5 & OPFLAG_ISUPDATE)!=0, seekResult, pOp->p5
   );
+  }
 #else /* defined(SQLITE_BUILDING_FOR_COMDB2) */
   rc = sqlite3BtreeInsert(pC->uc.pCursor, &x,
       (pOp->p5 & (OPFLAG_APPEND|OPFLAG_SAVEPOSITION)), seekResult

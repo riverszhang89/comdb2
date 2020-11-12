@@ -2055,8 +2055,14 @@ void sqlite3CompleteInsertion(
   if( !HasRowid(pTab) ) return;
   regData = regNewData + 1;
   regRec = sqlite3GetTempReg(pParse);
+#if defined(SQLITE_BUILDING_FOR_COMDB2)
+  sqlite3VdbeAddOp2(v, OP_Integer, iDataCur, regRec);
+#endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */
   sqlite3VdbeAddOp3(v, OP_MakeRecord, regData, pTab->nCol, regRec);
   sqlite3SetMakeRecordP5(v, pTab);
+#if defined(SQLITE_BUILDING_FOR_COMDB2)
+  sqlite3VdbeChangeP5(v, (sqlite3VdbeGetOp(v, -1)->p5 | OPFLAG_MKREC_DATA));
+#endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */
   if( !bAffinityDone ){
     sqlite3TableAffinity(v, pTab, 0);
   }
