@@ -17,10 +17,8 @@
 #ifndef INCLUDED_INDICES_H
 #define INCLUDED_INDICES_H
 
-int check_for_upsert(struct ireq *iq, void *trans, struct schema *ondisktagsc,
-                     blob_buffer_t *blobs, size_t maxblobs, int *opfailcode,
-                     int *ixfailnum, int *retrc, const char *ondisktag,
-                     void *od_dta, size_t od_len, unsigned long long ins_keys,
+int check_for_upsert(struct ireq *iq, void *trans, blob_buffer_t *blobs, size_t maxblobs, int *opfailcode,
+                     int *ixfailnum, int *retrc, void *od_dta, size_t od_len, unsigned long long ins_keys,
                      int rec_flags);
 
 int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
@@ -28,7 +26,6 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
                        int *rrn, unsigned long long *genid,
                        unsigned long long vgenid, unsigned long long ins_keys,
                        int opcode, int blkpos, void *od_dta, size_t od_len,
-                       const char *ondisktag, struct schema *ondisktagsc,
                        int flags, bool reorder);
 
 int upd_record_indices(struct ireq *iq, void *trans, int *opfailcode,

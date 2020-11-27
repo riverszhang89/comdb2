@@ -70,6 +70,9 @@ char gbl_ondisk_ver[] = ".ONDISK.VER.";
 char gbl_ondisk_ver_fmt[] = ".ONDISK.VER.%d";
 const int gbl_ondisk_ver_len = sizeof ".ONDISK.VER.255xx";
 
+#define ONDISK ".ONDISK"
+#define ONDISK_IX_PFX ".ONDISK_IX_"
+
 #define TAGLOCK_RW_LOCK
 #ifdef TAGLOCK_RW_LOCK
 static pthread_rwlock_t taglock;
@@ -1763,116 +1766,6 @@ errout:
     return rc;
 }
 
-int fixup_verified_record(const char *dbname, const char *from, char *to)
-{
-    struct schema *ondisk, *def;
-    int field;
-    int fidx;
-    struct field *f;
-    ondisk = find_tag_schema(dbname, ".ONDISK");
-    def = find_tag_schema(dbname, ".DEFAULT");
-
-    /* go through default schema.  copy corresponding fields from->to */
-    for (field = 0; field < ondisk->nmembers; field++) {
-        fidx = find_field_idx_in_tag(def, ondisk->member[field].name);
-        if (fidx == -1) {
-            f = &ondisk->member[field];
-            memcpy(to + f->offset, from + f->offset, f->len);
-        }
-    }
-    return 0;
-}
-
-/* Given a partial string, find the length of a key.
-   Partial string MUST be a field prefix. */
-int partial_key_length(const char *dbname, const char *keyname,
-                       const char *pstring, int len)
-{
-    int tlen, toff = 0;
-    char *tok;
-    int fldnum = 0;
-    int klen = 0;
-    char *s;
-    int plen;
-    int is_last = 0;
-
-    struct schema *sc = find_tag_schema(dbname, keyname);
-    if (sc == NULL)
-        return -1;
-
-    tok = segtokx((char *)pstring, len, &toff, &tlen, "+");
-    while (tlen > 0) {
-        if (is_last) /* previous field was partial and this one follows */
-            return -1;
-        if (fldnum >= sc->nmembers)
-            return -1;
-        s = strnchr(tok, tlen, ':');
-        if (s) {
-            /* only string and byte arrays can be partial */
-            if (sc->member[fldnum].type != SERVER_BCSTR &&
-                sc->member[fldnum].type != SERVER_BYTEARRAY)
-                return -1;
-            s++;
-            plen = toknum(s, tlen - (s - tok));
-            tlen = s - tok - 1;
-            if (plen <= 0 || plen >= sc->member[fldnum].len)
-                return -1;
-            klen += (plen + 1); /* +1 for ondisk extra byte */
-            is_last = 1;
-        } else
-            klen += sc->member[fldnum].len;
-        /* is it the next field in the index? */
-        if (strncasecmp(sc->member[fldnum].name, tok, tlen))
-            return -1;
-        fldnum++;
-        tok = segtokx((char *)pstring, len, &toff, &tlen, "+");
-    }
-    return klen;
-}
-
-int client_keylen_to_server_keylen(const char *table, const char *tag,
-                                   int ixnum, int keylen)
-{
-    char skeytag[MAXTAGLEN];
-    struct schema *from, *to;
-    int fnum;
-    int slen = 0;
-
-    snprintf(skeytag, MAXTAGLEN, ".ONDISK_ix_%d", ixnum);
-
-    from = find_tag_schema(table, tag);
-    if (from == NULL)
-        return -1;
-
-    to = find_tag_schema(table, skeytag);
-    if (to == NULL)
-        return -1;
-
-    if (keylen > from->member[from->nmembers - 1].offset +
-                     from->member[from->nmembers - 1].len)
-        return -1;
-
-    /* shouldn't happen */
-    if (from->nmembers != to->nmembers)
-        return -1;
-
-    /* find last field */
-    for (fnum = 0; fnum < from->nmembers; fnum++) {
-        if (from->member[fnum].offset + from->member[fnum].len > keylen) {
-            if (from->member[fnum].offset < keylen) {
-                if (to->member[fnum].type != SERVER_BCSTR &&
-                    to->member[fnum].type != SERVER_BYTEARRAY)
-                    return -1;
-                slen += keylen - from->member[fnum].offset;
-            }
-            break;
-        } else
-            slen += to->member[fnum].len;
-    }
-
-    return slen;
-}
-
 static int copy_partial_client_buf(const char *inbuf, int len, int isnull,
                                    char *outbuf)
 {
@@ -2208,11 +2101,8 @@ static void dump_t2t_plan(FILE *out, const struct t2t_plan *plan)
  * 0-length blobs via the 'ptr' element in the client-side blob (a NULL ptr
  * signified a NULL blob).  This is a special case which we want to eliminate.
  */
-int static_tag_blob_conversion(const char *table, const char *ctag,
-                               void *record, blob_buffer_t *blobs,
-                               size_t maxblobs)
+int static_tag_blob_conversion(const struct schema *scm, void *record, blob_buffer_t *blobs, size_t maxblobs)
 {
-    struct schema *scm;
     struct field *fld;
     client_blob_tp *clb;
     int ii;
@@ -2222,18 +2112,13 @@ int static_tag_blob_conversion(const char *table, const char *ctag,
         return 0;
     }
 
-    /* If we can't find the tag, it is probably a not-yet-added dynamic tag. */
-    if (NULL == (scm = find_tag_schema(table, ctag))) {
-        return 0;
-    }
-
     /* If this is dynamic the blob descriptor is correct already. */
     if (scm->flags & SCHEMA_DYNAMIC) {
         return 0;
     }
 
     /* If this is an ondisk then we are in an sql statement.  */
-    if (0 == strcmp(ctag, ".ONDISK")) {
+    if (0 == strcmp(scm->tag, ".ONDISK")) {
         return 0;
     }
 
@@ -3152,56 +3037,13 @@ static int _stag_to_ctag_buf(const char *table, const char *stag,
     return tlen;
 }
 
-/*
- * Populate a record buffer with server format nulls or default values.
- * This record does not necessarily satisfy null constraints for the table.
- */
-void *create_blank_record(dbtable *db, size_t *length)
-{
-    int nfield;
-    const struct schema *schema;
-    char *record = malloc(db->lrl);
-    if (!record) {
-        logmsg(LOGMSG_ERROR, "%s: out of memory for lrl %d\n", __func__, db->lrl);
-        return NULL;
-    }
-    schema = find_tag_schema(db->tablename, ".ONDISK");
-    if (!schema) {
-        logmsg(LOGMSG_ERROR, "%s: cannot find .ONDISK schema for table %s\n",
-               __func__, db->tablename);
-        free(record);
-        return NULL;
-    }
-    for (nfield = 0; nfield < schema->nmembers; nfield++) {
-        const struct field *field = &schema->member[nfield];
-        if (field->offset + field->len > db->lrl) {
-            logmsg(LOGMSG_ERROR, "%s: buffer size %u too small for tag %s\n",
-                    __func__, db->lrl, schema->tag);
-            free(record);
-            return NULL;
-        }
-        /* TODO we go to null here for vutf8 fields because they need to be
-         * converted from a SERVER_BCSTR to SERVER_VUTF8 this should really be
-         * fixed in a cleaner way */
-        if (field->in_default && field->type != CLIENT_VUTF8 &&
-            field->type != SERVER_VUTF8) {
-            memcpy(record + field->offset, field->in_default, field->len);
-        } else {
-            set_null(record + field->offset, field->len);
-        }
-    }
-    if (length)
-        *length = db->lrl;
-    return record;
-}
-
 int upd_master_columns(struct ireq *iq, void *intrans, void *record, size_t reclen)
 {
     tran_type *tran = (tran_type *)intrans;
     char *crec = record;
     int rc = 0, bdberr = 0;
     int64_t val;
-    struct schema *schema = find_tag_schema(iq->usedb->tablename, ".ONDISK");
+    struct schema *schema = get_ondisk_schema(iq->usedb, -1);
     for (int nfield = 0; nfield < schema->nmembers; nfield++) {
         const struct field *field = &schema->member[nfield];
 
@@ -3243,7 +3085,7 @@ int set_master_columns(struct ireq *iq, void *intrans, void *record, size_t recl
     char *crec = record;
     int rc = 0, bdberr = 0;
     int64_t seq;
-    struct schema *schema = find_tag_schema(iq->usedb->tablename, ".ONDISK");
+    struct schema *schema = get_ondisk_schema(iq->usedb, -1);
     for (int nfield = 0; nfield < schema->nmembers; nfield++) {
         const struct field *field = &schema->member[nfield];
         int outsz;
@@ -3325,9 +3167,7 @@ int set_master_columns(struct ireq *iq, void *intrans, void *record, size_t recl
  * Scan a server format record and make sure that all fields validate for
  * null constraints.
  */
-int validate_server_record(struct ireq *iq, const void *record, size_t reclen,
-                           const char *tag, const char *ondisktag,
-                           struct schema *schema)
+int validate_server_record(struct ireq *iq, const void *record, size_t reclen, const char *tag, struct schema *schema)
 {
     const char *crec = record;
     for (int nfield = 0; nfield < schema->nmembers; nfield++) {
@@ -3344,8 +3184,7 @@ int validate_server_record(struct ireq *iq, const void *record, size_t reclen,
                 .source_sql_field_info = {0}};
 
             char str[128];
-            convert_failure_reason_str(&reason, iq->usedb->tablename, tag,
-                                       ondisktag, str, sizeof(str));
+            convert_failure_reason_str(&reason, iq->usedb->tablename, tag, schema->tag, str, sizeof(str));
             if (iq->debug) {
                 reqprintf(iq, "ERR VERIFY DTA %s->.ONDISK '%s'", tag, str);
             }
@@ -3447,35 +3286,10 @@ void free_db_record(struct dbrecord *db)
     free(db);
 }
 
-void *stag_to_ctag(const char *table, const char *stag, const char *inbuf,
-                   const char *ctag, unsigned char *outnulls, int flags)
-{
-    struct schema *from, *to;
-    char *outbuf;
-    int rc;
-
-    from = find_tag_schema(table, ctag);
-    if (from == NULL)
-        return NULL;
-    to = find_tag_schema(table, stag);
-    if (to == NULL)
-        return NULL;
-    outbuf = malloc(get_size_of_schema(to));
-    rc = stag_to_ctag_buf(table, stag, inbuf, -1, ctag, outbuf, outnulls, flags,
-                          NULL, NULL);
-    if (rc != -1)
-        return outbuf;
-
-    free(outbuf);
-    return NULL;
-}
-
 /* forward */
-static int _stag_to_stag_buf_flags_blobs(
-    struct schema *fromsch, const char *fromtag, const char *inbuf,
-    const char *totable, const char *totag, char *outbuf, int flags,
-    struct convert_failure *fail_reason, blob_buffer_t *inblobs,
-    blob_buffer_t *outblobs, int maxblobs, const char *tzname);
+static int _stag_to_stag_buf_flags_blobs(struct schema *fromsch, struct schema *tosch, const char *inbuf, char *outbuf,
+                                         int flags, struct convert_failure *fail_reason, blob_buffer_t *inblobs,
+                                         blob_buffer_t *outblobs, int maxblobs, const char *tzname);
 
 int stag_to_stag_buf_blobs(const char *table, const char *fromtag,
                            const char *inbuf, const char *totag, char *outbuf,
@@ -3504,10 +3318,8 @@ int stag_to_stag_buf_blobs(const char *table, const char *fromtag,
         maxblobs = 0;
     }
 
-    struct schema *fromsch = find_tag_schema(table, fromtag);
-    rc = _stag_to_stag_buf_flags_blobs(fromsch, fromtag, inbuf, table, totag,
-                                       outbuf, 0 /*flags*/, reason, blobs,
-                                       p_newblobs, maxblobs, NULL /*tzname*/);
+    rc = _stag_to_stag_buf_flags_blobs(find_tag_schema(table, fromtag), find_tag_schema(table, totag), inbuf, outbuf,
+                                       0 /*flags*/, reason, blobs, p_newblobs, maxblobs, NULL /*tzname*/);
 
     if (blobs && get_new_blobs) /* if we were given blobs */
     {
@@ -3533,33 +3345,18 @@ int stag_to_stag_buf(const char *table, const char *fromtag, const char *inbuf,
                                   0, reason);
 }
 
-int stag_to_stag_buf_tz(struct schema *fromsch, const char *table,
-                        const char *fromtag, const char *inbuf,
-                        const char *totag, char *outbuf,
+int stag_to_stag_buf_tz(struct schema *fromsch, const char *table, const char *inbuf, const char *totag, char *outbuf,
                         struct convert_failure *reason, const char *tzname)
 {
-    return _stag_to_stag_buf_flags_blobs(
-        fromsch, fromtag, inbuf, table, totag, outbuf, 0 /*flags*/, reason,
-        NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, tzname);
+    return _stag_to_stag_buf_flags_blobs(fromsch, find_tag_schema(table, totag), inbuf, outbuf, 0 /*flags*/, reason,
+                                         NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, tzname);
 }
 
-int stag_to_stag_buf_update(const char *table, const char *fromtag,
-                            const char *inbuf, const char *totag, char *outbuf,
-                            struct convert_failure *reason)
+int stag_to_stag_buf_update_tz(struct schema *from, struct schema *to, const char *inbuf, char *outbuf,
+                               struct convert_failure *reason, const char *tzname)
 {
-    return stag_to_stag_buf_flags(table, fromtag, inbuf, table, totag, outbuf,
-                                  CONVERT_UPDATE, reason);
-}
-
-int stag_to_stag_buf_update_tz(const char *table, const char *fromtag,
-                               const char *inbuf, const char *totag,
-                               char *outbuf, struct convert_failure *reason,
-                               const char *tzname)
-{
-    struct schema *fromsch = find_tag_schema(table, fromtag);
-    return _stag_to_stag_buf_flags_blobs(
-        fromsch, fromtag, inbuf, table, totag, outbuf, CONVERT_UPDATE, reason,
-        NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, tzname);
+    return _stag_to_stag_buf_flags_blobs(from, to, inbuf, outbuf, CONVERT_UPDATE, reason, NULL /*inblobs*/,
+                                         NULL /*outblobs*/, 0 /*maxblobs*/, tzname);
 }
 
 /*
@@ -3609,24 +3406,15 @@ int remap_update_columns(const char *table, const char *intag,
 }
 
 /* fill the updCols array */
-int describe_update_columns(const char *table, const char *tag, int *updCols)
+int describe_update_columns(const struct ireq *iq, const struct schema *chk, int *updCols)
 {
-    struct schema *ondisk, *chk;
+    struct schema *ondisk;
     int i;
-    int same_tag = 0;
 
-    ondisk = find_tag_schema(table, ".ONDISK");
+    ondisk = get_ondisk_schema(iq->usedb, -1);
     if (ondisk == NULL) {
         return -1;
     }
-
-    chk = find_tag_schema(table, tag);
-    if (chk == NULL) {
-        return -2;
-    }
-
-    if (strcmp(tag, ".ONDISK") == 0)
-        same_tag = 1;
 
     updCols[0] = ondisk->nmembers;
 
@@ -3637,7 +3425,7 @@ int describe_update_columns(const char *table, const char *tag, int *updCols)
     for (i = 0; i < chk->nmembers; i++) {
         struct field *chk_fld = &chk->member[i];
         int idx;
-        if (same_tag) {
+        if (ondisk == chk) {
             idx = i;
         } else {
             idx = find_field_idx_in_tag(ondisk, chk_fld->name);
@@ -3865,42 +3653,28 @@ static int stag_to_stag_field(const char *inbuf, char *outbuf, int flags,
  * On success only outblobs will be valid, there is no need to free up inblobs.
  * On failure the caller should free inblobs and outblobs.
  */
-static int _stag_to_stag_buf_flags_blobs(
-    struct schema *fromsch, const char *fromtag, const char *inbuf,
-    const char *totable, const char *totag, char *outbuf, int flags,
-    struct convert_failure *fail_reason, blob_buffer_t *inblobs,
-    blob_buffer_t *outblobs, int maxblobs, const char *tzname)
+static int _stag_to_stag_buf_flags_blobs(struct schema *fromsch, struct schema *tosch, const char *inbuf, char *outbuf,
+                                         int flags, struct convert_failure *fail_reason, blob_buffer_t *inblobs,
+                                         blob_buffer_t *outblobs, int maxblobs, const char *tzname)
 {
-    struct schema *tosch;
-    int same_tag = 0;
-
     if (fail_reason)
         init_convert_failure_reason(fail_reason);
 
-    if (fromsch == NULL) {
+    if (fromsch == NULL || tosch == NULL) {
         if (fail_reason)
             fail_reason->reason = CONVERT_FAILED_INVALID_INPUT_TAG;
         return -1;
     }
-    if (fail_reason)
+
+    if (fail_reason) {
         fail_reason->source_schema = fromsch;
-
-    tosch = find_tag_schema(totable, totag);
-    if (tosch == NULL) {
-        if (fail_reason)
-            fail_reason->reason = CONVERT_FAILED_INVALID_OUTPUT_TAG;
-        return -1;
-    }
-    if (fail_reason)
         fail_reason->target_schema = tosch;
-
-    if (strcmp(fromtag, totag) == 0)
-        same_tag = 1;
+    }
 
     for (int field = 0; field < tosch->nmembers; field++) {
         int field_idx;
 
-        if (same_tag) {
+        if (fromsch == tosch) {
             field_idx = field;
         } else {
             field_idx = find_field_idx_in_tag(fromsch, tosch->member[field].name);
@@ -4006,10 +3780,8 @@ int stag_to_stag_buf_flags(const char *table, const char *fromtag,
                            const char *totag, char *outbuf, int flags,
                            struct convert_failure *fail_reason)
 {
-    struct schema *fromsch = find_tag_schema(table, fromtag);
-    return _stag_to_stag_buf_flags_blobs(
-        fromsch, fromtag, inbuf, totable, totag, outbuf, flags, fail_reason,
-        NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, NULL);
+    return _stag_to_stag_buf_flags_blobs(find_tag_schema(table, fromtag), find_tag_schema(table, totag), inbuf, outbuf,
+                                         flags, fail_reason, NULL /*inblobs*/, NULL /*outblobs*/, 0 /*maxblobs*/, NULL);
 }
 
 /*
@@ -6350,22 +6122,6 @@ int resolve_tag_name(struct ireq *iq, const char *tagdescr, size_t taglen,
     return 0;
 }
 
-int ondisk_type_is_vutf8(dbtable *db, const char *fieldname,
-                         size_t fieldname_len)
-{
-    int i;
-    struct schema *s = find_tag_schema(db->tablename, ".ONDISK");
-    for (i = 0; i < s->nmembers; i++) {
-        if (strncmp(s->member[i].name, fieldname, fieldname_len) == 0)
-            /* TODO delme */
-            /*return s->member[i].type == CLIENT_VUTF8;*/
-            return s->member[i].type == SERVER_VUTF8;
-    }
-
-    /* error? */
-    return 0;
-}
-
 /* return a unique id associated with a record */
 long long get_record_unique_id(dbtable *db, void *rec)
 {
@@ -7440,16 +7196,13 @@ int extract_decimal_quantum(const dbtable *db, int ix, char *inbuf,
     return 0;
 }
 
-int create_key_from_ondisk_sch_blobs(const dbtable *db, struct schema *fromsch,
-                                     int ixnum, char **tail, int *taillen,
-                                     char *mangled_key, const char *fromtag,
-                                     const char *inbuf, int inbuflen,
-                                     const char *totag, char *outbuf,
-                                     struct convert_failure *reason,
-                                     blob_buffer_t *inblobs, int maxblobs,
-                                     const char *tzname)
+int create_key_from_ondisk_sch_blobs(const struct dbtable *db, int ixnum, char **tail, int *taillen, char *mangled_key,
+                                     const char *inbuf, int inbuflen, char *outbuf, struct convert_failure *reason,
+                                     blob_buffer_t *inblobs, int maxblobs, const char *tzname)
 {
     int rc = 0;
+    struct schema *fromsch, *tosch;
+    const char *fromtag, *totag;
 
     for (int i = 0; i != maxblobs; ++i) {
         rc = unodhfy_blob_buffer(db, inblobs + i, i);
@@ -7457,9 +7210,11 @@ int create_key_from_ondisk_sch_blobs(const dbtable *db, struct schema *fromsch,
             return rc;
     }
 
-    rc = _stag_to_stag_buf_flags_blobs(
-        fromsch, fromtag, inbuf, db->tablename, totag, outbuf, 0 /*flags*/,
-        reason, inblobs, NULL /*outblobs*/, maxblobs, tzname);
+    fromsch = db->schema;
+    tosch = db->schema;
+
+    rc = _stag_to_stag_buf_flags_blobs(fromsch, tosch, inbuf, outbuf, 0 /*flags*/, reason, inblobs, NULL /*outblobs*/,
+                                       maxblobs, tzname);
     if (rc)
         return rc;
 
@@ -7479,6 +7234,8 @@ int create_key_from_ondisk_sch_blobs(const dbtable *db, struct schema *fromsch,
             }
             rc = -1; /* callers like -1 */
         } else if (tail) {
+            fromtag = fromsch->tag;
+            totag = tosch->tag;
             if ((strncmp(fromtag, ".ONDISK", 7) == 0 &&
                  strncmp(totag, ".NEW.", 5) == 0) ||
                 (strncmp(fromtag, ".NEW.", 5) == 0 &&
@@ -7519,44 +7276,18 @@ int create_key_from_ondisk_sch_blobs(const dbtable *db, struct schema *fromsch,
     return rc;
 }
 
-int create_key_from_ondisk_sch(dbtable *db, struct schema *fromsch, int ixnum,
-                               char **tail, int *taillen, char *mangled_key,
-                               const char *fromtag, const char *inbuf,
-                               int inbuflen, const char *totag, char *outbuf,
-                               struct convert_failure *reason,
-                               const char *tzname)
+int create_key_from_ondisk(const struct dbtable *db, int ixnum, char **tail, int *taillen, char *mangled_key,
+                           const char *inbuf, int inbuflen, char *outbuf, const char *tzname)
 {
-    return create_key_from_ondisk_sch_blobs(
-        db, fromsch, ixnum, tail, taillen, mangled_key, fromtag, inbuf,
-        inbuflen, totag, outbuf, reason, NULL /*inblobs*/, 0 /*maxblobs*/,
-        tzname);
+    return create_key_from_ondisk_sch_blobs(db, ixnum, tail, taillen, mangled_key, inbuf, inbuflen, outbuf, NULL,
+                                            NULL /*inblobs*/, 0 /*maxblobs*/, tzname);
 }
 
-inline int create_key_from_ondisk(dbtable *db, int ixnum, char **tail,
-                                  int *taillen, char *mangled_key,
-                                  const char *fromtag, const char *inbuf,
-                                  int inbuflen, const char *totag, char *outbuf,
-                                  struct convert_failure *reason,
-                                  const char *tzname)
+int create_key_from_ondisk_blobs(const struct dbtable *db, int ixnum, char **tail, int *taillen, char *mangled_key,
+                                 const char *inbuf, int inbuflen, char *outbuf, blob_buffer_t *inblobs, int maxblobs)
 {
-    struct schema *fromsch = find_tag_schema(db->tablename, fromtag);
-
-    return create_key_from_ondisk_sch(db, fromsch, ixnum, tail, taillen,
-                                      mangled_key, fromtag, inbuf, inbuflen,
-                                      totag, outbuf, reason, tzname);
-}
-
-inline int create_key_from_ondisk_blobs(
-    const dbtable *db, int ixnum, char **tail, int *taillen, char *mangled_key,
-    const char *fromtag, const char *inbuf, int inbuflen, const char *totag,
-    char *outbuf, struct convert_failure *reason, blob_buffer_t *inblobs,
-    int maxblobs, const char *tzname)
-{
-    struct schema *fromsch = find_tag_schema(db->tablename, fromtag);
-
-    return create_key_from_ondisk_sch_blobs(
-        db, fromsch, ixnum, tail, taillen, mangled_key, fromtag, inbuf,
-        inbuflen, totag, outbuf, reason, inblobs, maxblobs, tzname);
+    return create_key_from_ondisk_sch_blobs(db, ixnum, tail, taillen, mangled_key, inbuf, inbuflen, outbuf, NULL,
+                                            inblobs, maxblobs, NULL);
 }
 
 int create_key_from_ireq(struct ireq *iq, int ixnum, int isDelete, char **tail,
@@ -7614,4 +7345,9 @@ int create_key_from_ireq(struct ireq *iq, int ixnum, int isDelete, char **tail,
     }
 
     return rc;
+}
+
+struct schema *get_ondisk_schema(const struct dbtable *usedb, int ix)
+{
+    return (ix == -1) ? usedb->schema : usedb->ixschema[ix];
 }
