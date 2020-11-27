@@ -1502,10 +1502,9 @@ static int osql_send_commit_logic(struct sqlclntstate *clnt, int is_retry,
     }
     osql->tran_ops = 0; /* reset transaction size counter*/
 
-    extern int gbl_always_send_cnonce;
     if (osql->rqid == OSQL_RQID_USE_UUID && clnt->dbtran.maxchunksize == 0 &&
         !clnt->dbtran.trans_has_sp &&
-        (gbl_always_send_cnonce || has_high_availability(clnt)) &&
+        (has_high_availability(clnt)) &&
         get_cnonce(clnt, &snap_info) == 0) {
 
         /* pass to master the state of verify retry.

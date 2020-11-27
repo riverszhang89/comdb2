@@ -23,6 +23,9 @@
  * of this when doing appsock stuff!
  */
 
+#define TTTT 1
+#define DDDD 1
+
 #include "lockmacros.h"
 #include "comdb2.h"
 #include "comdb2_plugin.h"
