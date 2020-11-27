@@ -197,10 +197,9 @@ static int check_index(struct ireq *iq, void *trans, int ixnum,
         rc = create_key_from_ireq(iq, ixnum, 0, &od_dta_tail, &od_tail_len,
                                   mangled_key, od_dta, od_len, key);
     else {
-        const char *ixtagptr = iq->usedb->ixschema[ixnum]->tag;
         rc = create_key_from_ondisk_sch_blobs(
             iq->usedb, ondisktagsc, ixnum, &od_dta_tail, &od_tail_len,
-            mangled_key, ondisktag, od_dta, od_len, ixtagptr, key, NULL, blobs,
+            mangled_key, ondisktag, od_dta, od_len, NULL, key, NULL, blobs,
             maxblobs, iq->tzname);
     }
     if (rc == -1) {
@@ -365,10 +364,9 @@ int add_record_indices(struct ireq *iq, void *trans, blob_buffer_t *blobs,
             rc = create_key_from_ireq(iq, ixnum, 0, &od_dta_tail, &od_tail_len,
                                       mangled_key, od_dta, od_len, key);
         else {
-            const char *ixtagptr = iq->usedb->ixschema[ixnum]->tag;
             rc = create_key_from_ondisk_sch_blobs(
                 iq->usedb, ondisktagsc, ixnum, &od_dta_tail, &od_tail_len,
-                mangled_key, ondisktag, od_dta, od_len, ixtagptr, key, NULL, blobs,
+                mangled_key, ondisktag, od_dta, od_len, NULL, key, NULL, blobs,
                 maxblobs, iq->tzname);
         }
         if (rc == -1) {
@@ -579,9 +577,6 @@ int upd_record_indices(struct ireq *iq, void *trans, int *opfailcode,
         if (iq->osql_step_ix)
             gbl_osqlpf_step[*(iq->osql_step_ix)].step += 1;
 
-        /* form the old key from old_dta into "oldkey" */
-        const char *ixtagptr = iq->usedb->ixschema[ixnum]->tag;
-
         if (iq->idxDelete) {
             /* only create key if we need it */
             if (!gbl_partial_indexes || !iq->usedb->ix_partial ||
@@ -592,12 +587,8 @@ int upd_record_indices(struct ireq *iq, void *trans, int *opfailcode,
         } else
             rc = create_key_from_ondisk_blobs(
                 iq->usedb, ixnum, &od_olddta_tail, &od_oldtail_len,
-                mangled_oldkey, ".ONDISK", old_dta, od_len, ixtagptr, oldkey,
-                NULL, del_idx_blobs, del_idx_blobs ? MAXBLOBS : 0, NULL);
-        /*
-                rc = stag_to_stag_buf(iq->usedb->tablename, ".ONDISK", old_dta,
-                        ixtagptr, oldkey, NULL);
-                        */
+                mangled_oldkey, NULL, old_dta, od_len, NULL, oldkey,
+                NULL, del_idx_blobs, del_idx_blobs ? MAXBLOBS : 0);
         if (rc < 0) {
             if (iq->debug)
                 reqprintf(iq, "CAN'T FORM OLD KEY IX %d", ixnum);
@@ -619,12 +610,8 @@ int upd_record_indices(struct ireq *iq, void *trans, int *opfailcode,
         } else /* form the new key from "od_dta" into "newkey" */
             rc = create_key_from_ondisk_blobs(
                 iq->usedb, ixnum, &od_dta_tail, &od_tail_len, mangled_newkey,
-                ".ONDISK", od_dta, od_len, ixtagptr, newkey, NULL, add_idx_blobs,
-                add_idx_blobs ? MAXBLOBS : 0, NULL);
-        /*
-       rc = stag_to_stag_buf(iq->usedb->tablename, ".ONDISK", od_dta,
-               ixtagptr, newkey, NULL);
-               */
+                NULL, od_dta, od_len, NULL, newkey, NULL, add_idx_blobs,
+                add_idx_blobs ? MAXBLOBS : 0);
         if (rc < 0) {
             if (iq->debug)
                 reqprintf(iq, "CAN'T FORM NEW KEY IX %d", ixnum);
@@ -1009,12 +996,10 @@ int upd_new_record_add2indices(struct ireq *iq, void *trans,
                 create_key_from_ireq(iq, ixnum, 0, &od_dta_tail, &od_tail_len,
                                      mangled_key, (char *)new_dta, nd_len, key);
         else {
-            const char *ixtagptr = iq->usedb->ixschema[ixnum]->tag;
-
             rc = create_key_from_ondisk_blobs(
                 iq->usedb, ixnum, &od_dta_tail, &od_tail_len, mangled_key,
-                use_new_tag ? ".NEW..ONDISK" : ".ONDISK", (char *)new_dta,
-                nd_len, ixtagptr, key, NULL, blobs, blobs ? MAXBLOBS : 0, NULL);
+                NULL, (char *)new_dta,
+                nd_len, NULL, key, NULL, blobs, blobs ? MAXBLOBS : 0);
         }
 
         if (rc) {
@@ -1103,13 +1088,12 @@ int upd_new_record_indices(
         if (iq->idxDelete) {
             memcpy(key, iq->idxDelete[ixnum], keysize);
         } else {
-            const char *ixtagptr = iq->usedb->ixschema[ixnum]->tag;
             rc = create_key_from_ondisk_blobs(
                 iq->usedb, ixnum, NULL, NULL, NULL,
-                use_new_tag ? ".NEW..ONDISK" : ".ONDISK",
+                NULL,
                 use_new_tag ? (char *)sc_old : (char *)old_dta,
-                0 /*not needed*/, ixtagptr, key, NULL, del_idx_blobs,
-                del_idx_blobs ? MAXBLOBS : 0, NULL);
+                0 /*not needed*/, NULL, key, NULL, del_idx_blobs,
+                del_idx_blobs ? MAXBLOBS : 0);
         }
 
         if (rc == -1) {
@@ -1185,22 +1169,16 @@ int del_new_record_indices(struct ireq *iq, void *trans,
 
         /* Convert from OLD ondisk schema to NEW index schema - this
          * must work by definition. */
-        /*
-        rc = stag_to_stag_buf(iq->usedb->tablename, ".ONDISK", (char*) old_dta,
-                keytag, key, NULL);
-         */
         if (iq->idxDelete) {
             memcpy(key, iq->idxDelete[ixnum], iq->usedb->ix_keylen[ixnum]);
             rc = 0;
         } else {
-            const char *ixtagptr = iq->usedb->ixschema[ixnum]->tag;
-
             rc = create_key_from_ondisk_blobs(
                 iq->usedb, ixnum, NULL, NULL, NULL,
-                use_new_tag ? ".NEW..ONDISK" : ".ONDISK",
+                NULL,
                 use_new_tag ? (char *)sc_old : (char *)old_dta,
-                0 /*not needed */, ixtagptr, key, NULL, del_idx_blobs,
-                del_idx_blobs ? MAXBLOBS : 0, NULL);
+                0 /*not needed */, NULL, key, NULL, del_idx_blobs,
+                del_idx_blobs ? MAXBLOBS : 0);
         }
 
         if (rc == -1) {
