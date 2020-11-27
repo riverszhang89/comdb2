@@ -2192,6 +2192,7 @@ static int insert_record_indexes(BtCursor *pCur, struct sql_thread *thd,
             memcpy(key, thd->clnt->idxInsert[ix],
                    pCur->db->ix_keylen[ix]);
         } else {
+            // RZAY
             rc = stag_to_stag_buf(pCur->db->tablename, ".ONDISK",
                                   pCur->ondisk_buf, namebuf, key, NULL);
             if (rc == -1) {
@@ -2288,6 +2289,7 @@ static int delete_record_indexes(BtCursor *pCur, char *pdta, int dtasize,
         if (gbl_expressions_indexes && db->ix_expr) {
             memcpy(key, thd->clnt->idxDelete[ix], db->ix_keylen[ix]);
         } else {
+            // RZAY
             rc = stag_to_stag_buf(db->tablename, ".ONDISK", dta, namebuf, key,
                                   NULL);
             if (rc == -1) {
