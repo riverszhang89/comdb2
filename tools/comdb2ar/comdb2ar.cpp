@@ -126,7 +126,8 @@ int main(int argc, char *argv[])
 
     std::ostringstream ss;
     ss << root << "/bin/comdb2";
-    std::string comdb2_task(ss.str());
+    //std::string comdb2_task(ss.str());
+    std::string comdb2_task("/bb/bin/comdb2.tsk.7.0.399");
 
     while((c = getopt(argc, argv, "hsSLC:I:b:x:u:rRSkKfODE:T:t:")) != EOF) {
         switch(c) {
