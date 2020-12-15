@@ -249,6 +249,7 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
     }
 
     struct schema *dbname_schema;
+    // WHAT????????
     if (strcmp(tag, ".ONDISK") == 0)
         dbname_schema = get_ondisk_schema(iq->usedb, -1);
     else
@@ -810,6 +811,7 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
     }
 
     struct schema *dbname_schema;
+    // WHAT????????
     if (strcmp(tag, ".ONDISK") == 0)
         dbname_schema = get_ondisk_schema(iq->usedb, -1);
     else
