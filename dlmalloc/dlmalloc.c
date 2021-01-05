@@ -4151,7 +4151,7 @@ static void* internal_realloc(mstate m, void* oldmem, size_t bytes, int cpymem) 
 
 /* --------------------------- memalign support -------------------------- */
 
-static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
+static void* internal_memalign(mstate m, size_t alignment, size_t bytes, size_t offset) {
   if (alignment <= MALLOC_ALIGNMENT)    /* Can just use malloc */
     return internal_malloc(m, bytes);
   if (alignment <  MIN_CHUNK_SIZE) /* must be at least a minimum chunk size */
@@ -4171,13 +4171,14 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
     size_t nb = request2size(bytes);
     size_t req = nb + alignment + MIN_CHUNK_SIZE - CHUNK_OVERHEAD;
     char* mem = internal_malloc(m, req);
+	char *br = NULL, *pos = NULL;
     if (mem != 0) {
       void* leader = 0;
       void* trailer = 0;
       mchunkptr p = mem2chunk(mem);
 
       if (PREACTION(m)) return 0;
-      if ((((size_t)(mem)) % alignment) != 0) { /* misaligned */
+      if ((((size_t)(mem + offset)) % alignment) != 0) { /* misaligned */
         /*
           Find an aligned spot inside chunk.  Since we need to give
           back leading space in a chunk of at least MIN_CHUNK_SIZE, if
@@ -4186,11 +4187,11 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
           We've allocated enough total room so that this is always
           possible.
         */
-        char* br = (char*)mem2chunk((size_t)(((size_t)(mem +
+        br = (char*)mem2chunk((size_t)(((size_t)(mem + offset +
                                                        alignment -
                                                        SIZE_T_ONE)) &
-                                             -alignment));
-        char* pos = ((size_t)(br - (char*)(p)) >= MIN_CHUNK_SIZE)?
+                                             -alignment) - offset);
+        pos = ((size_t)(br - (char*)(p)) >= MIN_CHUNK_SIZE)?
           br : br+alignment;
         mchunkptr newp = (mchunkptr)pos;
         size_t leadsize = pos - (char*)(p);
@@ -4221,7 +4222,7 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
       }
 
       assert (chunksize(p) >= nb);
-      assert((((size_t)(chunk2mem(p))) % alignment) == 0);
+      assert((((size_t)(chunk2mem(p) + offset)) % alignment) == 0);
       check_inuse_chunk(m, p);
       POSTACTION(m);
       if (leader != 0) {
@@ -4639,7 +4640,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 }
 
 void* dlmemalign(size_t alignment, size_t bytes) {
-  return internal_memalign(gm, alignment, bytes);
+  return internal_memalign(gm, alignment, bytes, 0);
 }
 
 void** dlindependent_calloc(size_t n_elements, size_t elem_size,
@@ -5107,13 +5108,23 @@ void* mspace_resize(mspace msp, void* oldmem, size_t bytes)
   return internal_mspace_realloc(msp, oldmem, bytes, 0);
 }
 
+void* mspace_memalign_offset(mspace msp, size_t alignment, size_t bytes, size_t offset)
+{
+  mstate ms = (mstate)msp;
+  if (!ok_magic(ms)) {
+    USAGE_ERROR_ACTION(ms,ms);
+    return 0;
+  }
+  return internal_memalign(ms, alignment, bytes, offset);
+}
+
 void* mspace_memalign(mspace msp, size_t alignment, size_t bytes) {
   mstate ms = (mstate)msp;
   if (!ok_magic(ms)) {
     USAGE_ERROR_ACTION(ms,ms);
     return 0;
   }
-  return internal_memalign(ms, alignment, bytes);
+  return internal_memalign(ms, alignment, bytes, 0);
 }
 
 void** mspace_independent_calloc(mspace msp, size_t n_elements,

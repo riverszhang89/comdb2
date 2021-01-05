@@ -28,7 +28,7 @@ static const char revid[] = "$Id: db_salloc.c,v 11.17 2003/01/08 04:42:01 bostic
 extern int __gbl_use_malloc_for_regions;
 void __db_shalloc_init_malloc(void *area, size_t size, DB_MUTEX *lock);
 int __db_shalloc_size_malloc(size_t len, size_t align);
-int __db_shalloc_malloc(void *p, size_t len, size_t align, void *retp);
+int __db_shalloc_malloc_offset(void *p, size_t len, size_t align, size_t offset, void *retp);
 void __db_shalloc_free_malloc(void *regionp, void *ptr);
 size_t __db_shsizeof_malloc(void *ptr);
 void __db_shalloc_dump_malloc(void *addr, FILE *fp);
@@ -177,15 +177,15 @@ bb_shalloc_free_hit(uint64_t start_time_us)
 }
 
 /*
- * __db_shalloc --
- *	Allocate some space from the shared region.
+ * __db_shalloc_offset --
+ *	Allocate space from the shared region with custom alignment
  *
- * PUBLIC: int __db_shalloc __P((void *, size_t, size_t, void *));
+ * PUBLIC: int __db_shalloc_offset __P((void *, size_t, size_t, size_t, void *));
  */
 int
-__db_shalloc(p, len, align, retp)
+__db_shalloc_offset(p, len, align, offset, retp)
 	void *p, *retp;
-	size_t len, align;
+	size_t len, align, offset;
 {
 	struct __data *elp;
 	size_t *sp;
@@ -199,7 +199,7 @@ __db_shalloc(p, len, align, retp)
 	if (__gbl_use_malloc_for_regions) {
 		int ret;
 
-		ret = __db_shalloc_malloc(p, len, align, retp);
+		ret = __db_shalloc_malloc_offset(p, len, align, offset, retp);
 		if (gbl_bb_berkdb_enable_shalloc_timing)
 			bb_shalloc_hit(start_time_us);
 		return ret;
@@ -287,6 +287,20 @@ __db_shalloc(p, len, align, retp)
 	if (gbl_bb_berkdb_enable_shalloc_timing)
 		bb_shalloc_hit(start_time_us);
 	return (ENOMEM);
+}
+
+/*
+ * __db_shalloc --
+ *	Allocate some space from the shared region.
+ *
+ * PUBLIC: int __db_shalloc __P((void *, size_t, size_t, void *));
+ */
+int
+__db_shalloc(p, len, align, retp)
+	void *p, *retp;
+	size_t len, align;
+{
+	return __db_shalloc_offset(p, len, align, 0, retp);
 }
 
 /*

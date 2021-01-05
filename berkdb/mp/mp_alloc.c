@@ -311,7 +311,7 @@ __memp_alloc_flags(dbmp, memreg, mfp, len, offsetp, flags, retp)
 	 * we need in the hopes it will coalesce into a contiguous chunk of the
 	 * right size.  In the latter case we branch back here and try again.
 	 */
-alloc:	if ((ret = __db_shalloc(memreg->addr, len, MUTEX_ALIGN, &p)) == 0) {
+alloc:	if ((ret = __db_shalloc_offset(memreg->addr, len, 512, offsetof(BH, buf), &p)) == 0) {
 		if (mfp != NULL)
 			c_mp->stat.st_pages++;
 		R_UNLOCK(dbenv, memreg);
