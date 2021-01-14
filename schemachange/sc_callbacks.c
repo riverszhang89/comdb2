@@ -506,6 +506,7 @@ int live_sc_post_upd_record(struct ireq *iq, void *trans,
     int rc;
     /* point to the new table */
     iq->usedb = usedb->sc_to;
+    iq->usedb->sc_from = usedb->sc_from;
 
     if (iq->debug) {
         reqpushprefixf(iq, "%s: ", __func__);

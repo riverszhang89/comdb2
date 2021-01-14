@@ -2763,6 +2763,7 @@ static int live_sc_redo_update(struct convert_record_data *data, DB_LOGC *logc,
     }
 
     data->iq.usedb = data->to;
+    data->iq.usedb->sc_from = data->from;
 
     if (!data->s->sc_convert_done[rec->dtastripe] &&
         is_genid_right_of_stripe_pointer(data->to->handle, genid,

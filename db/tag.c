@@ -7213,7 +7213,7 @@ int create_key_from_ondisk(const struct dbtable *db, int ixnum, char **tail, int
             return rc;
     }
 
-    fromsch = get_ondisk_schema(db, -1);
+    fromsch = get_ondisk_schema(db->sc_from ? db->sc_from : db, -1);
     tosch = get_ondisk_schema(db, ixnum);
 
     rc = _stag_to_stag_buf_flags_blobs(fromsch, tosch, inbuf, outbuf, 0 /*flags*/, NULL, inblobs, NULL /*outblobs*/,

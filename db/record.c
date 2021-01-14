@@ -1937,7 +1937,7 @@ int upd_new_record(struct ireq *iq, void *trans, unsigned long long oldgenid,
         goto err;
     }
 
-    struct schema *fromsch = find_tag_schema(iq->usedb->tablename, ".ONDISK");
+    struct schema *fromsch = get_ondisk_schema(iq->usedb->sc_from, -1);
 
     if (!gbl_use_plan || !iq->usedb->plan || iq->usedb->plan->dta_plan == -1) {
         if (!verify_retry) {
