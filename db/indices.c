@@ -979,8 +979,9 @@ int upd_new_record_add2indices(struct ireq *iq, void *trans,
                 create_key_from_ireq(iq, ixnum, 0, &od_dta_tail, &od_tail_len,
                                      mangled_key, (char *)new_dta, nd_len, key);
         else {
-            rc = create_key_from_ondisk(iq->usedb, ixnum, &od_dta_tail, &od_tail_len, mangled_key, (char *)new_dta,
-                                        nd_len, key, blobs, MAXBLOBS, NULL);
+            rc = create_key_from_ondisk(iq->usedb, use_new_tag ? -(ixnum + 1) : ixnum, &od_dta_tail,
+                    &od_tail_len, mangled_key, new_dta,
+                    nd_len, key, blobs, MAXBLOBS, NULL);
         }
 
         if (rc) {
@@ -1069,7 +1070,7 @@ int upd_new_record_indices(
         if (iq->idxDelete) {
             memcpy(key, iq->idxDelete[ixnum], keysize);
         } else {
-            rc = create_key_from_ondisk_blobs(iq->usedb, ixnum, use_new_tag ? sc_old : old_dta, key, del_idx_blobs,
+            rc = create_key_from_ondisk_blobs(iq->usedb, use_new_tag ? -(ixnum + 1) : ixnum, use_new_tag ? sc_old : old_dta, key, del_idx_blobs,
                                               MAXBLOBS);
         }
 
@@ -1150,7 +1151,7 @@ int del_new_record_indices(struct ireq *iq, void *trans,
             memcpy(key, iq->idxDelete[ixnum], iq->usedb->ix_keylen[ixnum]);
             rc = 0;
         } else {
-            rc = create_key_from_ondisk_blobs(iq->usedb, ixnum, use_new_tag ? sc_old : old_dta, key, del_idx_blobs,
+            rc = create_key_from_ondisk_blobs(iq->usedb, use_new_tag ? -(ixnum + 1) : ixnum, use_new_tag ? sc_old : old_dta, key, del_idx_blobs,
                                               MAXBLOBS);
         }
 
