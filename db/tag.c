@@ -70,9 +70,6 @@ char gbl_ondisk_ver[] = ".ONDISK.VER.";
 char gbl_ondisk_ver_fmt[] = ".ONDISK.VER.%d";
 const int gbl_ondisk_ver_len = sizeof ".ONDISK.VER.255xx";
 
-#define ONDISK ".ONDISK"
-#define ONDISK_IX_PFX ".ONDISK_IX_"
-
 #define TAGLOCK_RW_LOCK
 #ifdef TAGLOCK_RW_LOCK
 static pthread_rwlock_t taglock;
@@ -7196,7 +7193,7 @@ int extract_decimal_quantum(const dbtable *db, int ix, char *inbuf,
     return 0;
 }
 
-int create_key_from_ondisk(const struct dbtable *db, int ixnum, char **tail, int *taillen, char *mangled_key,
+int create_key_from_schema(const struct dbtable *db, struct schema *schema, int ixnum, char **tail, int *taillen, char *mangled_key,
                            const char *inbuf, int inbuflen, char *outbuf, blob_buffer_t *inblobs, int maxblobs,
                            const char *tzname)
 {
@@ -7213,15 +7210,7 @@ int create_key_from_ondisk(const struct dbtable *db, int ixnum, char **tail, int
             return rc;
     }
 
-    if (ixnum >= 0) {
-        /* Prefer .ONDISK */
-        fromsch = get_ondisk_schema(db->sc_from ? db->sc_from : db, -1);
-    } else {
-        /* Use .NEW..ONDISK */
-        fromsch = get_ondisk_schema(db, -1);
-        ixnum = -ixnum - 1;
-    }
-
+    fromsch = schema ? schema : get_ondisk_schema(db, -1);
     tosch = get_ondisk_schema(db, ixnum);
 
     rc = _stag_to_stag_buf_flags_blobs(fromsch, tosch, inbuf, outbuf, 0 /*flags*/, NULL, inblobs, NULL /*outblobs*/,
@@ -7287,15 +7276,15 @@ int create_key_from_ondisk(const struct dbtable *db, int ixnum, char **tail, int
     return rc;
 }
 
-int create_key_from_ondisk_simple(const struct dbtable *db, int ixnum, const char *inbuf, char *outbuf)
+int create_key_from_ondisk(const struct dbtable *db, int ixnum, const char *inbuf, char *outbuf)
 {
-    return create_key_from_ondisk(db, ixnum, NULL, NULL, NULL, inbuf, 0, outbuf, NULL, 0, NULL);
+    return create_key_from_schema(db, NULL, ixnum, NULL, NULL, NULL, inbuf, 0, outbuf, NULL, 0, NULL);
 }
 
-int create_key_from_ondisk_blobs(const struct dbtable *db, int ixnum, const char *inbuf, char *outbuf,
+int create_key_from_schema_simple(const struct dbtable *db, struct schema *schema, int ixnum, const char *inbuf, char *outbuf,
                                  blob_buffer_t *inblobs, int maxblobs)
 {
-    return create_key_from_ondisk(db, ixnum, NULL, NULL, NULL, inbuf, 0, outbuf, inblobs, maxblobs, NULL);
+    return create_key_from_schema(db, schema, ixnum, NULL, NULL, NULL, inbuf, 0, outbuf, inblobs, maxblobs, NULL);
 }
 
 int create_key_from_ireq(struct ireq *iq, int ixnum, int isDelete, char **tail,

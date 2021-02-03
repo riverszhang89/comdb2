@@ -249,7 +249,7 @@ static int verify_formkey_callback(const dbtable *tbl, void *dta,
                                    int *keysz)
 {
     *keysz = get_size_of_schema(tbl->ixschema[ix]);
-    return create_key_from_ondisk_blobs(tbl, ix, dta, keyout, blob_parm, MAXBLOBS);
+    return create_key_from_schema_simple(tbl, NULL, ix, dta, keyout, blob_parm, MAXBLOBS);
 }
 
 static int verify_add_blob_buffer_callback(void *parm, void *dta, int dtasz,

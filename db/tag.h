@@ -400,12 +400,12 @@ void free_db_and_replace(struct dbtable *db, struct dbtable *newdb);
 
 void err_print_rec(strbuf *buf, void *rec, char *table, char *tag);
 
-int create_key_from_ondisk_simple(const struct dbtable *db, int ixnum, const char *inbuf, char *outbuf);
+int create_key_from_ondisk(const struct dbtable *db, int ixnum, const char *inbuf, char *outbuf);
 
-int create_key_from_ondisk_blobs(const struct dbtable *db, int ixnum, const char *inbuf, char *outbuf,
+int create_key_from_schema_simple(const struct dbtable *db, struct schema *schema, int ixnum, const char *inbuf, char *outbuf,
                                  blob_buffer_t *inblobs, int maxblobs);
 
-int create_key_from_ondisk(const struct dbtable *db, int ixnum, char **tail, int *taillen, char *mangled_key,
+int create_key_from_schema(const struct dbtable *db, struct schema *schema, int ixnum, char **tail, int *taillen, char *mangled_key,
                            const char *inbuf, int inbuflen, char *outbuf, blob_buffer_t *inblobs, int maxblobs,
                            const char *tzname);
 

@@ -249,8 +249,7 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
     }
 
     struct schema *dbname_schema;
-    // WHAT????????
-    if (strcmp(tag, ".ONDISK") == 0)
+    if (strcmp(tag, ondisktag) == 0)
         dbname_schema = get_ondisk_schema(iq->usedb, -1);
     else
         dbname_schema = find_tag_schema(iq->usedb->tablename, tag);
@@ -725,6 +724,7 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
     blob_buffer_t del_blobs_buf[MAXBLOBS] = {{0}};
     blob_buffer_t *add_idx_blobs = NULL;
     blob_buffer_t *del_idx_blobs = NULL;
+    const char *ondisktag = (is_event_from_sc(flags)) ? ".NEW..ONDISK" : ".ONDISK";
 
     if (p_buf_vrec && (p_buf_vrec_end - p_buf_vrec) != reclen) {
         if (iq->debug)
@@ -812,7 +812,7 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
 
     struct schema *dbname_schema;
     // WHAT????????
-    if (strcmp(tag, ".ONDISK") == 0)
+    if (strcmp(tag, ondisktag) == 0)
         dbname_schema = get_ondisk_schema(iq->usedb, -1);
     else
         dbname_schema = find_tag_schema(iq->usedb->tablename, tag);
@@ -1937,7 +1937,7 @@ int upd_new_record(struct ireq *iq, void *trans, unsigned long long oldgenid,
         goto err;
     }
 
-    struct schema *fromsch = get_ondisk_schema(iq->usedb->sc_from, -1);
+    struct schema *fromsch = find_tag_schema(iq->usedb->tablename, ".ONDISK");
 
     if (!gbl_use_plan || !iq->usedb->plan || iq->usedb->plan->dta_plan == -1) {
         if (!verify_retry) {

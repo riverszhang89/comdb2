@@ -422,7 +422,7 @@ int check_update_constraints(struct ireq *iq, void *trans,
                 rc = create_key_from_ireq(iq, ixnum, 1, NULL, NULL, NULL,
                                           rec_dta, 0 /* not needed */, lkey);
             else
-                rc = create_key_from_ondisk_simple(iq->usedb, ixnum, rec_dta, lkey);
+                rc = create_key_from_ondisk(iq->usedb, ixnum, rec_dta, lkey);
             if (rc == -1) {
                 if (iq->debug)
                     reqprintf(iq,
@@ -444,7 +444,7 @@ int check_update_constraints(struct ireq *iq, void *trans,
                                               newrec_dta, 0 /* not needed */,
                                               nkey);
                 else
-                    rc = create_key_from_ondisk_simple(iq->usedb, ixnum, newrec_dta, nkey);
+                    rc = create_key_from_ondisk(iq->usedb, ixnum, newrec_dta, nkey);
                 if (rc == -1) {
                     if (iq->debug)
                         reqprintf(
@@ -1193,7 +1193,7 @@ int delayed_key_adds(struct ireq *iq, void *trans, int *blkpos, int *ixout,
                                           &od_tail_len, mangled_key, od_dta,
                                           ondisk_size, key);
             else
-                rc = create_key_from_ondisk(iq->usedb, doidx, &od_dta_tail, &od_tail_len, mangled_key, od_dta,
+                rc = create_key_from_schema(iq->usedb, NULL, doidx, &od_dta_tail, &od_tail_len, mangled_key, od_dta,
                                             ondisk_size, key, NULL, 0, iq->tzname);
             if (rc == -1) {
                 if (iq->debug)
@@ -1484,7 +1484,7 @@ int verify_add_constraints(struct ireq *iq, void *trans, int *errout)
                     rc = create_key_from_ireq(iq, lixnum, 0, NULL, NULL, NULL,
                                               od_dta, 0 /* not needed */, lkey);
                 } else
-                    rc = create_key_from_ondisk_simple(iq->usedb, lixnum, od_dta, lkey);
+                    rc = create_key_from_ondisk(iq->usedb, lixnum, od_dta, lkey);
 
                 if (rc == -1) {
                     if (iq->debug)
