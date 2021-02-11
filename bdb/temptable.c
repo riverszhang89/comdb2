@@ -1797,15 +1797,12 @@ int bdb_temp_table_delete(bdb_state_type *bdb_state, struct temp_cursor *cur,
         memmove(elem, elem + 1,
                 sizeof(arr_elem_t) * (cur->tbl->num_mem_entries - cur->ind));
         /* Reposition all open cursors: if a cursor is on the right of
-           the deletion point, left-shift it by one. */
+           the deletion point, move it to the left by one. */
         LISTC_FOR_EACH(&cur->tbl->cursors, opencur, lnk) {
             if (opencur != cur && opencur->ind >= cur->ind)
                 --opencur->ind;
         }
         --cur->ind;
-        free(cur->key);
-        free(cur->data);
-        cur->key = cur->data = NULL;
         rc = 0;
         goto done;
     }
@@ -2471,7 +2468,7 @@ static int bdb_temp_table_insert_put(bdb_state_type *bdb_state,
                         sizeof(arr_elem_t) * (tbl->num_mem_entries - lo));
 
                 /* Reposition all open cursors. If a cursor is on the right of
-                   the insertion point, right-shift it by one. */
+                   the insertion point, move it to the right by one. */
                 LISTC_FOR_EACH(&tbl->cursors, opencur, lnk) {
                     if (opencur->ind >= lo)
                         ++opencur->ind;
