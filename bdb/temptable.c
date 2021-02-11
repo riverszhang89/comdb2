@@ -242,6 +242,7 @@ static int temp_table_compare(DB *db, const DBT *dbt1, const DBT *dbt2);
 
 /* refactored both insert and put code paths here */
 static int bdb_temp_table_insert_put(bdb_state_type *, struct temp_table *,
+                                     struct temp_cursor *cur,
                                      void *key, int keylen, void *data,
                                      int dtalen, void *unpacked, int *bdberr);
 
@@ -339,6 +340,7 @@ static int bdb_array_copy_to_temp_db(bdb_state_type *bdb_state,
     struct temp_cursor *cur;
     arr_elem_t *elem;
     unsigned long long nents = tbl->num_mem_entries;
+    unsigned long long rowid = tbl->rowid;
 
     bzero(&dbt_key, sizeof(DBT));
     bzero(&dbt_data, sizeof(DBT));
@@ -347,6 +349,8 @@ static int bdb_array_copy_to_temp_db(bdb_state_type *bdb_state,
         create_temp_db_env(bdb_state, tbl, bdberr) != 0) {
         bdb_temp_table_destroy_pool_wrapper(tbl, bdb_state);
     }
+
+    tbl->rowid = rowid;
 
     for (ii = 0; ii != nents; ++ii) {
         elem = &tbl->elements[ii];
@@ -368,7 +372,6 @@ static int bdb_array_copy_to_temp_db(bdb_state_type *bdb_state,
         free(elem->key);
     }
     tbl->inmemsz = 0;
-    tbl->num_mem_entries = nents;
 
     /* its now a btree! */
     tbl->temp_table_type = TEMP_TABLE_TYPE_BTREE;
@@ -899,7 +902,7 @@ int bdb_temp_table_insert(bdb_state_type *bdb_state, struct temp_cursor *cur,
     DBT dkey, ddata;
     struct temp_table *tbl = cur->tbl;
 
-    int rc = bdb_temp_table_insert_put(bdb_state, tbl, key, keylen, data,
+    int rc = bdb_temp_table_insert_put(bdb_state, tbl, cur, key, keylen, data,
                                        dtalen, NULL, bdberr);
     if (rc <= 0)
         goto done;
@@ -1039,7 +1042,7 @@ int bdb_temp_table_put(bdb_state_type *bdb_state, struct temp_table *tbl,
 {
     DBT dkey, ddata;
 
-    int rc = bdb_temp_table_insert_put(bdb_state, tbl, key, keylen, data,
+    int rc = bdb_temp_table_insert_put(bdb_state, tbl, NULL, key, keylen, data,
                                        dtalen, unpacked, bdberr);
     if (rc <= 0)
         goto done;
@@ -2364,7 +2367,9 @@ int bdb_temp_table_maybe_reset_priority_thread(bdb_state_type *bdb_state,
 }
 
 static int bdb_temp_table_insert_put(bdb_state_type *bdb_state,
-                                     struct temp_table *tbl, void *key,
+                                     struct temp_table *tbl,
+                                     struct temp_cursor *cur,
+                                     void *key,
                                      int keylen, void *data, int dtalen,
                                      void *unpacked, int *bdberr)
 {
@@ -2470,9 +2475,12 @@ static int bdb_temp_table_insert_put(bdb_state_type *bdb_state,
                 /* Reposition all open cursors. If a cursor is on the right of
                    the insertion point, move it to the right by one. */
                 LISTC_FOR_EACH(&tbl->cursors, opencur, lnk) {
-                    if (opencur->ind >= lo)
+                    if (opencur != cur && opencur->ind >= lo)
                         ++opencur->ind;
                 }
+
+                if (cur != NULL)
+                    cur->ind = lo;
             }
         }
 
