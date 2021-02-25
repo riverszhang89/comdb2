@@ -627,7 +627,7 @@ static int sql_tick(struct sql_thread *thd)
         return SQLITE_ABORT;
 
     if (clnt->statement_timedout)
-        return SQLITE_LIMIT;
+        return SQLITE_TIMEDOUT;
 
     if ((rc = check_recover_deadlock(clnt)))
         return rc;
@@ -659,8 +659,7 @@ static int sql_tick(struct sql_thread *thd)
     }
 
     if (clnt->limits.maxcost && (thd->cost > clnt->limits.maxcost))
-        /* TODO: we need a nice way to set sqlite3_errmsg() */
-        return SQLITE_LIMIT;
+        return SQLITE_COST_TOO_HIGH;
 
     return 0;
 }
@@ -2420,7 +2419,7 @@ static int cursor_move_table(BtCursor *pCur, int *pRes, int how)
 
     /* If no tablescans are allowed, return an error */
     if (!thd->clnt->limits.tablescans_ok) {
-        return SQLITE_LIMIT;
+        return SQLITE_NO_TABLESCANS;
     }
 
     if (thd)
@@ -5146,7 +5145,7 @@ int sqlite3BtreeCreateTable(Btree *pBt, int *piTable, int flags)
         goto done;
     }
     if (!thd->clnt->limits.temptables_ok) {
-        rc = SQLITE_LIMIT;
+        rc = SQLITE_NO_TEMPTABLES;
         goto done;
     }
     if (pBt->temp_tables == NULL) {
