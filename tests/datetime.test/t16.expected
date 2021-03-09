@@ -30,3 +30,5 @@
 (dt="2021-03-05T000000.000 UTC")
 (dt="1970-01-01T000000.000 UTC")
 (dt="1970-01-01T000000.000 UTC")
+[SELECT dt FROM rhs WHERE dt = "ABC"] failed with rc 202 type conversion failure
+[SELECT dt FROM rhs WHERE dt != "ABC"] failed with rc 202 type conversion failure
