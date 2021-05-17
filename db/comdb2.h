@@ -1211,6 +1211,9 @@ typedef int (*osql_target_send)(struct osql_target *target, int usertype, void *
 struct osql_target_bundled {
     osql_target_send send;
 
+    unsigned long long rqid;
+    uuid_t uuid;
+
     int send_type;
     int nmsgs_alloc; /* num of total usable messages */
     int nmsgs; /* num of in-use messages */
@@ -1225,7 +1228,6 @@ struct osql_target {
     const char *host;
     SBUF2 *sb;
     osql_target_send send;
-    osql_sess_t *sess;
     struct osql_target_bundled bundled;
 };
 

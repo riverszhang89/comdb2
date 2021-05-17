@@ -263,11 +263,6 @@ int osql_process_schemachange(struct ireq *iq, unsigned long long rqid,
                               struct block_err *err, int *receivedrows);
 
 
-int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
-                        void *trans, char *msg, int msglen, int *flags,
-                        int **updCols, blob_buffer_t blobs[MAXBLOBS], int step,
-                        struct block_err *err, int *receivedrows);
-
 /**
  * Sends a user command to offload net (used by "osqlnet")
  *

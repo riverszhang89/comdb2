@@ -52,6 +52,7 @@
 #include <unistd.h>
 #include "osqlsqlnet.h"
 #include "osqlsqlsocket.h"
+#include "osqlbundled.h"
 #include "sc_global.h"
 
 #define MAX_CLUSTER 16
@@ -4911,7 +4912,7 @@ int osql_comm_send_socksqlreq(osqlstate_t *osql, const char *sql, int sqlen,
         }
     }
 
-    rc = target->send(target, net_type, req, reqlen, 1, NULL, 0, 0, 0);
+    rc = target->send(target, net_type, req, reqlen, 1, NULL, 0, 0, 1);
 
     if (rc)
         stats[type].snd_failed++;

@@ -1,5 +1,8 @@
 #include <compile_time_assert.h>
+
+#include "comdb2uuid.h"
 #include "osqlcomm.h"
+#include "osqlbundled.h"
 
 static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
                   int nodelay, void *tail, int tailen, int done, int unbundled);
@@ -11,7 +14,6 @@ void init_bplog_bundled(osql_target_t *target)
     if (gbl_osql_max_bundled_bytes <= 0)
         return;
 
-    memset(&target->bundled, 0, sizeof(struct osql_target_bundled));
     /* Latch the original send routine. Replace it with our adaptor. */
     target->bundled.send = target->send;
     target->send = bundle;
@@ -156,8 +158,8 @@ static int wrap_up(osql_target_t *target, int done, int nodelay)
     int hdrlen, bundlehdrlen, buflen;
     uint8_t *buf, *p_buf, *p_buf_end;
 
-    unsigned long long rqid = target->sess->rqid;
     struct osql_target_bundled *bundled = &target->bundled;
+    unsigned long long rqid = bundled->rqid;
 
     enum OSQL_RPL_TYPE hdtype = done ? OSQL_DONE_BUNDLED : OSQL_BUNDLED;
 
@@ -188,7 +190,7 @@ static int wrap_up(osql_target_t *target, int done, int nodelay)
         struct osql_bundled_rpl_uuid rpl = {{0}};
 
         rpl.hd.type = hdtype;
-        comdb2uuidcpy(rpl.hd.uuid, target->sess->uuid);
+        comdb2uuidcpy(rpl.hd.uuid, bundled->uuid);
         rpl.dt.nmsgs = bundled->nmsgs;
 
         type = osql_net_type_to_net_uuid_type(type);
@@ -218,7 +220,7 @@ static int wrap_up(osql_target_t *target, int done, int nodelay)
     if (gbl_enable_osql_logging) {
         uuidstr_t us;
         logmsg(LOGMSG_INFO, "[%llu %s] send %s\n", rqid,
-                comdb2uuidstr(target->sess->uuid, us), osql_reqtype_str(hdtype));
+                comdb2uuidstr(bundled->uuid, us), osql_reqtype_str(hdtype));
     }
 
     rc = bundled->send(target, type, buf, buflen, nodelay, bundled->buf, bundled->bufsz, unused, unused);
@@ -354,4 +356,12 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
         ofs += len;
     }
     return rc;
+}
+
+void copy_rqid(osql_target_t *target, unsigned long long rqid, uuid_t uuid)
+{
+    if (gbl_osql_max_bundled_bytes <= 0)
+        return;
+    target->bundled.rqid = rqid;
+    comdb2uuidcpy(target->bundled.uuid, uuid);
 }

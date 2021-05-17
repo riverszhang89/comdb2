@@ -35,6 +35,7 @@
 #include "str0.h"
 #include "reqlog.h"
 #include "osqlsqlnet.h"
+#include "osqlbundled.h"
 
 struct sess_impl {
     int clients; /* number of threads using the session */
@@ -525,15 +526,14 @@ static osql_sess_t *_osql_sess_create(osql_sess_t *sess, char *tzname, int type,
     comdb2uuidcpy(sess->uuid, uuid);
     sess->type = type;
     sess->target.host = intern(host);
-    sess->target.sess = sess;
     sess->sess_startus = comdb2_time_epochus();
     sess->is_reorder_on = is_reorder_on;
     if (tzname)
         strncpy0(sess->tzname, tzname, sizeof(sess->tzname));
 
     sess->impl->clients = 1;
-    /* defaults to net */
     init_bplog_net(&sess->target);
+    init_bplog_bundled(&sess->target);
 
     /* create bplog so we can collect ops from sql thread */
     sess->tran = osql_bplog_create(sess->rqid == OSQL_RQID_USE_UUID,

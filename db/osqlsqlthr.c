@@ -53,6 +53,7 @@
 #include "views.h"
 #include <dbinc/queue.h>
 #include "osqlsqlnet.h"
+#include "osqlbundled.h"
 #include "schemachange.h"
 #include "db_access.h"
 
@@ -239,6 +240,8 @@ static int osql_sock_start_int(struct sqlclntstate *clnt, int type,
             comdb2uuid_clear(osql->uuid);
             assert(osql->rqid);
         }
+
+        copy_rqid(&osql->target, osql->rqid, osql->uuid);
     }
 
     osql->is_reorder_on = start_flags & OSQL_START_NO_REORDER

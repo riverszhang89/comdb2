@@ -32,6 +32,7 @@
 #include "osqlsqlsocket.h"
 #include "osqlblockproc.h"
 #include "osqlcomm.h"
+#include "osqlbundled.h"
 
 #define BPLOG_PROTO "icdb2"
 #define BPLOG_APPSOCK "sockbplog"
@@ -92,6 +93,8 @@ static int osql_begin_socket(struct sqlclntstate *clnt, int type, int keep_rqid)
     clnt->osql.target.type = OSQL_OVER_SOCKET;
     clnt->osql.target.host = thedb->master;
     clnt->osql.target.send = _socket_send;
+
+    init_bplog_bundled(&clnt->osql.target);
 
     /* protect against no master */
     if (clnt->osql.target.host == NULL ||
