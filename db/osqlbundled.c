@@ -330,6 +330,7 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
         if (rqid == OSQL_RQID_USE_UUID) {
             osql_uuid_rpl_t rpl;
             osqlcomm_uuid_rpl_type_get(&rpl, p_buf, p_buf_end);
+            type = rpl.type;
         } else {
             osql_rpl_t rpl;
             osqlcomm_rpl_type_get(&rpl, p_buf, p_buf_end);

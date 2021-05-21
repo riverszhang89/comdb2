@@ -4987,7 +4987,7 @@ int osql_comm_signal_sqlthr_rc(osql_target_t *target, unsigned long long rqid,
   printf("Send %d rqid=%llu tmp=%llu\n",  NET_OSQL_SIGNAL, rqid, osql_log_time());
 #endif
     /* lazy again, works just because node!=0 */
-    int irc = target->send(target, type, buf, msglen, 1, NULL, 0, 0, 0);
+    int irc = target->send(target, type, buf, msglen, 1, NULL, 0, 0, 1);
     if (irc) {
         irc = -1;
         logmsg(LOGMSG_ERROR, "%s: error sending done to %s!\n", __func__,
@@ -6957,6 +6957,7 @@ static void net_sorese_signal(void *hndl, void *uptr, char *fromhost,
 
     } else {
         logmsg(LOGMSG_ERROR, "%s: wrong sqlthr signal %d\n", __func__, type);
+        abort();
         return;
     }
 }

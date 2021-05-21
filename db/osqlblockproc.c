@@ -231,7 +231,7 @@ blocksql_tran_t *osql_bplog_create(bool is_uuid, bool is_reorder)
                                         osql_bplog_instbl_key_cmp);
     }
 
-    tran->is_selectv_wl_upd = gbl_selectv_writelock_on_update;
+    tran->is_selectv_wl_upd = (gbl_osql_max_bundled_bytes > 0) ? 0 : gbl_selectv_writelock_on_update;
     if (tran->is_selectv_wl_upd)
         tran->selectv_genids =
             hash_init(offsetof(selectv_genid_t, get_writelock));
