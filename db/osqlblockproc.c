@@ -40,6 +40,7 @@
 
 #include "comdb2.h"
 #include "osqlblockproc.h"
+#include "osqlbundled.h"
 #include "block_internal.h"
 #include "osqlsession.h"
 #include "osqlcomm.h"
