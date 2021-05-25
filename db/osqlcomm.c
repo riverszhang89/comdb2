@@ -3208,13 +3208,11 @@ int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
     case OSQL_DELIDX:
     case OSQL_QBLOB:
     case OSQL_STARTGEN:
-    case OSQL_BUNDLED:
         break;
     case OSQL_DONE_SNAP:
         osql_extract_snap_info(sess, rpl, rpllen, is_uuid);
         /* fall-through */
     case OSQL_DONE:
-    case OSQL_DONE_BUNDLED:
         if (xerr)
             *xerr = NULL;
         rc = 1;
@@ -3246,6 +3244,12 @@ int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
         }
         rc = 1;
         break;
+    case OSQL_DONE_BUNDLED:
+        /* Reset error, set is_delayed flag and return done */
+        if (xerr)
+            *xerr = NULL;
+        rc = 1;
+        /* fall-through */
     default:
         if (sess)
             sess->is_delayed = true;
