@@ -246,14 +246,14 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
     int size_total = datalen + taillen;
 
     if (unbundled) {
-        rc = wrap_up(target, done, nodelay);
+        rc = wrap_up(target, 0, nodelay);
         if (rc != 0)
             return rc;
         return bundled->send(target, usertype, data, datalen, nodelay, tail, taillen, unused, unused);
     }
 
     if (bundled->send_type != usertype) { /* Messages of different user types can't be bundled */
-        rc = wrap_up(target, done, nodelay);
+        rc = wrap_up(target, 0, nodelay);
         if (rc != 0)
             return rc;
         bundled->send_type = usertype;
@@ -269,7 +269,7 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
             size_new = gbl_osql_max_bundled_bytes;
 
         if (size_min >= size_new) { /* buffer is filled up */
-            rc = wrap_up(target, done, nodelay);
+            rc = wrap_up(target, 0, nodelay);
             if (rc != 0)
                 return rc;
             return bundled->send(target, usertype, data, datalen, nodelay, tail, taillen, unused, unused);
@@ -299,7 +299,7 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
         bundled->bufsz += taillen;
     }
 
-    if (nodelay)
+    if (nodelay || done)
         rc = wrap_up(target, done, 1);
 
     return rc;

@@ -4516,7 +4516,8 @@ int osql_send_commit(osqlstate_t *osql,
                 free(buf);
             return -1;
         }
-        rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0, 1, 0);
+        /* An OSQL cancellation is done outside of the blockprocessor. Send it separately. */
+        rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0, 1, 1);
     }
     if (used_malloc)
         free(buf);
@@ -4664,7 +4665,8 @@ int osql_send_commit_by_uuid(osqlstate_t *osql,
                 free(buf);
             return -1;
         }
-        rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0, 1, 0);
+        /* An OSQL cancellation is done outside of the blockprocessor. Send it separately. */
+        rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0, 1, 1);
     }
     if (used_malloc)
         free(buf);
@@ -6778,7 +6780,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     } break;
     default: {
         uuidstr_t us;
-        logmsg(LOGMSG_ERROR, "%s [%llu %s] RECEIVED AN UNKNOWN OFF OPCODE %u, "
+        logmsg(LOGMSG_ERROR, "%s [%llu %s] RECEIVED AN UNKNOWN OPCODE %u, "
                         "failing the transaction\n",
                 __func__, rqid, comdb2uuidstr(uuid, us), type);
 
