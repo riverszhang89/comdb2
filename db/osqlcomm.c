@@ -401,8 +401,6 @@ osqlcomm_req_uuid_type_get(struct osql_uuid_req *p_osql_req,
     return (const uint8_t *)p_buf;
 }
 
-typedef struct osql_rpl osql_rpl_t;
-
 BB_COMPILE_TIME_ASSERT(osqlcomm_rpl_type_len,
                        sizeof(osql_rpl_t) == OSQLCOMM_RPL_TYPE_LEN);
 
