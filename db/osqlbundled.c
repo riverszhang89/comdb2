@@ -7,7 +7,7 @@
 static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
                   int nodelay, void *tail, int tailen, int done, int unbundled);
 
-int gbl_osql_max_bundled_bytes = 4 * 1024 * 1024;
+int gbl_osql_max_bundled_bytes = 4 * 1024 * 1024 *1;
 
 void init_bplog_bundled(osql_target_t *target)
 {
@@ -21,7 +21,7 @@ void init_bplog_bundled(osql_target_t *target)
 
 struct osql_bundled {
     int nmsgs; /* number of messages in this bundle */
-    int padding;
+    int offset_done; /* offset of OSQL_DONE_SNAP */
 };
 
 enum {
@@ -40,8 +40,8 @@ static uint8_t *osqlcomm_bundled_type_put(const struct osql_bundled *bundled,
 
     p_buf = buf_put(&(bundled->nmsgs),
                     sizeof(bundled->nmsgs), p_buf, p_buf_end);
-    p_buf = buf_put(&(bundled->padding),
-                    sizeof(bundled->padding), p_buf, p_buf_end);
+    p_buf = buf_put(&(bundled->offset_done),
+                    sizeof(bundled->offset_done), p_buf, p_buf_end);
 
     return p_buf;
 }
@@ -55,8 +55,8 @@ static const uint8_t *osqlcomm_bundled_type_get(struct osql_bundled *bundled,
 
     p_buf = buf_get(&(bundled->nmsgs),
                     sizeof(bundled->nmsgs), p_buf, p_buf_end);
-    p_buf = buf_get(&(bundled->padding),
-                    sizeof(bundled->padding), p_buf, p_buf_end);
+    p_buf = buf_get(&(bundled->offset_done),
+                    sizeof(bundled->offset_done), p_buf, p_buf_end);
     return p_buf;
 }
 
@@ -151,7 +151,7 @@ osqlcomm_bundled_rpl_uuid_type_get(struct osql_bundled_rpl_uuid *bundled_uuid_rp
 /* osql_bundled -> osql_bundle */
 /* move osqlcomm_bundled_uuid_rpl_type_put to this file and consider git checkout -- on osqlcomm.c */
 
-static int wrap_up(osql_target_t *target, int done, int nodelay)
+static int wrap_up(osql_target_t *target, int done, int nodelay, int offset_done)
 {
     int rc, type;
     int unused = 0;
@@ -192,6 +192,7 @@ static int wrap_up(osql_target_t *target, int done, int nodelay)
         rpl.hd.type = hdtype;
         comdb2uuidcpy(rpl.hd.uuid, bundled->uuid);
         rpl.dt.nmsgs = bundled->nmsgs;
+        rpl.dt.offset_done = offset_done;
 
         type = osql_net_type_to_net_uuid_type(type);
         if (!(p_buf = osqlcomm_bundled_uuid_rpl_type_put(&rpl, p_buf,
@@ -244,16 +245,17 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
     int unused = 0;
     int size_new, size_min;
     int size_total = datalen + taillen;
+    int offset_done = 0;
 
     if (unbundled) {
-        rc = wrap_up(target, 0, nodelay);
+        rc = wrap_up(target, 0, nodelay, offset_done);
         if (rc != 0)
             return rc;
         return bundled->send(target, usertype, data, datalen, nodelay, tail, taillen, unused, unused);
     }
 
     if (bundled->send_type != usertype) { /* Messages of different user types can't be bundled */
-        rc = wrap_up(target, 0, nodelay);
+        rc = wrap_up(target, 0, nodelay, offset_done);
         if (rc != 0)
             return rc;
         bundled->send_type = usertype;
@@ -269,13 +271,12 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
             size_new = gbl_osql_max_bundled_bytes;
 
         if (size_min >= size_new) { /* buffer is filled up */
-            rc = wrap_up(target, 0, nodelay);
+            rc = wrap_up(target, 0, nodelay, offset_done);
             if (rc != 0)
                 return rc;
             return bundled->send(target, usertype, data, datalen, nodelay, tail, taillen, unused, unused);
         }
 
-        /* Actually grow the buffer */
         if ((bundled->buf = realloc(bundled->buf, size_new)) == NULL) {
             logmsgperror("realloc");
             return errno;
@@ -293,6 +294,8 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
 
     bundled->hdr[bundled->nmsgs++] = htonl(size_total);
     memcpy(bundled->buf + bundled->bufsz, data, datalen);
+    if (done)
+        offset_done = bundled->bufsz;
     bundled->bufsz += datalen;
     if (taillen > 0) {
         memcpy(bundled->buf + bundled->bufsz, tail, taillen);
@@ -300,9 +303,36 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
     }
 
     if (nodelay || done)
-        rc = wrap_up(target, done, 1);
+        rc = wrap_up(target, done, 1, offset_done);
 
     return rc;
+}
+
+void osql_extract_snap_info(osql_sess_t *sess, void *rpl, int rpllen, int is_uuid);
+
+void osql_extract_snap_info_from_bundle(osql_sess_t *sess, void *buf, int len, int is_uuid)
+{
+    const uint8_t *p_buf, *p_buf_end;
+    int done_len;
+    struct osql_bundled dt = {0};
+
+    p_buf = (uint8_t *)buf;
+    p_buf_end = p_buf + len;
+
+    if (is_uuid) {
+        osql_uuid_rpl_t rpl;
+        p_buf = osqlcomm_uuid_rpl_type_get(&rpl, p_buf, p_buf_end);
+    } else {
+        osql_rpl_t rpl;
+        p_buf = osqlcomm_rpl_type_get(&rpl, p_buf, p_buf_end);
+    }
+
+    p_buf_end = p_buf + sizeof(struct osql_bundled);
+
+    (void)osqlcomm_bundled_type_get(&dt, p_buf, p_buf_end);
+    p_buf = p_buf_end + (sizeof(int) * dt.nmsgs) + dt.offset_done;
+    done_len = (uint8_t *)buf + len - p_buf;
+    osql_extract_snap_info(sess, (void *)p_buf, done_len, is_uuid);
 }
 
 int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
@@ -323,7 +353,7 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     p_msgs_buf = p_buf_end + (sizeof(int) * nmsgs);
 
     for (i = 0, ofs = 0; i != nmsgs; ++i) {
-        len = htonl(msglens[i]);
+        len = ntohl(msglens[i]);
         p_buf = p_msgs_buf + ofs;
         p_buf_end = p_buf + len;
 
@@ -346,6 +376,26 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                 return errno;
             }
             memcpy(a_msg, p_buf, len);
+        }
+
+        /* RIVERSTODB : CAN WE PRE-PROCESS OPCODES HERE??? */
+        switch (type) {
+        case OSQL_USEDB:
+        case OSQL_INSREC:
+        case OSQL_INSERT:
+        case OSQL_INSIDX:
+        case OSQL_DELIDX:
+        case OSQL_QBLOB:
+        case OSQL_STARTGEN:
+        case OSQL_BUNDLED:
+        case OSQL_DONE_SNAP:
+        case OSQL_DONE:
+        case OSQL_DONE_WITH_EFFECTS:
+        case OSQL_XERR:
+            break;
+        default:
+            iq->sorese->is_delayed = true;
+            break;
         }
 
         rc = osql_process_packet(iq, rqid, uuid, trans, (char **)&a_msg, len,

@@ -245,6 +245,7 @@ static int osql_sock_start_int(struct sqlclntstate *clnt, int type,
         copy_rqid(&osql->target, osql->rqid, osql->uuid);
     }
 
+    /* RIVERSTODO? can they work together???? */
     if (start_flags & OSQL_START_NO_REORDER)
         osql->is_reorder_on = 0;
     else if (gbl_osql_max_bundled_bytes > 0)

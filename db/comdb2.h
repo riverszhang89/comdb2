@@ -1220,7 +1220,7 @@ struct osql_target_bundled {
     int bufsz_alloc; /* length of total usable buffer */
     int bufsz; /* length of in-use buffer */
 
-    int *hdr;
+    int *hdr; /* message lengths */
     void *buf;
 };
 struct osql_target {

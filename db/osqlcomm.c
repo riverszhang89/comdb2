@@ -75,8 +75,7 @@ int gbl_selectv_writelock = 0;
 
 extern int db_is_exiting();
 
-static void osql_extract_snap_info(osql_sess_t *sess, void *rpl, int rpllen,
-                                   int is_uuid);
+void osql_extract_snap_info(osql_sess_t *sess, void *rpl, int rpllen, int is_uuid);
 
 
 #ifdef XMACRO_OSQL_RPL_TYPES
@@ -3206,6 +3205,7 @@ int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
     case OSQL_DELIDX:
     case OSQL_QBLOB:
     case OSQL_STARTGEN:
+    case OSQL_BUNDLED:
         break;
     case OSQL_DONE_SNAP:
         osql_extract_snap_info(sess, rpl, rpllen, is_uuid);
@@ -3243,11 +3243,11 @@ int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
         rc = 1;
         break;
     case OSQL_DONE_BUNDLED:
-        /* Reset error, set is_delayed flag and return done */
+        osql_extract_snap_info_from_bundle(sess, rpl, rpllen, is_uuid);
         if (xerr)
             *xerr = NULL;
         rc = 1;
-        /* fall-through */
+        break;
     default:
         if (sess)
             sess->is_delayed = true;
@@ -7362,6 +7362,7 @@ int osql_send_schemachange(osqlstate_t *osql,
                comdb2uuidstr(osql->uuid, us), sc->tablename);
     }
 
+    /* RIVERSTOD : CAN BUNDLE??? */
     return target->send(target, type, buf, osql_rpl_size, 0, NULL, 0, 0, 1);
 }
 
@@ -7461,10 +7462,9 @@ int osql_send_test(void)
     snap_uid_t snap_info = {{0}};
     snap_info.replicant_is_able_to_retry = 0;
     int rc;
-    osql_target_t target = {0};
 
-    init_bplog_net(&target);
-    target.host = thedb->master;
+    init_bplog_net(&osql.target);
+    osql.target.host = thedb->master;
 
     rc = osql_send_commit_by_uuid(&osql,
                                   &osql.xerr, nettype, NULL /*clnt->query_stats*/,
@@ -7472,7 +7472,7 @@ int osql_send_test(void)
     return rc;
 }
 
-static void osql_extract_snap_info(osql_sess_t *sess, void *rpl, int rpllen,
+void osql_extract_snap_info(osql_sess_t *sess, void *rpl, int rpllen,
                                    int is_uuid)
 {
 
