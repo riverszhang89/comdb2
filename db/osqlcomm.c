@@ -4499,7 +4499,7 @@ int osql_send_commit(osqlstate_t *osql,
                 return -1;
             }
         }
-        rc = target->send(target, type, buf, b_sz, 1, NULL, 0, 1, 0);
+        rc = target->send(target, type, buf, b_sz, 1, NULL, 0, 1 + snap_info_length, 0);
     } else {
 
         rpl_xerr.hd.type = OSQL_XERR;
@@ -4642,7 +4642,7 @@ int osql_send_commit_by_uuid(osqlstate_t *osql,
                 return -1;
             }
         }
-        rc = target->send(target, type, buf, b_sz, 1, NULL, 0, 1, 0);
+        rc = target->send(target, type, buf, b_sz, 1, NULL, 0, 1 + snap_info_length, 0);
     } else {
 
         rpl_xerr.hd.type = OSQL_XERR;

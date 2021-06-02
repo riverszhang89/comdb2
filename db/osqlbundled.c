@@ -21,7 +21,7 @@ void init_bplog_bundled(osql_target_t *target)
 
 struct osql_bundled {
     int nmsgs; /* number of messages in this bundle */
-    int offset_done; /* offset of OSQL_DONE_SNAP */
+    int offset_done_snap; /* offset of OSQL_DONE_SNAP */
 };
 
 enum {
@@ -40,8 +40,8 @@ static uint8_t *osqlcomm_bundled_type_put(const struct osql_bundled *bundled,
 
     p_buf = buf_put(&(bundled->nmsgs),
                     sizeof(bundled->nmsgs), p_buf, p_buf_end);
-    p_buf = buf_put(&(bundled->offset_done),
-                    sizeof(bundled->offset_done), p_buf, p_buf_end);
+    p_buf = buf_put(&(bundled->offset_done_snap),
+                    sizeof(bundled->offset_done_snap), p_buf, p_buf_end);
 
     return p_buf;
 }
@@ -55,8 +55,8 @@ static const uint8_t *osqlcomm_bundled_type_get(struct osql_bundled *bundled,
 
     p_buf = buf_get(&(bundled->nmsgs),
                     sizeof(bundled->nmsgs), p_buf, p_buf_end);
-    p_buf = buf_get(&(bundled->offset_done),
-                    sizeof(bundled->offset_done), p_buf, p_buf_end);
+    p_buf = buf_get(&(bundled->offset_done_snap),
+                    sizeof(bundled->offset_done_snap), p_buf, p_buf_end);
     return p_buf;
 }
 
@@ -151,7 +151,7 @@ osqlcomm_bundled_rpl_uuid_type_get(struct osql_bundled_rpl_uuid *bundled_uuid_rp
 /* osql_bundled -> osql_bundle */
 /* move osqlcomm_bundled_uuid_rpl_type_put to this file and consider git checkout -- on osqlcomm.c */
 
-static int wrap_up(osql_target_t *target, int done, int nodelay, int offset_done)
+static int wrap_up(osql_target_t *target, int done, int nodelay, int offset_done_snap)
 {
     int rc, type;
     int unused = 0;
@@ -192,7 +192,7 @@ static int wrap_up(osql_target_t *target, int done, int nodelay, int offset_done
         rpl.hd.type = hdtype;
         comdb2uuidcpy(rpl.hd.uuid, bundled->uuid);
         rpl.dt.nmsgs = bundled->nmsgs;
-        rpl.dt.offset_done = offset_done;
+        rpl.dt.offset_done_snap = offset_done_snap;
 
         type = osql_net_type_to_net_uuid_type(type);
         if (!(p_buf = osqlcomm_bundled_uuid_rpl_type_put(&rpl, p_buf,
@@ -245,17 +245,17 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
     int unused = 0;
     int size_new, size_min;
     int size_total = datalen + taillen;
-    int offset_done = 0;
+    int offset_done_snap = 0;
 
     if (unbundled) {
-        rc = wrap_up(target, 0, nodelay, offset_done);
+        rc = wrap_up(target, 0, nodelay, offset_done_snap);
         if (rc != 0)
             return rc;
         return bundled->send(target, usertype, data, datalen, nodelay, tail, taillen, unused, unused);
     }
 
     if (bundled->send_type != usertype) { /* Messages of different user types can't be bundled */
-        rc = wrap_up(target, 0, nodelay, offset_done);
+        rc = wrap_up(target, 0, nodelay, offset_done_snap);
         if (rc != 0)
             return rc;
         bundled->send_type = usertype;
@@ -271,7 +271,7 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
             size_new = gbl_osql_max_bundled_bytes;
 
         if (size_min >= size_new) { /* buffer is filled up */
-            rc = wrap_up(target, 0, nodelay, offset_done);
+            rc = wrap_up(target, 0, nodelay, offset_done_snap);
             if (rc != 0)
                 return rc;
             return bundled->send(target, usertype, data, datalen, nodelay, tail, taillen, unused, unused);
@@ -294,8 +294,8 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
 
     bundled->hdr[bundled->nmsgs++] = htonl(size_total);
     memcpy(bundled->buf + bundled->bufsz, data, datalen);
-    if (done)
-        offset_done = bundled->bufsz;
+    if (done > 1) /* A DONE_SNAP message */
+        offset_done_snap = bundled->bufsz;
     bundled->bufsz += datalen;
     if (taillen > 0) {
         memcpy(bundled->buf + bundled->bufsz, tail, taillen);
@@ -303,7 +303,7 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
     }
 
     if (nodelay || done)
-        rc = wrap_up(target, done, 1, offset_done);
+        rc = wrap_up(target, done, 1, offset_done_snap);
 
     return rc;
 }
@@ -330,9 +330,12 @@ void osql_extract_snap_info_from_bundle(osql_sess_t *sess, void *buf, int len, i
     p_buf_end = p_buf + sizeof(struct osql_bundled);
 
     (void)osqlcomm_bundled_type_get(&dt, p_buf, p_buf_end);
-    p_buf = p_buf_end + (sizeof(int) * dt.nmsgs) + dt.offset_done;
-    done_len = (uint8_t *)buf + len - p_buf;
-    osql_extract_snap_info(sess, (void *)p_buf, done_len, is_uuid);
+
+    if (dt.offset_done_snap != 0) {
+        p_buf = p_buf_end + (sizeof(int) * dt.nmsgs) + dt.offset_done_snap;
+        done_len = (uint8_t *)buf + len - p_buf;
+        osql_extract_snap_info(sess, (void *)p_buf, done_len, is_uuid);
+    }
 }
 
 int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
