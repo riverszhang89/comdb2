@@ -245,7 +245,7 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
     int unused = 0;
     int size_new, size_min;
     int size_total = datalen + taillen;
-    int offset_done_snap = 0;
+    int offset_done_snap = -1;
 
     if (unbundled) {
         rc = wrap_up(target, 0, nodelay, offset_done_snap);
@@ -331,7 +331,7 @@ void osql_extract_snap_info_from_bundle(osql_sess_t *sess, void *buf, int len, i
 
     (void)osqlcomm_bundled_type_get(&dt, p_buf, p_buf_end);
 
-    if (dt.offset_done_snap != 0) {
+    if (dt.offset_done_snap >= 0) {
         p_buf = p_buf_end + (sizeof(int) * dt.nmsgs) + dt.offset_done_snap;
         done_len = (uint8_t *)buf + len - p_buf;
         osql_extract_snap_info(sess, (void *)p_buf, done_len, is_uuid);
