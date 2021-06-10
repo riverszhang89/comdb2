@@ -208,6 +208,7 @@ static int wrap_up(osql_target_t *target, int done, int nodelay, int offset_done
         rpl.hd.type = hdtype;
         rpl.hd.sid = rqid;
         rpl.dt.nmsgs = bundled->nmsgs;
+        rpl.dt.offset_done_snap = offset_done_snap;
 
         if (!(p_buf = osqlcomm_bundled_rpl_type_put(&rpl, p_buf,
                         p_buf_end))) {
@@ -338,13 +339,28 @@ void osql_extract_snap_info_from_bundle(osql_sess_t *sess, void *buf, int len, i
     }
 }
 
+static enum OSQL_RPL_TYPE osql_opcode(unsigned long long rqid, const uint8_t *start, const uint8_t *end)
+{
+    enum OSQL_RPL_TYPE rv;
+    if (rqid == OSQL_RQID_USE_UUID) {
+        osql_uuid_rpl_t rpl;
+        osqlcomm_uuid_rpl_type_get(&rpl, start, end);
+        rv = rpl.type;
+    } else {
+        osql_rpl_t rpl;
+        osqlcomm_rpl_type_get(&rpl, start, end);
+        rv = rpl.type;
+    }
+    return rv;
+}
+
 int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                         void *trans, char *msg, int msglen, int *flags,
                         int **updCols, blob_buffer_t blobs[MAXBLOBS], int step,
                         struct block_err *err, int *receivedrows)
 {
     const uint8_t *p_buf, *p_buf_end, *p_msgs_buf;
-    int rc, i, nmsgs, *msglens, len, ofs, type = 0;
+    int rc, i, nmsgs, *msglens, len, ofs;
     void *a_msg;
     struct osql_bundled dt = {0};
 
@@ -359,18 +375,32 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
         len = ntohl(msglens[i]);
         p_buf = p_msgs_buf + ofs;
         p_buf_end = p_buf + len;
-
-        if (rqid == OSQL_RQID_USE_UUID) {
-            osql_uuid_rpl_t rpl;
-            osqlcomm_uuid_rpl_type_get(&rpl, p_buf, p_buf_end);
-            type = rpl.type;
-        } else {
-            osql_rpl_t rpl;
-            osqlcomm_rpl_type_get(&rpl, p_buf, p_buf_end);
-            type = rpl.type;
+        switch(osql_opcode(rqid, p_buf, p_buf_end)) {
+        case OSQL_USEDB:
+        case OSQL_INSREC:
+        case OSQL_INSERT:
+        case OSQL_INSIDX:
+        case OSQL_DELIDX:
+        case OSQL_QBLOB:
+        case OSQL_STARTGEN:
+        case OSQL_DONE:
+        case OSQL_DONE_SNAP:
+            break;
+        default:
+            iq->sorese->is_delayed = true;
+            break;
         }
 
-        if (type != OSQL_QBLOB) {
+        ofs += len;
+    }
+
+    for (i = 0, ofs = 0; i != nmsgs; ++i) {
+        len = ntohl(msglens[i]);
+        p_buf = p_msgs_buf + ofs;
+        p_buf_end = p_buf + len;
+
+        /* block processor assumes that a blob payload is malloc'd. */
+        if (osql_opcode(rqid, p_buf, p_buf_end) != OSQL_QBLOB) {
             a_msg = (void *)p_buf;
         } else {
             a_msg = malloc(len);
@@ -379,26 +409,6 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                 return errno;
             }
             memcpy(a_msg, p_buf, len);
-        }
-
-        /* RIVERSTODB : CAN WE PRE-PROCESS OPCODES HERE??? */
-        switch (type) {
-        case OSQL_USEDB:
-        case OSQL_INSREC:
-        case OSQL_INSERT:
-        case OSQL_INSIDX:
-        case OSQL_DELIDX:
-        case OSQL_QBLOB:
-        case OSQL_STARTGEN:
-        case OSQL_BUNDLED:
-        case OSQL_DONE_SNAP:
-        case OSQL_DONE:
-        case OSQL_DONE_WITH_EFFECTS:
-        case OSQL_XERR:
-            break;
-        default:
-            iq->sorese->is_delayed = true;
-            break;
         }
 
         rc = osql_process_packet(iq, rqid, uuid, trans, (char **)&a_msg, len,

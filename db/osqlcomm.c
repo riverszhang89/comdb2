@@ -4514,7 +4514,7 @@ int osql_send_commit(osqlstate_t *osql,
                 free(buf);
             return -1;
         }
-        /* An OSQL cancellation is done outside of the blockprocessor. Send it separately. */
+        /* An OSQL cancellation is done outside the blockprocessor. Send it separately. */
         rc = target->send(target, type, buf, sizeof(rpl_xerr), 1, NULL, 0, 1, 1);
     }
     if (used_malloc)
@@ -7362,7 +7362,7 @@ int osql_send_schemachange(osqlstate_t *osql,
                comdb2uuidstr(osql->uuid, us), sc->tablename);
     }
 
-    /* RIVERSTOD : CAN BUNDLE??? */
+    /* sc transactions are initialized outside the blockprocessor. Send it separately. */
     return target->send(target, type, buf, osql_rpl_size, 0, NULL, 0, 0, 1);
 }
 

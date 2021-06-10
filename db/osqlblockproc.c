@@ -913,17 +913,15 @@ static int process_this_session(
         reqlog_set_rqid(iq->reqlogger, sess->uuid, sizeof(sess->uuid));
     reqlog_set_event(iq->reqlogger, EV_TXN);
 
-//#if DEBUG_REORDER
-    /* RZ */
-#if 0
+#if DEBUG_REORDER
     logmsg(LOGMSG_DEBUG, "OSQL ");
     // if needed to check content of socksql temp table, dump with:
     void bdb_temp_table_debug_dump(bdb_state_type * bdb_state,
                                    tmpcursor_t * cur, int);
-    bdb_temp_table_debug_dump(thedb->bdb_env, dbc, LOGMSG_FATAL);
+    bdb_temp_table_debug_dump(thedb->bdb_env, dbc, LOGMSG_DEBUG);
     if (dbc_ins) {
         logmsg(LOGMSG_DEBUG, "INS ");
-        bdb_temp_table_debug_dump(thedb->bdb_env, dbc_ins, LOGMSG_FATAL);
+        bdb_temp_table_debug_dump(thedb->bdb_env, dbc_ins, LOGMSG_DEBUG);
     }
 #endif
 
