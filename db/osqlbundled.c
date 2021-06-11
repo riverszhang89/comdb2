@@ -7,20 +7,21 @@
 static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
                   int nodelay, void *tail, int tailen, int done, int unbundled);
 
-int gbl_osql_max_bundled_bytes = 4 * 1024 * 1024 *1;
+int gbl_osql_max_bundled_bytes = 0;
 
 void init_bplog_bundled(osql_target_t *target)
 {
+	extern int gbl_reorder_socksql_no_deadlock;
     if (gbl_osql_max_bundled_bytes <= 0)
         return;
 
-    /* Latch the original send routine. Replace it with our adaptor. */
+    /* Latch the original send routine. */
     target->bundled.send = target->send;
     target->send = bundle;
 }
 
 struct osql_bundled {
-    int nmsgs; /* number of messages in this bundle */
+    int nmsgs; /* number of messages in the bundle */
     int offset_done_snap; /* offset of OSQL_DONE_SNAP */
 };
 
@@ -144,12 +145,6 @@ osqlcomm_bundled_rpl_uuid_type_get(struct osql_bundled_rpl_uuid *bundled_uuid_rp
 
     return p_buf;
 }
-
-
-
-/* RIVERSTODO */
-/* osql_bundled -> osql_bundle */
-/* move osqlcomm_bundled_uuid_rpl_type_put to this file and consider git checkout -- on osqlcomm.c */
 
 static int wrap_up(osql_target_t *target, int done, int nodelay, int offset_done_snap)
 {

@@ -60,7 +60,6 @@
 extern int gbl_partial_indexes;
 extern int gbl_expressions_indexes;
 extern int gbl_reorder_socksql_no_deadlock;
-extern int gbl_osql_max_bundled_bytes;
 
 int gbl_allow_bplog_restarts = 600;
 int gbl_master_retry_poll_ms = 100;
@@ -229,6 +228,7 @@ static int osql_sock_start_int(struct sqlclntstate *clnt, int type,
     int rc = 0;
     int retries = 0;
     int keep_rqid = start_flags & OSQL_START_KEEP_RQID;
+    extern int gbl_osql_max_bundled_bytes;
 
     /* new id */
     if (!keep_rqid) {
@@ -244,13 +244,10 @@ static int osql_sock_start_int(struct sqlclntstate *clnt, int type,
         copy_rqid(&osql->target, osql->rqid, osql->uuid);
     }
 
-    /* RIVERSTODO? can they work together???? */
-    if (start_flags & OSQL_START_NO_REORDER)
-        osql->is_reorder_on = 0;
-    else if (gbl_osql_max_bundled_bytes > 0)
-        osql->is_reorder_on = 0;
-    else
-        osql->is_reorder_on = gbl_reorder_socksql_no_deadlock;
+    /* socksql-reordering and bundled-osql cannot be turned on at the same time. */
+    osql->is_reorder_on = start_flags & OSQL_START_NO_REORDER
+                                      ? 0
+                                      : (gbl_osql_max_bundled_bytes <= 0) && gbl_reorder_socksql_no_deadlock;
 
     /* lets reset error, this could be a retry */
     osql->xerr.errval = 0;
