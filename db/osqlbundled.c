@@ -11,7 +11,6 @@ int gbl_osql_max_bundled_bytes = 0;
 
 void init_bplog_bundled(osql_target_t *target)
 {
-	extern int gbl_reorder_socksql_no_deadlock;
     if (gbl_osql_max_bundled_bytes <= 0)
         return;
 
@@ -382,7 +381,7 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
         case OSQL_DONE_SNAP:
             break;
         default:
-            iq->sorese->is_delayed = true;
+            iq->sorese->is_delayed = 1;
             break;
         }
 
