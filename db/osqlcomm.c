@@ -3194,9 +3194,11 @@ int gbl_disable_cnonce_blkseq;
  */
 int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
                       int is_uuid, struct errstat **xerr,
-                      struct query_effects *effects)
+                      struct query_effects *effects, int *preprocess_only)
 {
     int rc = 0;
+    if (preprocess_only != NULL)
+        *preprocess_only = 0;
     switch (type) {
     case OSQL_USEDB:
     case OSQL_INSREC:
@@ -3247,6 +3249,8 @@ int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
         if (xerr)
             *xerr = NULL;
         rc = 1;
+        if (preprocess_only != NULL)
+            *preprocess_only = 1;
         break;
     default:
         if (sess)
@@ -6940,7 +6944,7 @@ static void net_sorese_signal(void *hndl, void *uptr, char *fromhost,
 
     /* This also receives the query effects from master. */
     if (osql_comm_is_done(NULL, type, dtap, dtalen, rqid == OSQL_RQID_USE_UUID,
-                          &xerr, &effects) == 1) {
+                          &xerr, &effects, NULL) == 1) {
         if (type == OSQL_DONE_WITH_EFFECTS) {
             p_effects = &effects;
         }

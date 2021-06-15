@@ -240,7 +240,7 @@ void signal_replicant_error(osql_target_t *target, unsigned long long rqid,
  */
 int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
                       int hasuuid, struct errstat **xerr,
-                      struct query_effects *effects);
+                      struct query_effects *effects, int *preprocess_only);
 
 /**
  * Handles each packet and calls record.c functions
