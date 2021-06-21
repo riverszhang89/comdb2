@@ -28,6 +28,7 @@
 #define IS_ODH_READY(x) (!!(((x)->odhind) & OSQL_BLOB_ODH_BIT))
 #define OSQL_SEND_ERROR_WRONGMASTER (-1234)
 
+/* common osql structures */
 typedef struct osql_rpl {
     /* keep this header aligned head and tail! */
     enum OSQL_RPL_TYPE type;
@@ -37,7 +38,6 @@ typedef struct osql_rpl {
 enum { OSQLCOMM_RPL_TYPE_LEN = 4 + 4 + 8 };
 uint8_t *osqlcomm_rpl_type_put(const osql_rpl_t *p_osql_rpl, uint8_t *p_buf, const uint8_t *p_buf_end);
 const uint8_t *osqlcomm_rpl_type_get(osql_rpl_t *p_osql_rpl, const uint8_t *p_buf, const uint8_t *p_buf_end);
-
 
 typedef struct osql_rpl_uuid {
     enum OSQL_RPL_TYPE type;

@@ -522,7 +522,6 @@ static void _pre_process_saveop(osql_sess_t *sess, blocksql_tran_t *tran,
         sess->is_tranddl++;
         break;
     case OSQL_USEDB:
-        /* RZ ??? mutually exclusive? */
         if (tran->is_selectv_wl_upd || tran->is_reorder_on) {
             int tableversion = 0;
             const char *tblname =
@@ -945,6 +944,7 @@ static int process_this_session(
     oplog_key_t *opkey_ins = NULL;
     uint8_t add_stripe = 0;
     int drain_adds = 0; // we always start by reading normal tmp tbl
+    /* if bplog temptable is empty, do not create reordering temptable. */
     if (rc != IX_EMPTY) {
         rc = init_ins_tbl(iq->reqlogger, dbc_ins, &opkey_ins,
                           &add_stripe, bdberr);
@@ -966,7 +966,9 @@ static int process_this_session(
     while ((rc == 0 || rc == IX_PASTEOF) && !rc_out) {
         char *data = NULL;
         int datalen = 0;
-        if (rc == IX_PASTEOF) {
+        if (rc == IX_PASTEOF) { /* no more packets from the bplog temptable. */
+            /* check if we have a final packet stored in memory. if so, process it.
+               otherwise, break out of the loop. */
             if (sess->finalop == NULL)
                 break;
             data = sess->finalop;
@@ -1012,6 +1014,7 @@ static int process_this_session(
         }
 
         step++;
+        /* If we've just processed the last packet, we're done here. */
         if (data == sess->finalop)
             break;
         rc = get_next_merge_tmps(dbc, dbc_ins, &opkey, &opkey_ins, &drain_adds,

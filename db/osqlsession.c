@@ -314,18 +314,20 @@ int osql_sess_rcvop(unsigned long long rqid, uuid_t uuid, int type, void *data,
         return 0;
     }
 
-    sess->finalop = malloc(datalen);
-    if (sess->finalop == NULL) {
-        logmsgperror("malloc");
-        rc = ENOMEM;
-        goto failed_stream;
+    if (preprocess_only) {
+        /* Store the final packet in memory. */
+        sess->finalop = malloc(datalen);
+        if (sess->finalop == NULL) {
+            logmsgperror("malloc");
+            rc = ENOMEM;
+            goto failed_stream;
+        }
+        sess->finalopsz = datalen;
+        memcpy(sess->finalop, data, datalen);
     }
-    sess->finalopsz = datalen;
-    memcpy(sess->finalop, data, datalen);
 
     /* IT WAS A DONE MESSAGE
        HERE IS THE DISPATCH */
-    /* RZ */
     return handle_buf_sorese(sess);
 
 failed_stream:

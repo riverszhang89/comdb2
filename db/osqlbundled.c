@@ -1,3 +1,19 @@
+/*
+   Copyright 2021 Bloomberg Finance L.P.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+ */
+
 #include <compile_time_assert.h>
 
 #include "comdb2uuid.h"
@@ -21,9 +37,10 @@ void init_bplog_bundled(osql_target_t *target)
 
 struct osql_bundled {
     int nmsgs; /* number of messages in the bundle */
-    int offset_done_snap; /* offset of OSQL_DONE_SNAP */
+    int offset_done_snap; /* shortcut to the offset of OSQL_DONE_SNAP for cnonce */
 };
 
+/* getters and setters begin */
 enum {
     OSQLCOMM_BUNDLED_TYPE_LEN = 8
 };
@@ -145,6 +162,9 @@ osqlcomm_bundled_rpl_uuid_type_get(struct osql_bundled_rpl_uuid *bundled_uuid_rp
     return p_buf;
 }
 
+/* getters and setters end */
+
+/* Send the current bundle using the underlying network method (legacy-net or direct-socket). */
 static int wrap_up(osql_target_t *target, int done, int nodelay, int offset_done_snap)
 {
     int rc, type;
@@ -242,6 +262,7 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
     int size_total = datalen + taillen;
     int offset_done_snap = -1;
 
+    /* if caller wants to send the packet separately, wrap up the current bundle and send the packet. */
     if (unbundled) {
         rc = wrap_up(target, 0, nodelay, offset_done_snap);
         if (rc != 0)
@@ -249,13 +270,15 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
         return bundled->send(target, usertype, data, datalen, nodelay, tail, taillen, unused, unused);
     }
 
-    if (bundled->send_type != usertype) { /* Messages of different user types can't be bundled */
+    /* messages of different user types can't be bundled. Wrap up the current bundle and start a new bundle. */
+    if (bundled->send_type != usertype) {
         rc = wrap_up(target, 0, nodelay, offset_done_snap);
         if (rc != 0)
             return rc;
         bundled->send_type = usertype;
     }
 
+    /* make sure that we have enough space in the bundle for the packet. */
     if (bundled->bufsz_alloc - bundled->bufsz < size_total) { /* Not enough space for payload */
         /* Minimal length required to hold all messages */
         size_min = bundled->bufsz + size_total;
@@ -289,7 +312,7 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
 
     bundled->hdr[bundled->nmsgs++] = htonl(size_total);
     memcpy(bundled->buf + bundled->bufsz, data, datalen);
-    if (done > 1) /* A DONE_SNAP message */
+    if (done > 1) /* This is a DONE_SNAP message. Remember the offset. */
         offset_done_snap = bundled->bufsz;
     bundled->bufsz += datalen;
     if (taillen > 0) {
@@ -297,6 +320,7 @@ static int bundle(osql_target_t *target, int usertype, void *data, int datalen,
         bundled->bufsz += taillen;
     }
 
+    /* If nodelay or done, wrap everything up. */
     if (nodelay || done)
         rc = wrap_up(target, done, 1, offset_done_snap);
 
@@ -369,6 +393,8 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
         len = ntohl(msglens[i]);
         p_buf = p_msgs_buf + ofs;
         p_buf_end = p_buf + len;
+
+        /* Light is_delayed flag if necessary. */
         switch(osql_opcode(rqid, p_buf, p_buf_end)) {
         case OSQL_USEDB:
         case OSQL_INSREC:
@@ -384,7 +410,6 @@ int osql_process_bundled(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             iq->sorese->is_delayed = 1;
             break;
         }
-
         ofs += len;
     }
 

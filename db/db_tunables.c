@@ -943,7 +943,8 @@ static int osql_max_bundled_bytes_update(void *context, void *value)
 {
     int val = *(int *)value;
     if (val > 0 && gbl_reorder_socksql_no_deadlock)
-        logmsg(LOGMSG_WARN, "enabling osql bundling. socksql reordering will be disabled.");
+        logmsg(LOGMSG_WARN, "enabling osql bundling. "
+               "socksql reordering will be disabled, for it's incompatible with osql bundling.");
     gbl_max_password_cache_size = val;
     return 0;
 }
