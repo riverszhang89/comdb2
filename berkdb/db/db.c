@@ -67,6 +67,7 @@ static const char revid[] = "$Id: db.c,v 11.283 2003/11/14 05:32:29 ubell Exp $"
 #include "dbinc/qam.h"
 #include "dbinc/txn.h"
 #include "logmsg.h"
+#include "locks_wrap.h"
 #include <tohex.h>
 
 static int __db_dbenv_mpool __P((DB *, const char *, u_int32_t));

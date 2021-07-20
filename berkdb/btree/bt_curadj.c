@@ -21,6 +21,7 @@ static const char revid[] = "$Id: bt_curadj.c,v 11.34 2003/07/09 02:32:24 margo 
 #include <stdlib.h>
 
 #include "logmsg.h"
+#include "locks_wrap.h"
 
 static int __bam_opd_cursor __P((DB *, DBC *, db_pgno_t, u_int32_t, u_int32_t));
 
