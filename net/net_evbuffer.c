@@ -53,6 +53,11 @@
 #include <plhash.h>
 #include <portmuxapi.h>
 
+#if WITH_SSL
+#include <ssl_io_evbuffer.h>
+#include <ssl_bend.h>
+#endif
+
 #define MB(x) ((x) * 1024 * 1024)
 #define TCP_BUFSZ MB(8)
 #define SBUF2UNGETC_BUF_MAX 8 /* see also util/sbuf2.c */
@@ -73,15 +78,20 @@
 
 #define no_distress_logmsg(...) logmsg(hprintf_lvl, __VA_ARGS__)
 
-#define hprintf(a, ...) distress_logmsg(hprintf_format(a), __VA_ARGS__)
+#define hprintf(a, ...) distress_logmsg(hprintf_format(a), ##__VA_ARGS__)
 #define hputs(a) distress_logmsg(hprintf_format(a))
 
-#define hprintf_nd(a, ...) no_distress_logmsg(hprintf_format(a), __VA_ARGS__)
+#define hprintf_nd(a, ...) no_distress_logmsg(hprintf_format(a), ##__VA_ARGS__)
 #define hputs_nd(a) no_distress_logmsg(hprintf_format(a))
 
 int gbl_libevent = 1;
 int gbl_libevent_appsock = 1;
 int gbl_libevent_rte_only = 0;
+
+#if WITH_SSL
+extern ssl_mode gbl_rep_ssl_mode;
+extern SSL_CTX *gbl_ssl_ctx;
+#endif
 
 extern char *gbl_myhostname;
 extern int gbl_create_mode;
@@ -364,6 +374,10 @@ struct event_info {
     wire_header_type hdr;
     net_send_message_header msg;
     net_ack_message_payload_type ack;
+#if WITH_SSL
+    int do_ssl;
+    sslio *ssl;
+#endif
 };
 
 #define EVENT_HASH_KEY_SZ 128
@@ -808,6 +822,9 @@ struct host_connected_info {
     int fd;
     struct event_info *event_info;
     int connect_msg;
+#if WITH_SSL
+    sslio *ssl;
+#endif
 };
 
 static struct host_connected_info *
@@ -817,6 +834,11 @@ host_connected_info_new(struct event_info *e, int fd, int connect_msg)
     info->event_info = e;
     info->fd = fd;
     info->connect_msg = connect_msg;
+#if WITH_SSL
+    /* latch ssl object */
+    info->ssl = e->ssl;
+    e->ssl = NULL;
+#endif
     LIST_INSERT_HEAD(&e->host_connected_list, info, entry);
     return info;
 }
@@ -982,6 +1004,8 @@ static void disable_write(int dummyfd, short what, void *data)
 
     if (e->fd != -1) {
         hprintf("CLOSING CONNECTION fd:%d\n", e->fd);
+        sslio_close(e->ssl, 0);
+        e->ssl = NULL;
         shutdown_close(e->fd);
         e->fd = -1;
     }
@@ -1622,12 +1646,18 @@ static void readcb(int fd, short what, void *data)
 #       define RD_BUFSZ MB(2)
 #       define NVEC 4
 #   endif
+
+#if WITH_SSL
+    if (evbuffer_read_ssl(input, e->ssl, fd, RD_BUFSZ * NVEC, RD_BUFSZ) <= 0)
+        DISABLE_AND_RECONNECT();
+#else
     struct iovec v[NVEC];
     const int nv = evbuffer_reserve_space(input, RD_BUFSZ, v, NVEC);
     if (nv == -1) {
         hputs("evbuffer_reserve_space failed\n");
         DISABLE_AND_RECONNECT();
     }
+
     ssize_t n = readv(e->fd, v, nv);
     if (n <= 0) {
         DISABLE_AND_RECONNECT();
@@ -1641,6 +1671,7 @@ static void readcb(int fd, short what, void *data)
         n = 0;
     }
     evbuffer_commit_space(input, v, nv);
+#endif
     while (evbuffer_get_length(input) >= e->need) {
         if (e->need > e->rdbuf_sz) {
             if (e->rdbuf) {
@@ -1754,7 +1785,12 @@ static void enable_write(int dummyfd, short what, void *data)
     check_base_thd();
     Pthread_mutex_lock(&e->wr_lk);
     update_event_fd(e, info->fd);
+#if WITH_SSL
+    e->ssl = info->ssl;
+    akbuf_enable(e->flush_buf, e->fd, &e->ssl);
+#else
     akbuf_enable(e->flush_buf, e->fd);
+#endif
     if (e->wr_buf) {
         /* should be cleaned up prior i think */
         abort();
@@ -2024,7 +2060,7 @@ static struct timeval ms_to_timeval(int ms)
     return t;
 }
 
-static int accept_host(struct accept_info *a)
+static int accept_host(struct accept_info *a, int do_ssl_accept)
 {
     check_base_thd();
     int port = a->from_port;
@@ -2056,6 +2092,25 @@ static int accept_host(struct accept_info *a)
     if (netinfo_ptr->new_node_rtn) {
         netinfo_ptr->new_node_rtn(netinfo_ptr, host, port);
     }
+
+#if WITH_SSL
+    if (do_ssl_accept) {
+        hprintf("PERFORMING SSL-ACCEPT\n");
+        int sslrc = sslio_accept(&e->ssl, gbl_ssl_ctx, a->fd, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0);
+        if (sslrc != 1) {
+            char err[256];
+            sslio_get_error(e->ssl, err, sizeof(err));
+            hprintf("SSL-ACCEPT FAILED: %s\n", err);
+            sslio_close(e->ssl, 0);
+            e->ssl = NULL;
+            return -1;
+        }
+        hprintf("SSL-ACCEPT COMPLETE\n");
+    }
+#else
+    (void)do_ssl_accept;
+#endif
+
     hprintf("ACCEPTED NEW CONNECTION fd:%d\n", a->fd);
     host_connected(e, a->fd, 0);
     a->fd = -1;
@@ -2117,12 +2172,26 @@ static int validate_host(struct accept_info *a)
                a->c.my_nodenum, host);
         return -1;
     }
+
+#if WITH_SSL
     if (a->c.flags & CONNECT_MSG_SSL) {
-        abort();
-        return -1;
-    } else {
-        return accept_host(a);
+        if (gbl_rep_ssl_mode < SSL_ALLOW) {
+            logmsg(LOGMSG_ERROR, "Misconfiguration: Peer requested SSL, " "but I don't have an SSL key pair.\n");
+            return -1;
+        }
+        return accept_host(a, 1);
     }
+    if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
+        logmsg(LOGMSG_ERROR, "Replicant SSL connections are required.\n");
+        return -1;
+    }
+#else
+    if (connect_message.flags & CONNECT_MSG_SSL) {
+        logmsg(LOGMSG_ERROR, "Misconfiguration: Peer requested SSL, but I am not built with SSL.\n");
+        return -1;
+    }
+#endif
+    return accept_host(a, 0);
 }
 
 static int process_long_hostname(struct accept_info *a)
@@ -2644,7 +2713,12 @@ static void check_wr_full(struct event_info *e)
 
 static void flush_evbuffer(struct event_info *e)
 {
-    akbuf_add_buffer(e->flush_buf, e->wr_buf);
+    akbuf_add_buffer(e->flush_buf, e->wr_buf, 0);
+}
+
+static void flush_evbuffer_sync(struct event_info *e)
+{
+    akbuf_add_buffer(e->flush_buf, e->wr_buf, 1);
 }
 
 static inline int skip_send(struct event_info *e, int nodrop, int check_hello)
@@ -2888,7 +2962,31 @@ int write_connect_message_evbuffer(host_node_type *host_node_ptr,
             evbuffer_add(buf, iov[i].iov_base, iov[i].iov_len);
         }
     }
+
+    if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
+        flush_evbuffer_sync(e);
+        /* We're about to perform an ssl handshake.
+           Suspend the callbacks till the handshake is complete. */
+        hprintf("SUSPENDING RD FOR SSL-CONNECT\n");
+        event_once(rd_base, suspend_read, e);
+        hprintf("PERFORMING SSL-CONNECT\n");
+        if (sslio_connect(&e->ssl, gbl_ssl_ctx, e->fd, gbl_rep_ssl_mode, gbl_dbname,
+                    gbl_nid_dbname, 1) != 1) {
+            char err[256];
+            sslio_get_error(e->ssl, err, sizeof(err));
+            hprintf("SSL-CONNECT FAILED: %s\n", err);
+            sslio_close(e->ssl, 0);
+            e->ssl = NULL;
+            Pthread_mutex_unlock(&e->wr_lk);
+            return 1;
+        }
+        hprintf("SSL-CONNECT COMPLETE\n");
+        hprintf("RESUMING RD\n");
+        event_once(rd_base, resume_read, e);
+    }
+
     Pthread_mutex_unlock(&e->wr_lk);
+
     return 0;
 }
 

@@ -2185,12 +2185,13 @@ static int try_ssl(cdb2_hndl_tp *hndl, SBUF2 *sb, int indx)
 
     p = (hndl->sess_list == NULL) ? NULL : &(hndl->sess_list->list[indx]);
 
-    rc = sslio_connect(sb, ctx, hndl->c_sslmode, hndl->dbname, hndl->nid_dbname,
+    rc = sbuf2sslioconnect(sb, ctx, hndl->c_sslmode, hndl->dbname, hndl->nid_dbname,
                        ((p != NULL) ? p->sess : NULL));
 
     SSL_CTX_free(ctx);
     if (rc != 1) {
-        hndl->sslerr = sbuf2lasterror(sb, hndl->errstr, sizeof(hndl->errstr));
+        hndl->sslerr = sbuf2lastsslerror(sb, hndl->errstr, sizeof(hndl->errstr));
+        sbuf2sslioclose(sb);
         /* If SSL_connect() fails, invalidate the session. */
         if (p != NULL)
             p->sess = NULL;
@@ -2619,8 +2620,8 @@ retry:
            handshake but encounter an error when reading data from the server.
            Catch the error here. */
 #       if WITH_SSL
-        if ((hndl->sslerr = sbuf2lasterror(sb, NULL, 0)))
-            sbuf2lasterror(sb, hndl->errstr, sizeof(hndl->errstr));
+        if ((hndl->sslerr = sbuf2lastsslerror(sb, NULL, 0)))
+            sbuf2lastsslerror(sb, hndl->errstr, sizeof(hndl->errstr));
 #       endif
         goto after_callback;
     }
@@ -6169,7 +6170,7 @@ int cdb2_init_ssl(int init_libssl, int init_libcrypto)
 
 int cdb2_is_ssl_encrypted(cdb2_hndl_tp *hndl)
 {
-    return hndl->sb == NULL ? 0 : sslio_has_ssl(hndl->sb);
+    return hndl->sb == NULL ? 0 : sbuf2hasssl(hndl->sb);
 }
 
 static cdb2_ssl_sess_list *cdb2_get_ssl_sessions(cdb2_hndl_tp *hndl)
@@ -6296,7 +6297,7 @@ static int cdb2_add_ssl_session(cdb2_hndl_tp *hndl)
     /* Refresh in case of renegotiation. */
     p = &(hndl->sess_list->list[hndl->connected_host]);
     sess = p->sess;
-    p->sess = SSL_get1_session(sslio_get_ssl(hndl->sb));
+    p->sess = SSL_get1_session(sbuf2getssl(hndl->sb));
     if (sess != NULL)
         SSL_SESSION_free(sess);
     return 0;

@@ -74,7 +74,7 @@ void SBUF2_FUNC(sbuf2setflags)(SBUF2 *sb, int flags);
 SBUF2 *SBUF2_FUNC(sbuf2open)(int fd, int flags);
 #define sbuf2open SBUF2_FUNC(sbuf2open)
 
-/* flush output, close fd, and free SBUF2. 0==success */
+/* flush output, close SSL connection if compiled with SSL, close fd, and free SBUF2. 0==success */
 int SBUF2_FUNC(sbuf2close)(SBUF2 *sb);
 #define sbuf2close SBUF2_FUNC(sbuf2close)
 
@@ -211,17 +211,6 @@ int SBUF2_FUNC(sbuf2unbufferedwrite)(SBUF2 *sb, const char *cc, int len);
 char *SBUF2_FUNC(get_origin_mach_by_buf)(SBUF2 *);
 #define get_origin_mach_by_buf SBUF2_FUNC(get_origin_mach_by_buf)
 
-/* Returns the error of a preceding call to sbuf2flush(), sbuf2putc(),
-   sbuf2puts(), sbuf2write(), sbuf2fwrite(), sbuf2getc(), sbuf2gets(),
-   sbuf2fread(), sbuf2unbufferedread() or sbuf2unbufferedwrite().
-
-   When compiled with SSL, the function returns non-zero if the last error
-   is an SSL protocol error, and 0 otherwise. The caller should not attempt
-   to retry on a non-zero return code; When not compiled with SSL, the
-   function always returns 0. */
-int SBUF2_FUNC(sbuf2lasterror)(SBUF2 *sb, char *err, size_t n);
-#define sbuf2lasterror SBUF2_FUNC(sbuf2lasterror)
-
 #ifndef WITH_SSL
 #  define WITH_SSL 1
 #endif
@@ -230,6 +219,38 @@ int SBUF2_FUNC(sbuf2lasterror)(SBUF2 *sb, char *err, size_t n);
 #if WITH_SSL
 #  include <ssl_support.h>
 #  include <ssl_io.h>
+
+/* Returns the error of a preceding call to sbuf2flush(), sbuf2putc(),
+   sbuf2puts(), sbuf2write(), sbuf2fwrite(), sbuf2getc(), sbuf2gets(),
+   sbuf2fread(), sbuf2unbufferedread() or sbuf2unbufferedwrite().
+
+   The function returns non-zero if the last error is an SSL protocol error, and 0 otherwise.
+   The caller should not attempt to retry on a non-zero return code. */
+int SBUF2_FUNC(sbuf2lastsslerror)(SBUF2 *sb, char *err, size_t n);
+#  define sbuf2lastsslerror SBUF2_FUNC(sbuf2lastsslerror)
+
+#  if SBUF2_SERVER
+int SBUF2_FUNC(sbuf2sslioconnect)(SBUF2 *, SSL_CTX *, ssl_mode, const char *dbname, int nid, int close_on_verify_error);
+#  else
+int SBUF2_FUNC(sbuf2sslioconnect)(SBUF2 *, SSL_CTX *, ssl_mode, const char *dbname, int nid, SSL_SESSION *);
+#  endif
+#  define sbuf2sslioconnect SBUF2_FUNC(sbuf2sslioconnect)
+
+int SBUF2_FUNC(sbuf2sslioaccept)(SBUF2 *, SSL_CTX *, ssl_mode, const char *dbname, int nid, int close_on_verify_error);
+#  define sbuf2sslioaccept SBUF2_FUNC(sbuf2sslioaccept)
+
+int SBUF2_FUNC(sbuf2hasssl)(SBUF2 *);
+#  define sbuf2hasssl SBUF2_FUNC(sbuf2hasssl)
+SSL *SBUF2_FUNC(sbuf2getssl)(SBUF2 *);
+#  define sbuf2getssl SBUF2_FUNC(sbuf2getssl)
+int SBUF2_FUNC(sbuf2hasx509)(SBUF2 *);
+#  define sbuf2hasx509 SBUF2_FUNC(sbuf2hasx509)
+int SBUF2_FUNC(sbuf2x509attr)(SBUF2 *, int nid, char *out, size_t len);
+#  define sbuf2x509attr SBUF2_FUNC(sbuf2x509attr)
+
+/* Close the SSL connection but leave sbuf2 open. */
+int SBUF2_FUNC(sbuf2sslioclose)(SBUF2 *);
+#  define sbuf2sslioclose SBUF2_FUNC(sbuf2sslioclose)
 #endif
 
 #if defined __cplusplus

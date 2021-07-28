@@ -1,0 +1,2 @@
+ssl_client_mode REQUIRE
+ssl_replicant_mode VERIFY_CA

@@ -41,6 +41,7 @@ set(src
   schema_lk.c
   segstring.c
   sltpck.c
+  ssl_io_evbuffer.c
   str0.c
   strbuf.c
   string_ref.c

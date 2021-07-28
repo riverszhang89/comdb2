@@ -93,8 +93,8 @@ static void watchdogsql(void)
     start_internal_sql_clnt(&clnt);
     clnt.dbtran.mode = TRANLEVEL_SOSQL;
     clnt.admin = 1;
-    run_internal_sql_clnt(&clnt, "select 1");
-    end_internal_sql_clnt(&clnt);
+    //run_internal_sql_clnt(&clnt, "select 1");
+    //end_internal_sql_clnt(&clnt);
 }
 
 static void *watchdog_thread(void *arg)

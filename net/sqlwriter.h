@@ -20,6 +20,10 @@
 #include <stdint.h>
 #include <pthread.h>
 
+#if WITH_SSL
+#include <ssl_io_evbuffer.h>
+#endif
+
 struct evbuffer;
 struct event_base;
 struct iovec;
@@ -49,6 +53,9 @@ struct sqlwriter_arg {
     sql_pack_fn *pack;
     sql_pack_fn *pack_hb;
     size_t hb_sz;
+#if WITH_SSL
+    sslio **pssl;
+#endif
 };
 struct sqlwriter *sqlwriter_new(struct sqlwriter_arg *);
 void sqlwriter_free(struct sqlwriter *);

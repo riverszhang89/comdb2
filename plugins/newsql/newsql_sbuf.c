@@ -37,11 +37,8 @@
 extern int gbl_sqlwrtimeoutms;
 
 #if WITH_SSL
-extern ssl_mode gbl_client_ssl_mode;
-extern SSL_CTX *gbl_ssl_ctx;
+#include <ssl_bend.h>
 extern char gbl_dbname[MAX_DBNAME_LENGTH];
-extern int gbl_nid_dbname;
-void ssl_set_clnt_user(struct sqlclntstate *clnt);
 #endif
 
 int gbl_protobuf_prealloc_buffer_size = 8192;
@@ -240,7 +237,7 @@ static int newsql_has_ssl_sbuf(struct sqlclntstate *clnt)
 {
 #   if WITH_SSL
     struct newsql_appdata_sbuf *appdata = clnt->appdata;
-    return sslio_has_ssl(appdata->sb);
+    return sbuf2hasssl(appdata->sb);
 #   else
     return 0;
 #   endif
@@ -250,7 +247,7 @@ static int newsql_has_x509_sbuf(struct sqlclntstate *clnt)
 {
 #   if WITH_SSL
     struct newsql_appdata_sbuf *appdata = clnt->appdata;
-    return sslio_has_x509(appdata->sb);
+    return sbuf2hasx509(appdata->sb);
 #   else
     return 0;
 #   endif
@@ -260,9 +257,9 @@ static int newsql_get_x509_attr_sbuf(struct sqlclntstate *clnt, int nid, void *o
 {
 #   if WITH_SSL
     struct newsql_appdata_sbuf *appdata = clnt->appdata;
-    return sslio_x509_attr(appdata->sb, nid, out, outsz);
+    return sbuf2x509attr(appdata->sb, nid, out, outsz);
 #   else
-    return -1;
+    return 0;
 #   endif
 }
 
@@ -339,7 +336,7 @@ retry_read:
 
     if (hdr.type == CDB2_REQUEST_TYPE__SSLCONN) {
 #       if WITH_SSL
-        if (sslio_has_ssl(sb)) {
+        if (sbuf2hasssl(sb)) {
             logmsg(LOGMSG_WARN, "The connection is already SSL encrypted.\n");
             return NULL;
         }
@@ -355,12 +352,13 @@ retry_read:
         /* Don't close the connection if SSL verify fails so that we can
            send back an error to the client. */
         if (ssl_able == 'Y' &&
-            sslio_accept(sb, gbl_ssl_ctx, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0) != 1) {
+            sbuf2sslioaccept(sb, gbl_ssl_ctx, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0) != 1) {
             write_response(clnt, RESPONSE_ERROR, "Client certificate authentication failed.", CDB2ERR_CONNECT_ERROR);
             /* Print the error message in the sbuf2. */
             char err[256];
-            sbuf2lasterror(sb, err, sizeof(err));
+            sbuf2lastsslerror(sb, err, sizeof(err));
             logmsg(LOGMSG_ERROR, "%s\n", err);
+            sbuf2sslioclose(sb);
             return NULL;
         }
         /* Extract the user from the certificate. */
@@ -493,7 +491,7 @@ retry_read:
        The check must be done for every query, otherwise
        attackers could bypass it by using pooled connections
        from sockpool. The overhead of the check is negligible. */
-    if (gbl_client_ssl_mode >= SSL_REQUIRE && !sslio_has_ssl(sb)) {
+    if (gbl_client_ssl_mode >= SSL_REQUIRE && !sbuf2hasssl(sb)) {
         /* The code block does 2 things:
            1. Return an error to outdated clients;
            2. Send dbinfo to new clients to trigger SSL.
