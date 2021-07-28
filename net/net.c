@@ -443,8 +443,8 @@ static void close_hostnode_ll(host_node_type *host_node_ptr)
         SBUF2 *sb = host_node_ptr->sb;
         if (sb) {
 #           if WITH_SSL
-            if (sslio_has_ssl(sb))
-                sslio_close(sb, 1);
+            if (sbuf2hasssl(sb))
+                sbuf2sslioclose(sb);
 #           endif
             sbuf2close(host_node_ptr->sb);
             host_node_ptr->sb = NULL;
@@ -946,12 +946,13 @@ static int read_connect_message(SBUF2 *sb, char hostname[], int hostnamel,
             return -1;
         }
 
-        rc = sslio_accept(sb, gbl_ssl_ctx, gbl_rep_ssl_mode, gbl_dbname,
+        rc = sbuf2sslioaccept(sb, gbl_ssl_ctx, gbl_rep_ssl_mode, gbl_dbname,
                           gbl_nid_dbname, 1);
         if (rc != 1) {
             char err[256];
-            sbuf2lasterror(sb, err, sizeof(err));
+            sbuf2lastsslerror(sb, err, sizeof(err));
             logmsg(LOGMSG_ERROR, "%s\n", err);
+            sbuf2sslioclose(sb);
             return -1;
         }
     } else if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
@@ -1111,11 +1112,12 @@ int write_connect_message(netinfo_type *netinfo_ptr,
 #if WITH_SSL
     if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
         net_flush(host_node_ptr);
-        if (sslio_connect(sb, gbl_ssl_ctx, gbl_rep_ssl_mode, gbl_dbname,
+        if (sbuf2sslioconnect(sb, gbl_ssl_ctx, gbl_rep_ssl_mode, gbl_dbname,
                           gbl_nid_dbname, 1) != 1) {
             char err[256];
-            sbuf2lasterror(sb, err, sizeof(err));
+            sbuf2lastsslerror(sb, err, sizeof(err));
             logmsg(LOGMSG_ERROR, "%s\n", err);
+            sbuf2sslioclose(sb);
             return 1;
         }
     }

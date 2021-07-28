@@ -1043,10 +1043,11 @@ int fdb_msg_read_message(SBUF2 *sb, fdb_msg_t *msg, enum recv_flags flags)
             rc = sbuf2flush(sb);
             if (rc < 0)
                 return -1;
-            rc = sslio_accept(sb, gbl_ssl_ctx, SSL_REQUIRE, NULL,
-                              gbl_nid_dbname, 1);
-            if (rc != 1)
+            rc = sbuf2sslioaccept(sb, gbl_ssl_ctx, SSL_REQUIRE, NULL, gbl_nid_dbname, 1);
+            if (rc != 1) {
+                sbuf2sslioclose(sb);
                 return -1;
+            }
         }
 #else
         msg->co.ssl = 0;

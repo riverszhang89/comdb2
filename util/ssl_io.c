@@ -27,34 +27,44 @@
 #include <openssl/asn1.h>
 #include <openssl/x509v3.h>
 
-SSL *SBUF2_FUNC(sslio_get_ssl)(SBUF2 *sb)
+struct sslio {
+    SSL *ssl;
+    int fd;
+    X509 *cert;
+    int protocolerr;
+    int closed_by_peer;
+    int readtimeout, writetimeout; /* sbuf2 precious */
+    char sslerr[120];
+};
+
+SSL *SBUF2_FUNC(sslio_get_ssl)(sslio *io)
 {
-    return sb->ssl;
+    return io->ssl;
 }
 
-int SBUF2_FUNC(sslio_has_ssl)(SBUF2 *sb)
+int SBUF2_FUNC(sslio_has_ssl)(sslio *io)
 {
-    return (sb != NULL && sb->ssl != NULL);
+    return (io != NULL && io->ssl != NULL);
 }
 
-int SBUF2_FUNC(sslio_has_x509)(SBUF2 *sb)
+int SBUF2_FUNC(sslio_has_x509)(sslio *io)
 {
-    return (sb != NULL && sb->cert != NULL);
+    return (io != NULL && io->cert != NULL);
 }
 
-static int sslio_pollin(SBUF2 *sb)
+static int sslio_pollin(sslio *io)
 {
     int rc;
     struct pollfd pol;
 
-    if (SSL_pending(sb->ssl) > 0)
+    if (SSL_pending(io->ssl) > 0)
         return 1;
 
     do {
-        pol.fd = sb->fd;
+        pol.fd = io->fd;
         pol.events = POLLIN;
         /* A readtimeout of 0 actually means an infinite poll timeout. */
-        rc = poll(&pol, 1, sb->readtimeout == 0 ? -1 : sb->readtimeout);
+        rc = poll(&pol, 1, io->readtimeout == 0 ? -1 : io->readtimeout);
     } while (rc == -1 && errno == EINTR);
 
     if (rc <= 0) /* timedout or error. */
@@ -66,16 +76,16 @@ static int sslio_pollin(SBUF2 *sb)
     return 1;
 }
 
-static int sslio_pollout(SBUF2 *sb)
+static int sslio_pollout(sslio *io)
 {
     int rc;
     struct pollfd pol;
 
     do {
-        pol.fd = sb->fd;
+        pol.fd = io->fd;
         pol.events = POLLOUT;
         /* A writetimeout of 0 actually means an infinite poll timeout. */
-        rc = poll(&pol, 1, sb->writetimeout == 0 ? -1 : sb->writetimeout);
+        rc = poll(&pol, 1, io->writetimeout == 0 ? -1 : io->writetimeout);
     } while (rc == -1 && errno == EINTR);
 
     if (rc <= 0) /* timedout or error. */
@@ -205,11 +215,11 @@ static int ssl_x509_get_attr(const X509 *cert, int nid, char *out, size_t len)
     return 0;
 }
 
-int SBUF2_FUNC(sslio_x509_attr)(SBUF2 *sb, int nid, char *out, size_t len)
+int SBUF2_FUNC(sslio_x509_attr)(sslio *io, int nid, char *out, size_t len)
 {
-    if (sb == NULL || sb->cert == NULL)
+    if (io == NULL || io->cert == NULL)
         return EINVAL;
-    return ssl_x509_get_attr(sb->cert, nid, out, len);
+    return ssl_x509_get_attr(io->cert, nid, out, len);
 }
 
 static int ssl_verify_cn(const char *hostname, const X509 *cert)
@@ -224,7 +234,7 @@ static int ssl_verify_cn(const char *hostname, const X509 *cert)
     return hostname_wildcard_match(hostname, cn);
 }
 
-static int ssl_verify_ca(SBUF2 *sb)
+static int ssl_verify_ca(sslio *io)
 {
     /*
     ** 1) Perform a reverse DNS lookup to get the hostname
@@ -246,15 +256,15 @@ static int ssl_verify_ca(SBUF2 *sb)
 
     /* Reverse lookup the hostname */
     char peerhost[NI_MAXHOST];
-    if (get_hostname_by_fileno_v2(sbuf2fileno(sb), peerhost, sizeof(peerhost))) {
-        ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+    if (get_hostname_by_fileno_v2(io->fd, peerhost, sizeof(peerhost))) {
+        ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                      "Could not obtain peer host name.");
         return 1;
     }
 
     /* Should always succeed as get_origin_mach_by_buf()
        returns a valid hostname. */
-    getpeername(sb->fd, (struct sockaddr *)&peeraddr, &len);
+    getpeername(io->fd, (struct sockaddr *)&peeraddr, &len);
 
 /* Forward lookup the IPs */
 
@@ -275,7 +285,7 @@ static int ssl_verify_ca(SBUF2 *sb)
 #endif
 
     if (hp == NULL) {
-        ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+        ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                      "Failed to perform forward DNS lookup.");
         return 1;
     }
@@ -302,9 +312,9 @@ static int ssl_verify_ca(SBUF2 *sb)
 
     /* Per RFC 6125, If SANs are presented, they must be used and
        the Comman Name must be ignored. */
-    rc = ssl_verify_san(peerhost, sb->cert);
+    rc = ssl_verify_san(peerhost, io->cert);
     if (rc == -1)
-        rc = ssl_verify_cn(peerhost, sb->cert);
+        rc = ssl_verify_cn(peerhost, io->cert);
 
     return rc;
 }
@@ -340,11 +350,11 @@ static int dbname_wildcard_match(const char *s, const char *p)
     return (*p == 0) ? 0 : 1;
 }
 
-static int ssl_verify_dbname(SBUF2 *sb, const char *dbname, int nid)
+static int ssl_verify_dbname(sslio *io, const char *dbname, int nid)
 {
     size_t sz = strlen(dbname) + 1;
     char *dbname_in_cert = alloca(sz);
-    int rc = sslio_x509_attr(sb, nid, dbname_in_cert, sz);
+    int rc = sslio_x509_attr(io, nid, dbname_in_cert, sz);
 
     if (rc != 0)
         return rc;
@@ -354,24 +364,24 @@ static int ssl_verify_dbname(SBUF2 *sb, const char *dbname, int nid)
     return dbname_wildcard_match(dbname, dbname_in_cert);
 }
 
-static int ssl_verify(SBUF2 *sb, ssl_mode mode, const char *dbname, int nid)
+static int ssl_verify(sslio *io, ssl_mode mode, const char *dbname, int nid)
 {
     int rc = 0;
-    if (sb->ssl != NULL && mode >= SSL_VERIFY_CA) {
-        sb->cert = SSL_get_peer_certificate(sb->ssl);
-        if (sb->cert == NULL) {
-            ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+    if (io->ssl != NULL && mode >= SSL_VERIFY_CA) {
+        io->cert = SSL_get_peer_certificate(io->ssl);
+        if (io->cert == NULL) {
+            ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                          "Could not get peer certificate.");
             rc = EIO;
-        } else if (mode >= SSL_VERIFY_HOSTNAME && ssl_verify_ca(sb) != 0) {
+        } else if (mode >= SSL_VERIFY_HOSTNAME && ssl_verify_ca(io) != 0) {
             /* set rc to error out. */
             rc = EACCES;
-            ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+            ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                          "Certificate does not match host name.");
         } else if (mode >= SSL_VERIFY_DBNAME &&
-                   ssl_verify_dbname(sb, dbname, nid) != 0) {
+                   ssl_verify_dbname(io, dbname, nid) != 0) {
             rc = EACCES;
-            ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+            ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                          "Certificate does not match database name.");
         }
     }
@@ -410,218 +420,226 @@ static void my_apps_ssl_info_callback(const SSL *s, int where, int ret)
 }
 #endif
 
-static int sslio_accept_or_connect(SBUF2 *sb, SSL_CTX *ctx,
+static void sslio_clear_error(sslio *io)
+{
+    errno = 0;
+    ERR_clear_error();
+    io->protocolerr = 0;
+    io->closed_by_peer = 0;
+}
+
+static void sslio_handle_zero_return(sslio *io)
+{
+    /* Peer has done a clean shutdown. */
+    SSL_shutdown(io->ssl);
+    SSL_free(io->ssl);
+    io->ssl = NULL;
+    io->closed_by_peer = 1;
+    if (io->cert) {
+        X509_free(io->cert);
+        io->cert = NULL;
+    }
+}
+
+static void sslio_handle_common_errors(sslio *io, int rc)
+{
+    switch (rc) {
+    case SSL_ERROR_SYSCALL:
+        io->protocolerr = 0;
+        if (rc == 0) {
+            ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
+                    "Unexpected EOF observed.");
+            errno = ECONNRESET;
+        } else {
+            ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
+                    "IO error. errno %d.", errno);
+        }
+        break;
+    case SSL_ERROR_SSL:
+        errno = EIO;
+        io->protocolerr = 1;
+        ssl_sfliberrprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
+                "A failure in SSL library occured");
+        break;
+    default:
+        errno = EIO;
+        io->protocolerr = 1;
+        ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
+                "Failed to establish connection with peer. "
+                "SSL error = %d.",
+                rc);
+        break;
+    }
+}
+
+static int sslio_accept_or_connect(sslio **pio, SSL_CTX *ctx, int fd,
                                    int (*SSL_func)(SSL *), ssl_mode verify,
                                    const char *dbname, int nid,
                                    SSL_SESSION *sess, int close_on_verify_error)
 {
-    int rc, ioerr, fd, flags;
+    int rc, ioerr, flags;
+    *pio = NULL;
+
+    sslio *io = calloc(1, sizeof(sslio));
+    if (io == NULL)
+        return -1;
 
     /* If SSL does not exist, return an error. */
     if (ctx == NULL) {
-        ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+        ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                      "SSL context does not exist.");
-        return EPERM;
+        return -1;
     }
 
-    if (sb->ssl != NULL) {
-        ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+    if (io->ssl != NULL) {
+        ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                      "SSL connection has been established already.");
-        return EPERM;
+        return -1;
     }
 
     /* Create an SSL connection. */
-    sb->ssl = SSL_new(ctx);
-    if (sb->ssl == NULL) {
-        ssl_sfliberrprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+    io->ssl = SSL_new(ctx);
+    if (io->ssl == NULL) {
+        ssl_sfliberrprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                           "Failed to create SSL connection");
         rc = ERR_get_error();
         goto error;
     }
 
     /* Set fd. */
-    fd = sbuf2fileno(sb);
     if ((flags = fcntl(fd, F_GETFL, 0)) < 0 ||
         (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)) {
-        ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+        ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                      "fcntl: (%d) %s", errno, strerror(errno));
         rc = -1;
         goto error;
     }
-    rc = SSL_set_fd(sb->ssl, fd);
+    rc = SSL_set_fd(io->ssl, fd);
     if (rc != 1) {
-        ssl_sfliberrprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+        ssl_sfliberrprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                           "Failed to set fd");
         goto error;
     }
+    io->fd = fd;
 
 #ifdef SSL_DEBUG
-    SSL_set_info_callback(sb->ssl, my_apps_ssl_info_callback);
+    SSL_set_info_callback(io->ssl, my_apps_ssl_info_callback);
 #endif
 
     if (sess != NULL)
-        SSL_set_session(sb->ssl, sess);
+        SSL_set_session(io->ssl, sess);
 
     /* accept/connect SSL connection. */
 re_accept_or_connect:
-    ERR_clear_error();
-    rc = SSL_func(sb->ssl);
+    sslio_clear_error(io);
+    rc = SSL_func(io->ssl);
     if (rc != 1) {
         /* Handle SSL error code. */
-        ioerr = SSL_get_error(sb->ssl, rc);
+        ioerr = SSL_get_error(io->ssl, rc);
 
         switch (ioerr) {
         case SSL_ERROR_WANT_READ: /* Renegotiate */
-            rc = sslio_pollin(sb);
+            rc = sslio_pollin(io);
             if (rc > 0)
                 goto re_accept_or_connect;
-            sb->protocolerr = 0;
+            io->protocolerr = 0;
             break;
         case SSL_ERROR_WANT_WRITE: /* Renegotiate */
-            rc = sslio_pollout(sb);
+            rc = sslio_pollout(io);
             if (rc > 0)
                 goto re_accept_or_connect;
-            sb->protocolerr = 0;
-            break;
-        case SSL_ERROR_SYSCALL:
-            sb->protocolerr = 0;
-            if (rc == 0) {
-                ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                             "Unexpected EOF observed.");
-                errno = ECONNRESET;
-            } else {
-                ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                             "IO error. errno %d.", errno);
-            }
-            break;
-        case SSL_ERROR_SSL:
-            errno = EIO;
-            sb->protocolerr = 1;
-            ssl_sfliberrprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                              "A failure in SSL library occured");
+            io->protocolerr = 0;
             break;
         default:
-            errno = EIO;
-            sb->protocolerr = 1;
-            ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                         "Failed to establish connection with peer. "
-                         "SSL error = %d.",
-                         ioerr);
+            sslio_handle_common_errors(io, ioerr);
             break;
         }
-    } else if (ssl_verify(sb, verify, dbname, nid) != 0) {
-        sb->protocolerr = 1;
-        rc = EACCES;
+    } else if (ssl_verify(io, verify, dbname, nid) != 0) {
+        io->protocolerr = 1;
+        rc = -1;
     } else {
-        sb->protocolerr = 0;
+        io->protocolerr = 0;
     }
     /* Put blocking back. */
     if (fcntl(fd, F_SETFL, flags) < 0) {
-        ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
+        ssl_sfeprint(io->sslerr, sizeof(io->sslerr), my_ssl_eprintln,
                      "fcntl: (%d) %s", errno, strerror(errno));
-        return -1;
+        rc = -1;
+        goto error;
     }
     if (rc != 1 && close_on_verify_error) {
     error:
-        if (sb->ssl != NULL) {
-            SSL_shutdown(sb->ssl);
-            SSL_free(sb->ssl);
-            sb->ssl = NULL;
+        if (io->ssl != NULL) {
+            SSL_shutdown(io->ssl);
+            SSL_free(io->ssl);
+            io->ssl = NULL;
         }
-        if (sb->cert) {
-            X509_free(sb->cert);
-            sb->cert = NULL;
+        if (io->cert) {
+            X509_free(io->cert);
+            io->cert = NULL;
         }
     }
 
+    *pio = io;
     return rc;
 }
 
-int SBUF2_FUNC(sslio_accept)(SBUF2 *sb, SSL_CTX *ctx, ssl_mode mode,
+int SBUF2_FUNC(sslio_accept)(sslio **pio, SSL_CTX *ctx, int fd, ssl_mode mode,
                              const char *dbname, int nid,
                              int close_on_verify_error)
 {
-    return sslio_accept_or_connect(sb, ctx, SSL_accept, mode, dbname, nid, NULL,
+    return sslio_accept_or_connect(pio, ctx, fd, SSL_accept, mode, dbname, nid, NULL,
                                    close_on_verify_error);
 }
 
 #if SBUF2_SERVER
-int SBUF2_FUNC(sslio_connect)(SBUF2 *sb, SSL_CTX *ctx, ssl_mode mode,
+int SBUF2_FUNC(sslio_connect)(sslio **pio, SSL_CTX *ctx, int fd, ssl_mode mode,
                               const char *dbname, int nid,
                               int close_on_verify_error)
 {
-    return sslio_accept_or_connect(sb, ctx, SSL_connect, mode, dbname, nid,
+    return sslio_accept_or_connect(pio, ctx, fd, SSL_connect, mode, dbname, nid,
                                    NULL, close_on_verify_error);
 }
 #else
-int SBUF2_FUNC(sslio_connect)(SBUF2 *sb, SSL_CTX *ctx, ssl_mode mode,
+int SBUF2_FUNC(sslio_connect)(sslio **pio, SSL_CTX *ctx, int fd, ssl_mode mode,
                               const char *dbname, int nid, SSL_SESSION *sess)
 {
-    return sslio_accept_or_connect(sb, ctx, SSL_connect, mode, dbname, nid,
+    return sslio_accept_or_connect(pio, ctx, fd, SSL_connect, mode, dbname, nid,
                                    sess, 1);
 }
 #endif
 
-int SBUF2_FUNC(sslio_read)(SBUF2 *sb, char *cc, int len)
+int SBUF2_FUNC(sslio_read)(sslio *io, char *cc, int len)
 {
     int n, ioerr, wantread;
 
     wantread = 1;
 
 reread:
-    ERR_clear_error();
-    n = wantread ? sslio_pollin(sb) : sslio_pollout(sb);
+    sslio_clear_error(io);
+    n = wantread ? sslio_pollin(io) : sslio_pollout(io);
     if (n <= 0)
         return n;
 
-    n = SSL_read(sb->ssl, cc, len);
+    n = SSL_read(io->ssl, cc, len);
     if (n <= 0) {
-        ioerr = SSL_get_error(sb->ssl, n);
+        ioerr = SSL_get_error(io->ssl, n);
         switch (ioerr) {
         case SSL_ERROR_WANT_READ:
-            sb->protocolerr = 0;
+            io->protocolerr = 0;
             errno = EAGAIN;
             wantread = 1;
             goto reread;
         case SSL_ERROR_WANT_WRITE:
-            sb->protocolerr = 0;
+            io->protocolerr = 0;
             errno = EAGAIN;
             wantread = 0;
             goto reread;
         case SSL_ERROR_ZERO_RETURN:
-            /* Peer has done a clean shutdown. */
-            SSL_shutdown(sb->ssl);
-            SSL_free(sb->ssl);
-            sb->ssl = NULL;
-            if (sb->cert) {
-                X509_free(sb->cert);
-                sb->cert = NULL;
-            }
-            break;
-        case SSL_ERROR_SYSCALL:
-            sb->protocolerr = 0;
-            if (n == 0) {
-                ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                             "Unexpected EOF observed.");
-                errno = ECONNRESET;
-            } else {
-                ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                             "IO error. errno %d.", errno);
-            }
-            break;
-        case SSL_ERROR_SSL:
-            errno = EIO;
-            sb->protocolerr = 1;
-            ssl_sfliberrprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                              "A failure in SSL library occured");
+            sslio_handle_zero_return(io);
             break;
         default:
-            errno = EIO;
-            sb->protocolerr = 1;
-            ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                         "Failed to establish connection with peer. "
-                         "SSL error = %d.",
-                         ioerr);
+            sslio_handle_common_errors(io, ioerr);
             break;
         }
     }
@@ -629,65 +647,64 @@ reread:
     return n;
 }
 
-int SBUF2_FUNC(sslio_write)(SBUF2 *sb, const char *cc, int len)
+int SBUF2_FUNC(sslio_read_no_retry)(sslio *io, char *cc, int len)
+{
+    int n;
+    sslio_clear_error(io);
+    n = SSL_read(io->ssl, cc, len);
+    if (n <= 0) {
+        int ioerr = SSL_get_error(io->ssl, n);
+        switch (ioerr) {
+        case SSL_ERROR_WANT_READ:
+            io->protocolerr = 0;
+            errno = EAGAIN;
+            break;
+        case SSL_ERROR_WANT_WRITE:
+            io->protocolerr = 0;
+            errno = EAGAIN;
+            break;
+        case SSL_ERROR_ZERO_RETURN:
+            sslio_handle_zero_return(io);
+            break;
+        default:
+            sslio_handle_common_errors(io, ioerr);
+            break;
+        }
+    }
+    return n;
+}
+
+int SBUF2_FUNC(sslio_write)(sslio *io, const char *cc, int len)
 {
     int n, ioerr, wantwrite;
 
     wantwrite = 1;
 
 rewrite:
-    ERR_clear_error();
-    n = wantwrite ? sslio_pollout(sb) : sslio_pollin(sb);
+    sslio_clear_error(io);
+    n = wantwrite ? sslio_pollout(io) : sslio_pollin(io);
     if (n <= 0)
         return n;
 
-    n = SSL_write(sb->ssl, cc, len);
+    n = SSL_write(io->ssl, cc, len);
     if (n <= 0) {
-        ioerr = SSL_get_error(sb->ssl, n);
+        ioerr = SSL_get_error(io->ssl, n);
         switch (ioerr) {
         case SSL_ERROR_WANT_READ:
-            sb->protocolerr = 0;
+            io->protocolerr = 0;
             errno = EAGAIN;
             wantwrite = 0;
             goto rewrite;
         case SSL_ERROR_WANT_WRITE:
-            sb->protocolerr = 0;
+            io->protocolerr = 0;
             errno = EAGAIN;
             wantwrite = 1;
             goto rewrite;
         case SSL_ERROR_ZERO_RETURN:
-            /* Peer has done a clean shutdown. */
-            SSL_shutdown(sb->ssl);
-            SSL_free(sb->ssl);
-            sb->ssl = NULL;
-            if (sb->cert) {
-                X509_free(sb->cert);
-                sb->cert = NULL;
-            }
-            break;
-        case SSL_ERROR_SYSCALL:
-            sb->protocolerr = 0;
-            if (n == 0) {
-                ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                             "Unexpected EOF observed.");
-                errno = ECONNRESET;
-            } else {
-                ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                             "IO error. errno %d.", errno);
-            }
-        case SSL_ERROR_SSL:
-            errno = EIO;
-            sb->protocolerr = 1;
-            ssl_sfliberrprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                              "A failure in SSL library occured");
+            sslio_handle_zero_return(io);
             break;
         default:
-            errno = EIO;
-            sb->protocolerr = 1;
-            ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
-                         "Failed to establish connection with peer. "
-                         "SSL error = %d.",
-                         ioerr);
+            sslio_handle_common_errors(io, ioerr);
             break;
         }
     }
@@ -695,30 +712,87 @@ rewrite:
     return n;
 }
 
-int SBUF2_FUNC(sslio_close)(SBUF2 *sb, int reuse)
+int SBUF2_FUNC(sslio_write_no_retry)(sslio *io, const char *cc, int len)
+{
+    int n;
+    sslio_clear_error(io);
+    n = SSL_write(io->ssl, cc, len);
+    if (n <= 0) {
+        int ioerr = SSL_get_error(io->ssl, n);
+        switch (ioerr) {
+        case SSL_ERROR_WANT_READ:
+            io->protocolerr = 0;
+            errno = EAGAIN;
+            break;
+        case SSL_ERROR_WANT_WRITE:
+            io->protocolerr = 0;
+            errno = EAGAIN;
+            break;
+        case SSL_ERROR_ZERO_RETURN:
+            sslio_handle_zero_return(io);
+            break;
+        default:
+            sslio_handle_common_errors(io, ioerr);
+            break;
+        }
+    }
+    return n;
+}
+
+int SBUF2_FUNC(sslio_close)(sslio *io, int reuse)
 {
     /* Upon success, the 1st call to SSL_shutdown
        returns 0, and the 2nd returns 1. */
     int rc = 0;
-    if (sb->ssl == NULL)
+
+    if (io == NULL)
         return 0;
 
+    if (io->ssl == NULL) {
+        free(io);
+        return 0;
+    }
+
     if (!reuse)
-        SSL_set_shutdown(sb->ssl, SSL_SENT_SHUTDOWN);
+        SSL_set_shutdown(io->ssl, SSL_SENT_SHUTDOWN);
     else {
-        rc = SSL_shutdown(sb->ssl);
+        rc = SSL_shutdown(io->ssl);
         if (rc == 0)
-            rc = SSL_shutdown(sb->ssl);
+            rc = SSL_shutdown(io->ssl);
         if (rc == 1)
             rc = 0;
     }
 
-    if (sb->cert) {
-        X509_free(sb->cert);
-        sb->cert = NULL;
+    if (io->cert) {
+        X509_free(io->cert);
+        io->cert = NULL;
     }
 
-    SSL_free(sb->ssl);
-    sb->ssl = NULL;
+    SSL_free(io->ssl);
+    free(io);
     return rc;
+}
+
+int SBUF2_FUNC(sslio_is_closed_by_peer)(sslio *io)
+{
+    return (io && io->closed_by_peer);
+}
+
+int SBUF2_FUNC(sslio_get_error)(sslio *io, char *err, size_t n)
+{
+    if (err != NULL)
+        strncpy(err, io->sslerr,
+                n > sizeof(io->sslerr) ? sizeof(io->sslerr) : n);
+    return io->protocolerr;
+}
+
+void SBUF2_FUNC(sslio_set_timeout)(sslio *io, int readtimeout, int writetimeout)
+{
+    io->readtimeout = readtimeout;
+    io->writetimeout = writetimeout;
+}
+
+int SBUF2_FUNC(sslio_pending)(sslio *io)
+{
+    return (io && io->ssl != NULL) ? SSL_pending(io->ssl) : 0;
 }
