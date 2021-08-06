@@ -500,29 +500,31 @@ static void process_newsql_payload(struct newsql_appdata_evbuffer *appdata, CDB2
 }
 
 #if WITH_SSL
-static int ssl_evbuffer_read(struct newsql_appdata_evbuffer *appdata, size_t sz)
+static int ssl_evbuffer_read(struct newsql_appdata_evbuffer *appdata)
 {
     if (!sslio_has_ssl(appdata->ssl)) {
         if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0)
             goto error_out;
     } else {
+        static size_t buffersz = 4096;
         struct iovec v[1];
-        int nremain = sz - evbuffer_get_length(appdata->rd_buf);
-        if (evbuffer_reserve_space(appdata->rd_buf, nremain, v, 1) <= 0)
-            goto error_out;
-        int nr = sslio_read_no_retry(appdata->ssl, v[0].iov_base, nremain);
-        if (nr <= 0) {
-            char err[256];
-            int sslerr = sslio_get_error(appdata->ssl, err, sizeof(err));
-            puts(err);
-            if (sslerr) /* protocol error. bail out. */
+        int nr;
+        do {
+            if (evbuffer_reserve_space(appdata->rd_buf, buffersz, v, 1) <= 0)
                 goto error_out;
-        } else {
-            printf("nr %d\n", nr);
-            v[0].iov_len = nr;
-            if (evbuffer_commit_space(appdata->rd_buf, v, 1) < 0)
-                goto error_out;
-        }
+            nr = sslio_read_no_retry(appdata->ssl, v[0].iov_base, buffersz);
+            if (nr <= 0) {
+                char err[256];
+                int sslerr = sslio_get_error(appdata->ssl, err, sizeof(err));
+                puts(err);
+                if (sslerr) /* protocol error. bail out. */
+                    goto error_out;
+            } else {
+                v[0].iov_len = nr;
+                if (evbuffer_commit_space(appdata->rd_buf, v, 1) < 0)
+                    goto error_out;
+            }
+        } while (nr == buffersz);
     }
     return 0;
 error_out:
@@ -536,7 +538,7 @@ static void rd_payload(int fd, short what, void *arg)
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
 #if WITH_SSL
-        if (ssl_evbuffer_read(appdata, appdata->hdr.length) != 0)
+        if (ssl_evbuffer_read(appdata) != 0)
             return;
 #else
         if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0) {
@@ -568,7 +570,7 @@ static void rd_hdr(int fd, short what, void *arg)
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
 #if WITH_SSL
-        if (ssl_evbuffer_read(appdata, sizeof(struct newsqlheader)) != 0)
+        if (ssl_evbuffer_read(appdata) != 0)
             return;
 #else
         if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0) {
