@@ -36,14 +36,6 @@
 
 extern int gbl_sqlwrtimeoutms;
 
-#if WITH_SSL
-extern ssl_mode gbl_client_ssl_mode;
-extern SSL_CTX *gbl_ssl_ctx;
-extern char gbl_dbname[MAX_DBNAME_LENGTH];
-extern int gbl_nid_dbname;
-void ssl_set_clnt_user(struct sqlclntstate *clnt);
-#endif
-
 int gbl_protobuf_prealloc_buffer_size = 8192;
 
 struct NewsqlProtobufCAllocator {
@@ -262,7 +254,7 @@ static int newsql_get_x509_attr_sbuf(struct sqlclntstate *clnt, int nid, void *o
     struct newsql_appdata_sbuf *appdata = clnt->appdata;
     return sbuf2x509attr(appdata->sb, nid, out, outsz);
 #   else
-    return -1;
+    return 0;
 #   endif
 }
 
