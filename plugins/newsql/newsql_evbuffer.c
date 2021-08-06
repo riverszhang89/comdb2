@@ -35,17 +35,7 @@
 #include <newsql.h>
 
 #if WITH_SSL
-#include <ssl_support.h>
-#include <ssl_io.h>
-#ifdef my_ssl_println
-#undef my_ssl_println
-#endif
-#ifdef my_ssl_eprintln
-#undef my_ssl_eprintln
-#endif
-#define my_ssl_println(fmt, ...) ssl_println("LIBEVENT-IO", fmt, ##__VA_ARGS__)
-#define my_ssl_eprintln(fmt, ...)                                              \
-    ssl_eprintln("LIBEVENT-IO", "%s: " fmt, __func__, ##__VA_ARGS__)
+#include <ssl_io_evbuffer.h>
 #endif
 
 static void rd_hdr(int, short, void *);
@@ -93,6 +83,7 @@ static void free_newsql_appdata_evbuffer(int dummy_fd, short what, void *arg)
         evbuffer_free(appdata->rd_buf);
         appdata->rd_buf = NULL;
     }
+    sslio_close(appdata->ssl, 0);
     sqlwriter_free(appdata->writer);
     shutdown(appdata->fd, SHUT_RDWR);
     close(appdata->fd);
@@ -370,6 +361,8 @@ static void process_get_effects(struct newsql_appdata_evbuffer *appdata, CDB2QUE
     cdb2__query__free_unpacked(query, NULL);
 }
 
+static int newsql_write_hdr_evbuffer(struct sqlclntstate *clnt, int h, int state);
+
 static void process_query(struct newsql_appdata_evbuffer *appdata, CDB2QUERY *query)
 {
     int do_read = 0;
@@ -377,6 +370,28 @@ static void process_query(struct newsql_appdata_evbuffer *appdata, CDB2QUERY *qu
     appdata->query = query;
     appdata->sqlquery = query->sqlquery;
     struct sqlclntstate *clnt = &appdata->clnt;
+
+#if WITH_SSL
+    if (gbl_client_ssl_mode >= SSL_REQUIRE && !sslio_has_ssl(appdata->ssl)) {
+        int client_supports_ssl = 0;
+        for (int ii = 0; ii < query->sqlquery->n_features; ++ii) {
+            if (CDB2_CLIENT_FEATURES__SSL == query->sqlquery->features[ii]) {
+                client_supports_ssl = 1;
+                break;
+            }
+        }
+
+        if (client_supports_ssl) {
+            newsql_write_hdr_evbuffer(clnt, RESPONSE_HEADER__SQL_RESPONSE_SSL, 0);
+            do_read = 1;
+        } else {
+            write_response(clnt, RESPONSE_ERROR, "The database requires SSL connections.", CDB2ERR_CONNECT_ERROR);
+            do_read = 0;
+        }
+        goto out;
+    }
+#endif
+
     if (!appdata->active) {
         if (add_appsock_connection_evbuffer(clnt) != 0) {
             add_lru_evbuffer(clnt);
@@ -428,6 +443,7 @@ static void write_ssl_ability(int fd, short what, void *arg)
     check_appsock_timer_thd();
     struct newsql_appdata_evbuffer *appdata = arg;
     struct evbuffer *wrbuf = sql_wrbuf(appdata->writer);
+    /* ssl ability byte is always plaintext. */
     if (evbuffer_write(wrbuf, fd) <= 0) {
         newsql_cleanup(-1, 0, appdata);
         return;
@@ -439,7 +455,6 @@ static void write_ssl_ability(int fd, short what, void *arg)
 #if WITH_SSL
     int sslrc = sslio_accept(&appdata->ssl, gbl_ssl_ctx, fd, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0);
     if (sslrc == 1) {
-        /* Success! Extract the user from the certificate. */
         ssl_set_clnt_user(&appdata->clnt);
         event_once(appsock_rd_base, rd_hdr, appdata);
     } else {
@@ -454,9 +469,10 @@ static void write_ssl_ability(int fd, short what, void *arg)
             sslio_close(appdata->ssl, 1);
             appdata->ssl = NULL;
         }
+        /* Need to write out error message so do not clean up just yet. */
     }
 #else
-    /* Do not clean up yet. Client may downgrade to non-SSL. */
+    /* Client may downgrade to non-SSL so do not clean up just yet. */
 #endif
 }
 
@@ -478,6 +494,8 @@ static void process_sslconn(struct newsql_appdata_evbuffer *appdata)
 
 static void process_newsql_payload(struct newsql_appdata_evbuffer *appdata, CDB2QUERY *query)
 {
+
+
     switch (appdata->hdr.type) {
     case CDB2_REQUEST_TYPE__CDB2QUERY:
         process_cdb2query(appdata, query);
@@ -499,47 +517,15 @@ static void process_newsql_payload(struct newsql_appdata_evbuffer *appdata, CDB2
     }
 }
 
-#if WITH_SSL
-static int ssl_evbuffer_read(struct newsql_appdata_evbuffer *appdata)
-{
-    if (!sslio_has_ssl(appdata->ssl)) {
-        if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0)
-            goto error_out;
-    } else {
-        static size_t buffersz = 4096;
-        struct iovec v[1];
-        int nr;
-        do {
-            if (evbuffer_reserve_space(appdata->rd_buf, buffersz, v, 1) <= 0)
-                goto error_out;
-            nr = sslio_read_no_retry(appdata->ssl, v[0].iov_base, buffersz);
-            if (nr <= 0) {
-                char err[256];
-                int sslerr = sslio_get_error(appdata->ssl, err, sizeof(err));
-                puts(err);
-                if (sslerr) /* protocol error. bail out. */
-                    goto error_out;
-            } else {
-                v[0].iov_len = nr;
-                if (evbuffer_commit_space(appdata->rd_buf, v, 1) < 0)
-                    goto error_out;
-            }
-        } while (nr == buffersz);
-    }
-    return 0;
-error_out:
-    event_once(appsock_timer_base, newsql_cleanup, appdata);
-    return -1;
-}
-#endif
-
 static void rd_payload(int fd, short what, void *arg)
 {
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
 #if WITH_SSL
-        if (ssl_evbuffer_read(appdata) != 0)
+        if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1) <= 0) {
+            event_once(appsock_timer_base, newsql_cleanup, appdata);
             return;
+        }
 #else
         if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0) {
             event_once(appsock_timer_base, newsql_cleanup, appdata);
@@ -570,8 +556,10 @@ static void rd_hdr(int fd, short what, void *arg)
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
 #if WITH_SSL
-        if (ssl_evbuffer_read(appdata) != 0)
+        if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1) <= 0) {
+            event_once(appsock_timer_base, newsql_cleanup, appdata);
             return;
+        }
 #else
         if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0) {
             event_once(appsock_timer_base, newsql_cleanup, appdata);
@@ -771,6 +759,7 @@ static void newsql_setup_clnt_evbuffer(struct appsock_handler_arg *arg, int admi
         .pack = newsql_pack,
         .pack_hb = newsql_pack_hb,
         .hb_sz = sizeof(struct newsqlheader),
+        .pssl = &appdata->ssl
     };
     appdata->writer = sqlwriter_new(&sqlwriter_arg);
     newsql_read_hdr(-1, 0, appdata);

@@ -59,6 +59,9 @@ struct sqlwriter {
     sql_pack_fn *pack;
     sql_pack_fn *pack_hb;
     size_t hb_sz;
+#if WITH_SSL
+    sslio **pssl;
+#endif
     unsigned bad : 1;
     unsigned done : 1;
     unsigned flush : 1;
@@ -167,7 +170,12 @@ static void sql_flush_cb(int fd, short what, void *arg)
     }
     const int min = (writer->done || writer->flush) ? 0 : resume_buf;
     while (1) {
-        if ((n = evbuffer_write(writer->wr_buf, fd)) <= 0) {
+#if WITH_SSL
+        n = evbuffer_write_ssl(writer->wr_buf, *writer->pssl, fd);
+#else
+        n = evbuffer_write(writer->wr_buf, fd)
+#endif
+        if (n <= 0) {
             break;
         }
         writer->sent_at = time(NULL);
@@ -416,6 +424,9 @@ struct sqlwriter *sqlwriter_new(struct sqlwriter_arg *arg)
     writer->pack = arg->pack;
     writer->pack_hb = arg->pack_hb;
     writer->hb_sz = arg->hb_sz;
+#if WITH_SSL
+    writer->pssl = arg->pssl;
+#endif
     writer->wr_continue = 1;
     writer->wr_buf = evbuffer_new();
 
