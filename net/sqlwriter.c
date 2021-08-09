@@ -303,7 +303,11 @@ static void sql_trickle_int(struct sqlwriter *writer, int fd)
             return;
         }
     }
+#if WITH_SSL
+    const int n = evbuffer_write_ssl(writer->wr_buf, *writer->pssl, fd);
+#else
     const int n = evbuffer_write(writer->wr_buf, fd);
+#endif
     if (n <= 0) {
         writer->bad = 1;
         logmsg(LOGMSG_ERROR, "%s write failed fd:%d rc:%d err:%s\n", __func__,
