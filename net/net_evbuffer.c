@@ -840,6 +840,9 @@ struct accept_info {
     struct sockaddr_in ss;
     connect_message_type c;
     netinfo_type *netinfo_ptr;
+#if WITH_SSL
+    sslio *ssl;
+#endif
 };
 
 static struct accept_info *accept_info_new(netinfo_type *netinfo_ptr,
@@ -1628,6 +1631,7 @@ static void readcb(int fd, short what, void *data)
         hputs("evbuffer_reserve_space failed\n");
         DISABLE_AND_RECONNECT();
     }
+    // RIVERSTODO
     ssize_t n = readv(e->fd, v, nv);
     if (n <= 0) {
         DISABLE_AND_RECONNECT();
@@ -2117,10 +2121,33 @@ static int validate_host(struct accept_info *a)
                a->c.my_nodenum, host);
         return -1;
     }
+
+#if WITH_SSL
     if (a->c.flags & CONNECT_MSG_SSL) {
-        abort();
+        if (gbl_rep_ssl_mode < SSL_ALLOW) {
+            logmsg(LOGMSG_ERROR, "Misconfiguration: Peer requested SSL, " "but I don't have an SSL key pair.\n");
+            return -1;
+        }
+
+        int sslrc = sslio_accept(&a, gbl_ssl_ctx, fd, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0);
+        if (sslrc != 1) {
+            char err[256];
+            sslio_get_error(a->ssl, err, sizeof(err));
+            logmsg(LOGMSG_ERROR, "%s\n", err);
+            sslio_close(a->ssl, 1);
+            a->ssl = NULL;
+        }
+    } else if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
+        logmsg(LOGMSG_ERROR, "Replicant SSL connections are required.\n");
         return -1;
-    } else {
+    }
+#else
+    if (connect_message.flags & CONNECT_MSG_SSL) {
+        logmsg(LOGMSG_ERROR, "Misconfiguration: Peer requested SSL, but I am not built with SSL.\n");
+        return -1;
+    }
+#endif
+    else {
         return accept_host(a);
     }
 }

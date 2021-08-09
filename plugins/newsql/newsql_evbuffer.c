@@ -226,7 +226,7 @@ static void pong(int fd, short what, void *arg)
         event_base_loopbreak(wrbase);
         return;
     }
-    if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0) {
+    if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1) <= 0) {
         appdata->ping_status = -2;
         event_base_loopbreak(wrbase);
         return;
@@ -265,6 +265,7 @@ static void write_dbinfo(int fd, short what, void *arg)
     check_appsock_timer_thd();
     struct newsql_appdata_evbuffer *appdata = arg;
     struct evbuffer *wrbuf = sql_wrbuf(appdata->writer);
+    /* dbinfo is plaintext */
     if (evbuffer_write(wrbuf, appdata->fd) <= 0) {
         newsql_cleanup(-1, 0, appdata);
         return;
@@ -443,7 +444,7 @@ static void write_ssl_ability(int fd, short what, void *arg)
     check_appsock_timer_thd();
     struct newsql_appdata_evbuffer *appdata = arg;
     struct evbuffer *wrbuf = sql_wrbuf(appdata->writer);
-    /* ssl ability byte is always plaintext. */
+    /* ssl ability byte is plaintext. */
     if (evbuffer_write(wrbuf, fd) <= 0) {
         newsql_cleanup(-1, 0, appdata);
         return;
@@ -521,17 +522,10 @@ static void rd_payload(int fd, short what, void *arg)
 {
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
-#if WITH_SSL
         if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1) <= 0) {
             event_once(appsock_timer_base, newsql_cleanup, appdata);
             return;
         }
-#else
-        if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0) {
-            event_once(appsock_timer_base, newsql_cleanup, appdata);
-            return;
-        }
-#endif
     }
     if (evbuffer_get_length(appdata->rd_buf) < appdata->hdr.length) {
         event_add(appdata->rd_payload_ev, NULL);
@@ -555,17 +549,10 @@ static void rd_hdr(int fd, short what, void *arg)
     check_appsock_rd_thd();
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
-#if WITH_SSL
         if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1) <= 0) {
             event_once(appsock_timer_base, newsql_cleanup, appdata);
             return;
         }
-#else
-        if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0) {
-            event_once(appsock_timer_base, newsql_cleanup, appdata);
-            return;
-        }
-#endif
     }
     size_t len = evbuffer_get_length(appdata->rd_buf);
     if (len < sizeof(struct newsqlheader)) {
@@ -597,6 +584,9 @@ static int newsql_close_evbuffer(struct sqlclntstate *clnt)
 struct debug_cmd {
     struct event_base *base;
     struct evbuffer *buf;
+#if WITH_SSL
+    sslio *ssl;
+#endif
     int need;
 };
 
@@ -604,7 +594,7 @@ static void debug_cmd(int fd, short what, void *arg)
 {
     struct debug_cmd *cmd = arg;
     if ((what & EV_READ) == 0 ||
-        evbuffer_read(cmd->buf, fd, cmd->need) <= 0 ||
+        evbuffer_read_ssl(cmd->buf, cmd->ssl, fd, cmd->need) <= 0 ||
         evbuffer_get_length(cmd->buf) == cmd->need
     ){
         event_base_loopbreak(cmd->base);
@@ -620,6 +610,7 @@ static int newsql_read_evbuffer(struct sqlclntstate *clnt, void *b, int l, int n
     cmd.buf = evbuffer_new();
     cmd.need = l * n;
     cmd.base = wrbase;
+    cmd.ssl = appdata->ssl;
     struct event *ev = event_new(wrbase, appdata->fd, EV_READ | EV_PERSIST, debug_cmd, &cmd);
     event_add(ev, NULL);
     event_base_dispatch(wrbase);

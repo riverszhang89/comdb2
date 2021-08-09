@@ -124,7 +124,7 @@ ssl_downgrade:
 
     return ntotal;
 }
-
 #else
-int not_built_with_ssl = 1;
+/* Some compilers do not like an empty compilation unit. Add a line to please them. */
+int this_comdb2_is_not_built_with_ssl = 1;
 #endif

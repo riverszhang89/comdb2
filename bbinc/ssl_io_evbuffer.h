@@ -1,5 +1,5 @@
 /*
-   Copyright 2016 Bloomberg Finance L.P.
+   Copyright 2021 Bloomberg Finance L.P.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -22,12 +22,10 @@
 #include <event2/event.h>
 
 #include "ssl_io.h"
-
 int evbuffer_read_ssl(struct evbuffer *, sslio *, evutil_socket_t, int howmuch);
 int evbuffer_write_ssl(struct evbuffer *, sslio *, evutil_socket_t);
-
 #else
-extern int not_built_with_ssl;
+#define evbuffer_read_ssl(buf, unused, fd, len) evbuffer(buf, fd, len)
+#define evbuffer_write_ssl(buf, unused, fd) evbuffer_write(buf, fd)
 #endif
-
 #endif

@@ -60,6 +60,7 @@ struct sqlwriter {
     sql_pack_fn *pack_hb;
     size_t hb_sz;
 #if WITH_SSL
+    /* Points back to appdata's ssl. */
     sslio **pssl;
 #endif
     unsigned bad : 1;
@@ -170,11 +171,7 @@ static void sql_flush_cb(int fd, short what, void *arg)
     }
     const int min = (writer->done || writer->flush) ? 0 : resume_buf;
     while (1) {
-#if WITH_SSL
         n = evbuffer_write_ssl(writer->wr_buf, *writer->pssl, fd);
-#else
-        n = evbuffer_write(writer->wr_buf, fd)
-#endif
         if (n <= 0) {
             break;
         }
@@ -303,11 +300,7 @@ static void sql_trickle_int(struct sqlwriter *writer, int fd)
             return;
         }
     }
-#if WITH_SSL
     const int n = evbuffer_write_ssl(writer->wr_buf, *writer->pssl, fd);
-#else
-    const int n = evbuffer_write(writer->wr_buf, fd);
-#endif
     if (n <= 0) {
         writer->bad = 1;
         logmsg(LOGMSG_ERROR, "%s write failed fd:%d rc:%d err:%s\n", __func__,
