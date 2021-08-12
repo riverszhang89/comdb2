@@ -22,10 +22,10 @@
 #include <event2/event.h>
 
 #include "ssl_io.h"
-int evbuffer_read_ssl(struct evbuffer *, sslio *, evutil_socket_t, int howmuch);
+int evbuffer_read_ssl(struct evbuffer *, sslio *, evutil_socket_t, int howmuch, int chunksz);
 int evbuffer_write_ssl(struct evbuffer *, sslio *, evutil_socket_t);
 #else
-#define evbuffer_read_ssl(buf, unused, fd, len) evbuffer(buf, fd, len)
+#define evbuffer_read_ssl(buf, unused, fd, len, unused) evbuffer(buf, fd, len)
 #define evbuffer_write_ssl(buf, unused, fd) evbuffer_write(buf, fd)
 #endif
 #endif

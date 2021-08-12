@@ -36,6 +36,8 @@
 
 #if WITH_SSL
 #include <ssl_io_evbuffer.h>
+#include <ssl_bend.h>
+extern char gbl_dbname[MAX_DBNAME_LENGTH];
 #endif
 
 static void rd_hdr(int, short, void *);
@@ -226,7 +228,7 @@ static void pong(int fd, short what, void *arg)
         event_base_loopbreak(wrbase);
         return;
     }
-    if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1) <= 0) {
+    if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1, 0) <= 0) {
         appdata->ping_status = -2;
         event_base_loopbreak(wrbase);
         return;
@@ -522,7 +524,7 @@ static void rd_payload(int fd, short what, void *arg)
 {
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
-        if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1) <= 0) {
+        if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1, 0) <= 0) {
             event_once(appsock_timer_base, newsql_cleanup, appdata);
             return;
         }
@@ -549,7 +551,7 @@ static void rd_hdr(int fd, short what, void *arg)
     check_appsock_rd_thd();
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
-        if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1) <= 0) {
+        if (evbuffer_read_ssl(appdata->rd_buf, appdata->ssl, appdata->fd, -1, 0) <= 0) {
             event_once(appsock_timer_base, newsql_cleanup, appdata);
             return;
         }
@@ -594,7 +596,7 @@ static void debug_cmd(int fd, short what, void *arg)
 {
     struct debug_cmd *cmd = arg;
     if ((what & EV_READ) == 0 ||
-        evbuffer_read_ssl(cmd->buf, cmd->ssl, fd, cmd->need) <= 0 ||
+        evbuffer_read_ssl(cmd->buf, cmd->ssl, fd, cmd->need, 0) <= 0 ||
         evbuffer_get_length(cmd->buf) == cmd->need
     ){
         event_base_loopbreak(cmd->base);

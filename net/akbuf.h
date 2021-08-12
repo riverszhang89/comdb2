@@ -24,7 +24,12 @@ struct akbuf;
 size_t akbuf_add(struct akbuf *, const void *, size_t);
 size_t akbuf_add_buffer(struct akbuf *, struct evbuffer *);
 void akbuf_disable(struct akbuf *);
+#if WITH_SSL
+#include <ssl_io.h>
+void akbuf_enable(struct akbuf *, int, sslio **);
+#else
 void akbuf_enable(struct akbuf *, int);
+#endif
 void akbuf_free(struct akbuf *);
 size_t akbuf_get_length(struct akbuf *);
 struct akbuf *akbuf_new(struct event_base *, void *);

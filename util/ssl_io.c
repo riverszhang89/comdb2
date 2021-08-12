@@ -27,7 +27,7 @@
 #include <openssl/asn1.h>
 #include <openssl/x509v3.h>
 
-typedef struct sslio {
+struct sslio {
     SSL *ssl;
     int fd;
     X509 *cert;
@@ -35,7 +35,7 @@ typedef struct sslio {
     int closed_by_peer;
     int readtimeout, writetimeout; /* sbuf2 precious */
     char sslerr[120];
-} sslio;
+};
 
 SSL *SBUF2_FUNC(sslio_get_ssl)(sslio *io)
 {
@@ -477,6 +477,7 @@ static int sslio_accept_or_connect(sslio **pio, SSL_CTX *ctx, int fd,
                                    SSL_SESSION *sess, int close_on_verify_error)
 {
     int rc, ioerr, flags;
+    *pio = NULL;
 
     sslio *io = calloc(1, sizeof(sslio));
     if (io == NULL)

@@ -30,26 +30,26 @@
 #define my_ssl_eprintln(fmt, ...)                                              \
     ssl_eprintln("LIBEVENT-IO", "%s: " fmt, __func__, ##__VA_ARGS__)
 
-int evbuffer_read_ssl(struct evbuffer *buf, sslio *ssl, evutil_socket_t fd, int howmuch)
+int evbuffer_read_ssl(struct evbuffer *buf, sslio *ssl, evutil_socket_t fd, int howmuch, int chunksz)
 {
     int nr;
-    size_t chunksz = 4096;
     size_t ntotal = 0;
     struct iovec v[1];
 ssl_downgrade:
     if (!sslio_has_ssl(ssl)) {
         ntotal += evbuffer_read(buf, fd, howmuch);
     } else {
+        if (chunksz <= 0)
+            chunksz = 4096;
+
         if (howmuch <= 0) {
-            /* Read as much as possible in 4K chunks. */
             howmuch = INT_MAX;
-        } else if (chunksz > howmuch) {
-            /* adjust chunk size if too large. not critical, but may help save
-               a bit memory down the line. */
-            chunksz = howmuch;
         }
 
         do {
+            if (howmuch - ntotal < chunksz)
+                chunksz = howmuch - ntotal;
+
             if (evbuffer_reserve_space(buf, chunksz, v, 1) <= 0) {
                 ntotal = -1;
                 break;

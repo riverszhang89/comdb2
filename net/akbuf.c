@@ -23,6 +23,10 @@
 #include <logmsg.h>
 #include <timer_util.h>
 
+#if WITH_SSL
+#include <ssl_io_evbuffer.h>
+#endif
+
 /* This allows waiting for async call to finish */
 struct run_base_func_info {
     pthread_mutex_t lock;
@@ -72,9 +76,16 @@ struct akbuf {
     event_callback_fn emptycb;
     void *arg;
     int fd;
+#if WITH_SSL
+    sslio **pssl;
+#endif
 };
 
+#if WITH_SSL
+static int akbuf_flush_evbuffer(struct evbuffer *buf, sslio *ssl, int fd, struct timeval *max)
+#else
 static int akbuf_flush_evbuffer(struct evbuffer *buf, int fd, struct timeval *max)
+#endif
 {
     int rc;
     int want = 0;
@@ -86,7 +97,7 @@ static int akbuf_flush_evbuffer(struct evbuffer *buf, int fd, struct timeval *ma
     }
     do {
         ++counter;
-        rc = evbuffer_write(buf, fd);
+        rc = evbuffer_write_ssl(buf, ssl, fd);
         if (rc > 0) total += rc;
         want = evbuffer_get_length(buf);
         if (want && max) {
@@ -125,7 +136,11 @@ static void akbuf_flushcb(int fd, short what, void *data)
     void *arg = a->arg;
     a->outstanding = evbuffer_get_length(buf);
     Pthread_mutex_unlock(&a->lk);
+#if WITH_SSL
+    int total = akbuf_flush_evbuffer(buf, *a->pssl, fd, a->have_max ? &a->max_time : NULL);
+#else
     int total = akbuf_flush_evbuffer(buf, fd, a->have_max ? &a->max_time : NULL);
+#endif
     Pthread_mutex_lock(&a->lk);
     if (total <= 0) {
         event_free(a->pending);
@@ -241,6 +256,20 @@ void akbuf_disable_on_base(struct akbuf *a)
     run_on_base(a->base, (run_on_base_func)akbuf_disable, a);
 }
 
+#if WITH_SSL
+void akbuf_enable(struct akbuf *a, int fd, sslio **pssl)
+{
+    Pthread_mutex_lock(&a->lk);
+    if (a->buf || a->pending || a->fd != -1) {
+        /* Should be cleaned up prior */
+        abort();
+    }
+    a->buf = evbuffer_new();
+    a->fd = fd;
+    a->pssl = pssl;
+    Pthread_mutex_unlock(&a->lk);
+}
+#else
 void akbuf_enable(struct akbuf *a, int fd)
 {
     Pthread_mutex_lock(&a->lk);
@@ -252,6 +281,7 @@ void akbuf_enable(struct akbuf *a, int fd)
     a->fd = fd;
     Pthread_mutex_unlock(&a->lk);
 }
+#endif
 
 size_t akbuf_add(struct akbuf *a, const void *b, size_t s)
 {

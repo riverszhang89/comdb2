@@ -86,12 +86,4 @@ void newsql_effects(CDB2SQLRESPONSE *, CDB2EFFECTS *, struct sqlclntstate *);
     appdata->write_hdr = newsql_write_hdr##_##name;                            \
     appdata->write_postponed = newsql_write_postponed##_##name;
 
-#if WITH_SSL
-extern ssl_mode gbl_client_ssl_mode;
-extern SSL_CTX *gbl_ssl_ctx;
-extern char gbl_dbname[MAX_DBNAME_LENGTH];
-extern int gbl_nid_dbname;
-void ssl_set_clnt_user(struct sqlclntstate *clnt);
-#endif
-
 #endif /* INCLUDED_NEWSQL_H */

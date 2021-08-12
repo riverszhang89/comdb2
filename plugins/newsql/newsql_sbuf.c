@@ -36,6 +36,11 @@
 
 extern int gbl_sqlwrtimeoutms;
 
+#if WITH_SSL
+#include <ssl_bend.h>
+extern char gbl_dbname[MAX_DBNAME_LENGTH];
+#endif
+
 int gbl_protobuf_prealloc_buffer_size = 8192;
 
 struct NewsqlProtobufCAllocator {
