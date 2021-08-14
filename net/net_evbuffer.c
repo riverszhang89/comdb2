@@ -78,10 +78,10 @@
 
 #define no_distress_logmsg(...) logmsg(hprintf_lvl, __VA_ARGS__)
 
-#define hprintf(a, ...) distress_logmsg(hprintf_format(a), __VA_ARGS__)
+#define hprintf(a, ...) distress_logmsg(hprintf_format(a), ##__VA_ARGS__)
 #define hputs(a) distress_logmsg(hprintf_format(a))
 
-#define hprintf_nd(a, ...) no_distress_logmsg(hprintf_format(a), __VA_ARGS__)
+#define hprintf_nd(a, ...) no_distress_logmsg(hprintf_format(a), ##__VA_ARGS__)
 #define hputs_nd(a) no_distress_logmsg(hprintf_format(a))
 
 int gbl_libevent = 1;
@@ -821,6 +821,9 @@ struct host_connected_info {
     int fd;
     struct event_info *event_info;
     int connect_msg;
+#if WITH_SSL
+    sslio *ssl;
+#endif
 };
 
 static struct host_connected_info *
@@ -830,6 +833,11 @@ host_connected_info_new(struct event_info *e, int fd, int connect_msg)
     info->event_info = e;
     info->fd = fd;
     info->connect_msg = connect_msg;
+#if WITH_SSL
+    /* latch ssl object */
+    info->ssl = e->ssl;
+    e->ssl = NULL;
+#endif
     LIST_INSERT_HEAD(&e->host_connected_list, info, entry);
     return info;
 }
@@ -1777,6 +1785,7 @@ static void enable_write(int dummyfd, short what, void *data)
     Pthread_mutex_lock(&e->wr_lk);
     update_event_fd(e, info->fd);
 #if WITH_SSL
+    e->ssl = info->ssl;
     akbuf_enable(e->flush_buf, e->fd, &e->ssl);
 #else
     akbuf_enable(e->flush_buf, e->fd);
@@ -2085,8 +2094,7 @@ static int accept_host(struct accept_info *a, int do_ssl_accept)
 
 #if WITH_SSL
     if (do_ssl_accept) {
-        sslio_close(e->ssl, 0);
-        int sslrc = sslio_accept(&e->ssl, gbl_ssl_ctx, e->fd, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0);
+        int sslrc = sslio_accept(&e->ssl, gbl_ssl_ctx, a->fd, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0);
         if (sslrc != 1) {
             char err[256];
             sslio_get_error(e->ssl, err, sizeof(err));
@@ -2950,6 +2958,8 @@ int write_connect_message_evbuffer(host_node_type *host_node_ptr,
 
     if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
         net_flush_evbuffer(host_node_ptr);
+        hprintf("SUSPENDING RD FOR SSL-CONNECT\n");
+        event_once(rd_base, suspend_read, e);
         if (sslio_connect(&e->ssl, gbl_ssl_ctx, e->fd, gbl_rep_ssl_mode, gbl_dbname,
                     gbl_nid_dbname, 1) != 1) {
             char err[256];
@@ -2959,6 +2969,8 @@ int write_connect_message_evbuffer(host_node_type *host_node_ptr,
             e->ssl = NULL;
             return 1;
         }
+        hprintf("RESUMING RD AS SSL-CONNECT IS COMPLETE\n");
+        event_once(rd_base, resume_read, e);
     }
 
     return 0;
