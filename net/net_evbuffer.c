@@ -2094,15 +2094,17 @@ static int accept_host(struct accept_info *a, int do_ssl_accept)
 
 #if WITH_SSL
     if (do_ssl_accept) {
+	hprintf("PERFORMING SSL-ACCEPT\n");
         int sslrc = sslio_accept(&e->ssl, gbl_ssl_ctx, a->fd, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0);
         if (sslrc != 1) {
             char err[256];
             sslio_get_error(e->ssl, err, sizeof(err));
-            logmsg(LOGMSG_ERROR, "%s\n", err);
+	    hprintf("%s\n", err);
             sslio_close(e->ssl, 0);
             e->ssl = NULL;
             return -1;
         }
+	hprintf("SSL-ACCEPT COMPLETE\n");
     }
 #else
     (void)do_ssl_accept;
@@ -2960,16 +2962,19 @@ int write_connect_message_evbuffer(host_node_type *host_node_ptr,
         net_flush_evbuffer(host_node_ptr);
         hprintf("SUSPENDING RD FOR SSL-CONNECT\n");
         event_once(rd_base, suspend_read, e);
+	hprintf("PERFORMING SSL-CONNECT\n");
         if (sslio_connect(&e->ssl, gbl_ssl_ctx, e->fd, gbl_rep_ssl_mode, gbl_dbname,
                     gbl_nid_dbname, 1) != 1) {
             char err[256];
             sslio_get_error(e->ssl, err, sizeof(err));
-            logmsg(LOGMSG_ERROR, "%s\n", err);
+	    hprintf("%s\n", err);
             sslio_close(e->ssl, 0);
             e->ssl = NULL;
+	    hprintf("SSL-CONNECT FAILED\n");
             return 1;
         }
-        hprintf("RESUMING RD AS SSL-CONNECT IS COMPLETE\n");
+	hprintf("SSL-CONNECT COMPLETE\n");
+        hprintf("RESUMING RD\n");
         event_once(rd_base, resume_read, e);
     }
 
