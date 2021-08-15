@@ -375,6 +375,7 @@ struct event_info {
     net_send_message_header msg;
     net_ack_message_payload_type ack;
 #if WITH_SSL
+    int do_ssl;
     sslio *ssl;
 #endif
 };
@@ -1129,6 +1130,25 @@ static void flushcb(int fd, short what, void *arg)
     e->sent_at = time(NULL);
     netinfo_type *netinfo_ptr = e->net_info->netinfo_ptr;
     uint64_t max_bytes = netinfo_ptr->max_bytes;
+
+    if (e->do_ssl) {
+        e->do_ssl = 0;
+        hprintf("PERFORMING SSL-CONNECT\n");
+        if (sslio_connect(&e->ssl, gbl_ssl_ctx, e->fd, gbl_rep_ssl_mode, gbl_dbname,
+                    gbl_nid_dbname, 1) != 1) {
+            char err[256];
+            sslio_get_error(e->ssl, err, sizeof(err));
+            hprintf("SSL-CONNECT FAILED: %s\n", err);
+            sslio_close(e->ssl, 0);
+            e->ssl = NULL;
+            errorcb(fd, what, arg);
+        }
+        hprintf("SSL-CONNECT COMPLETE\n");
+        hprintf("RESUMING RD\n");
+        event_once(rd_base, resume_read, e);
+
+    }
+
     if (e->wr_full && max_bytes) {
         size_t outstanding = akbuf_get_length(e->flush_buf);
         if (outstanding <= max_bytes * resume_lvl) {
@@ -2960,22 +2980,9 @@ int write_connect_message_evbuffer(host_node_type *host_node_ptr,
 
     if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
         net_flush_evbuffer(host_node_ptr);
+        e->do_ssl = 1;
         hprintf("SUSPENDING RD FOR SSL-CONNECT\n");
         event_once(rd_base, suspend_read, e);
-	hprintf("PERFORMING SSL-CONNECT\n");
-        if (sslio_connect(&e->ssl, gbl_ssl_ctx, e->fd, gbl_rep_ssl_mode, gbl_dbname,
-                    gbl_nid_dbname, 1) != 1) {
-            char err[256];
-            sslio_get_error(e->ssl, err, sizeof(err));
-	    hprintf("%s\n", err);
-            sslio_close(e->ssl, 0);
-            e->ssl = NULL;
-	    hprintf("SSL-CONNECT FAILED\n");
-            return 1;
-        }
-	hprintf("SSL-CONNECT COMPLETE\n");
-        hprintf("RESUMING RD\n");
-        event_once(rd_base, resume_read, e);
     }
 
     return 0;
