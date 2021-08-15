@@ -295,16 +295,18 @@ size_t akbuf_add(struct akbuf *a, const void *b, size_t s)
 size_t akbuf_add_buffer(struct akbuf *a, struct evbuffer *buf, int sync)
 {
     Pthread_mutex_lock(&a->lk);
+    size_t sz = evbuffer_get_length(a->buf);
     if (a->fd != -1 && a->buf) {
         evbuffer_add_buffer(a->buf, buf);
-        if (sync)
+        if (sync) {
+            Pthread_mutex_unlock(&a->lk);
             akbuf_flushcb(a->fd, EV_WRITE | EV_PERSIST, a);
-        else if (!a->pending) {
+        } else if (!a->pending) {
             a->pending = event_new(a->base, a->fd, EV_WRITE | EV_PERSIST, akbuf_flushcb, a);
             event_add(a->pending, NULL);
+            Pthread_mutex_unlock(&a->lk);
         }
     }
-    size_t sz = evbuffer_get_length(a->buf);
     Pthread_mutex_unlock(&a->lk);
     return sz;
 }
