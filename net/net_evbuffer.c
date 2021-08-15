@@ -1130,25 +1130,6 @@ static void flushcb(int fd, short what, void *arg)
     e->sent_at = time(NULL);
     netinfo_type *netinfo_ptr = e->net_info->netinfo_ptr;
     uint64_t max_bytes = netinfo_ptr->max_bytes;
-
-    if (e->do_ssl) {
-        e->do_ssl = 0;
-        hprintf("PERFORMING SSL-CONNECT\n");
-        if (sslio_connect(&e->ssl, gbl_ssl_ctx, e->fd, gbl_rep_ssl_mode, gbl_dbname,
-                    gbl_nid_dbname, 1) != 1) {
-            char err[256];
-            sslio_get_error(e->ssl, err, sizeof(err));
-            hprintf("SSL-CONNECT FAILED: %s\n", err);
-            sslio_close(e->ssl, 0);
-            e->ssl = NULL;
-            errorcb(fd, what, arg);
-        }
-        hprintf("SSL-CONNECT COMPLETE\n");
-        hprintf("RESUMING RD\n");
-        event_once(rd_base, resume_read, e);
-
-    }
-
     if (e->wr_full && max_bytes) {
         size_t outstanding = akbuf_get_length(e->flush_buf);
         if (outstanding <= max_bytes * resume_lvl) {
@@ -2732,7 +2713,12 @@ static void check_wr_full(struct event_info *e)
 
 static void flush_evbuffer(struct event_info *e)
 {
-    akbuf_add_buffer(e->flush_buf, e->wr_buf);
+    akbuf_add_buffer(e->flush_buf, e->wr_buf, 0);
+}
+
+static void flush_evbuffer_sync(struct event_info *e)
+{
+    akbuf_add_buffer(e->flush_buf, e->wr_buf, 1);
 }
 
 static inline int skip_send(struct event_info *e, int nodrop, int check_hello)
@@ -2976,14 +2962,28 @@ int write_connect_message_evbuffer(host_node_type *host_node_ptr,
             evbuffer_add(buf, iov[i].iov_base, iov[i].iov_len);
         }
     }
-    Pthread_mutex_unlock(&e->wr_lk);
 
     if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
-        net_flush_evbuffer(host_node_ptr);
-        e->do_ssl = 1;
+        flush_evbuffer_sync(e);
         hprintf("SUSPENDING RD FOR SSL-CONNECT\n");
         event_once(rd_base, suspend_read, e);
+        hprintf("PERFORMING SSL-CONNECT\n");
+        if (sslio_connect(&e->ssl, gbl_ssl_ctx, e->fd, gbl_rep_ssl_mode, gbl_dbname,
+                    gbl_nid_dbname, 1) != 1) {
+            char err[256];
+            sslio_get_error(e->ssl, err, sizeof(err));
+            hprintf("SSL-CONNECT FAILED: %s\n", err);
+            sslio_close(e->ssl, 0);
+            e->ssl = NULL;
+            Pthread_mutex_unlock(&e->wr_lk);
+            return 1;
+        }
+        hprintf("SSL-CONNECT COMPLETE\n");
+        hprintf("RESUMING RD\n");
+        event_once(rd_base, resume_read, e);
     }
+
+    Pthread_mutex_unlock(&e->wr_lk);
 
     return 0;
 }

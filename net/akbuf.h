@@ -22,7 +22,7 @@
 
 struct akbuf;
 size_t akbuf_add(struct akbuf *, const void *, size_t);
-size_t akbuf_add_buffer(struct akbuf *, struct evbuffer *);
+size_t akbuf_add_buffer(struct akbuf *, struct evbuffer *, int sync);
 void akbuf_disable(struct akbuf *);
 #if WITH_SSL
 #include <ssl_io.h>
