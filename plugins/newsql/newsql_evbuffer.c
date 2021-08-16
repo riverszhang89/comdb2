@@ -315,8 +315,13 @@ static void process_dbinfo(struct newsql_appdata_evbuffer *appdata, CDB2QUERY *q
         nodes[j]->number = j;
     }
 
-    // TODO: fill_sslinfo
     CDB2DBINFORESPONSE response = CDB2__DBINFORESPONSE__INIT;
+#if WITH_SSL
+    if (gbl_client_ssl_mode > SSL_UNKNOWN) {
+        response.has_require_ssl = 1;
+        response.require_ssl = (gbl_client_ssl_mode >= SSL_REQUIRE);
+    }
+#endif
     response.n_nodes = num_hosts;
     response.master = master;
     response.nodes = nodes;
