@@ -115,6 +115,20 @@ static int akbuf_flush_evbuffer(struct evbuffer *buf, int fd, struct timeval *ma
     return total;
 }
 
+static void akbuf_flush_sync(struct akbuf *a)
+{
+    if (evbuffer_get_length(a->buf) == 0)
+        return;
+
+#if WITH_SSL
+    int total = akbuf_flush_evbuffer(a->buf, *a->pssl, fd, a->have_max ? &a->max_time : NULL);
+#else
+    int total = akbuf_flush_evbuffer(a->buf, fd, a->have_max ? &a->max_time : NULL);
+#endif
+    if (total > 0)
+        a->outstanding = evbuffer_get_length(a->buf);
+}
+
 static void akbuf_flushcb(int fd, short what, void *data)
 {
     struct akbuf *a = data;
@@ -295,18 +309,16 @@ size_t akbuf_add(struct akbuf *a, const void *b, size_t s)
 size_t akbuf_add_buffer(struct akbuf *a, struct evbuffer *buf, int sync)
 {
     Pthread_mutex_lock(&a->lk);
-    size_t sz = evbuffer_get_length(a->buf);
     if (a->fd != -1 && a->buf) {
         evbuffer_add_buffer(a->buf, buf);
         if (sync) {
-            Pthread_mutex_unlock(&a->lk);
-            akbuf_flushcb(a->fd, EV_WRITE | EV_PERSIST, a);
+            akbuf_flush_sync(a);
         } else if (!a->pending) {
             a->pending = event_new(a->base, a->fd, EV_WRITE | EV_PERSIST, akbuf_flushcb, a);
             event_add(a->pending, NULL);
-            Pthread_mutex_unlock(&a->lk);
         }
     }
+    size_t sz = evbuffer_get_length(a->buf);
     Pthread_mutex_unlock(&a->lk);
     return sz;
 }
