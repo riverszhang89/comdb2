@@ -1,3 +1,5 @@
+basic_legacy_net_ssl_rep_generated
+basic_ssl_rep_generated
 simple_ssl
 ssl_set_cmd
 ssl_comdb2ar
@@ -5,7 +7,6 @@ ssl_crl
 ssl_dbname
 ssl_san
 ssl_userschema
-ssl_rep
 simple_ssl_legacy_appsock_generated
 ssl_set_cmd_legacy_appsock_generated
 ssl_comdb2ar_legacy_appsock_generated

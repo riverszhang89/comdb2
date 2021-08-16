@@ -2965,6 +2965,8 @@ int write_connect_message_evbuffer(host_node_type *host_node_ptr,
 
     if (gbl_rep_ssl_mode >= SSL_REQUIRE) {
         flush_evbuffer_sync(e);
+        /* We're about to perform an ssl handshake.
+           Suspend the callbacks till the handshake is complete. */
         hprintf("SUSPENDING RD FOR SSL-CONNECT\n");
         event_once(rd_base, suspend_read, e);
         hprintf("PERFORMING SSL-CONNECT\n");
