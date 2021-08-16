@@ -121,9 +121,9 @@ static void akbuf_flush_sync(struct akbuf *a)
         return;
 
 #if WITH_SSL
-    int total = akbuf_flush_evbuffer(a->buf, *a->pssl, fd, a->have_max ? &a->max_time : NULL);
+    int total = akbuf_flush_evbuffer(a->buf, *a->pssl, a->fd, a->have_max ? &a->max_time : NULL);
 #else
-    int total = akbuf_flush_evbuffer(a->buf, fd, a->have_max ? &a->max_time : NULL);
+    int total = akbuf_flush_evbuffer(a->buf, a->fd, a->have_max ? &a->max_time : NULL);
 #endif
     if (total > 0)
         a->outstanding = evbuffer_get_length(a->buf);
