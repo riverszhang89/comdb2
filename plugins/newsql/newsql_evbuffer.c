@@ -268,7 +268,7 @@ static void write_dbinfo(int fd, short what, void *arg)
     struct newsql_appdata_evbuffer *appdata = arg;
     struct evbuffer *wrbuf = sql_wrbuf(appdata->writer);
     /* dbinfo is plaintext */
-    if (evbuffer_write(wrbuf, appdata->fd) <= 0) {
+    if (evbuffer_write_ssl(wrbuf, appdata->ssl, appdata->fd) <= 0) {
         newsql_cleanup(-1, 0, appdata);
         return;
     }
@@ -473,7 +473,7 @@ static void write_ssl_ability(int fd, short what, void *arg)
             write_response(&appdata->clnt, RESPONSE_ERROR, "Client certificate authentication failed.", CDB2ERR_CONNECT_ERROR);
             char err[256];
             sslio_get_error(appdata->ssl, err, sizeof(err));
-            logmsg(LOGMSG_ERROR, "%s\n", err);
+            logmsg(LOGMSG_ERROR, "%s: %s\n", __func__, err);
             sslio_close(appdata->ssl, 1);
             appdata->ssl = NULL;
         }

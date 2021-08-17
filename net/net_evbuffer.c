@@ -2095,17 +2095,17 @@ static int accept_host(struct accept_info *a, int do_ssl_accept)
 
 #if WITH_SSL
     if (do_ssl_accept) {
-	hprintf("PERFORMING SSL-ACCEPT\n");
+        hprintf("PERFORMING SSL-ACCEPT\n");
         int sslrc = sslio_accept(&e->ssl, gbl_ssl_ctx, a->fd, gbl_client_ssl_mode, gbl_dbname, gbl_nid_dbname, 0);
         if (sslrc != 1) {
             char err[256];
             sslio_get_error(e->ssl, err, sizeof(err));
-	    hprintf("%s\n", err);
+            hprintf("SSL-ACCEPT FAILED: %s\n", err);
             sslio_close(e->ssl, 0);
             e->ssl = NULL;
             return -1;
         }
-	hprintf("SSL-ACCEPT COMPLETE\n");
+        hprintf("SSL-ACCEPT COMPLETE\n");
     }
 #else
     (void)do_ssl_accept;

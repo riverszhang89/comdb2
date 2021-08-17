@@ -63,7 +63,7 @@ ssl_downgrade:
                     char err[256];
                     int sslerr = sslio_get_error(ssl, err, sizeof(err));
                     if (sslerr) { /* protocol error. bail out. */
-                        logmsg(LOGMSG_ERROR, "%s\n", err);
+                        logmsg(LOGMSG_ERROR, "%s: %s\n", __func__, err);
                         ntotal = -1;
                     }
                 }
@@ -106,7 +106,7 @@ ssl_downgrade:
                         char err[256];
                         int sslerr = sslio_get_error(ssl, err, sizeof(err));
                         if (sslerr) { /* protocol error. bail out. */
-                            logmsg(LOGMSG_ERROR, "%s\n", err);
+                            logmsg(LOGMSG_ERROR, "%s: %s\n", __func__, err);
                             ntotal = -1;
                         }
                     }
