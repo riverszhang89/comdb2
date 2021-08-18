@@ -605,8 +605,10 @@ struct debug_cmd {
 static void debug_cmd(int fd, short what, void *arg)
 {
     struct debug_cmd *cmd = arg;
+    int nr;
+    printf("what is %d\n", what);
     if ((what & EV_READ) == 0 ||
-        evbuffer_read_ssl(cmd->buf, cmd->ssl, fd, cmd->need, 0) <= 0 ||
+        (nr = evbuffer_read_ssl(cmd->buf, cmd->ssl, fd, cmd->need, 0)) <= 0 ||
         evbuffer_get_length(cmd->buf) == cmd->need
     ){
         event_base_loopbreak(cmd->base);
@@ -624,9 +626,11 @@ static int newsql_read_evbuffer(struct sqlclntstate *clnt, void *b, int l, int n
     cmd.base = wrbase;
     cmd.ssl = appdata->ssl;
     struct event *ev = event_new(wrbase, appdata->fd, EV_READ | EV_PERSIST, debug_cmd, &cmd);
+    printf("hihihihihi???? %d\n", cmd.need);
     event_add(ev, NULL);
     event_base_dispatch(wrbase);
     int have = evbuffer_get_length(cmd.buf);
+    printf("have is %d\n", have);
     evbuffer_copyout(cmd.buf, b, -1);
     evbuffer_free(cmd.buf);
     event_free(ev);

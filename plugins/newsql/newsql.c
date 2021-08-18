@@ -952,6 +952,7 @@ static int newsql_sp_cmd(struct sqlclntstate *clnt, void *cmd, size_t sz)
         return -3;
     }
     uint8_t buf[len];
+    printf("len is %d\n", len);
     if (read_response(clnt, RESPONSE_BYTES, buf, len) != 1) {
         return -4;
     }
@@ -959,6 +960,7 @@ static int newsql_sp_cmd(struct sqlclntstate *clnt, void *cmd, size_t sz)
     if (!query) {
         return -5;
     }
+    puts(query->spcmd);
     strncpy0(cmd, query->spcmd, sz);
     cdb2__query__free_unpacked(query, NULL);
     return 0;

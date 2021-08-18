@@ -54,7 +54,7 @@ ssl_downgrade:
                 ntotal = -1;
                 break;
             }
-            nr = sslio_read(ssl, v[0].iov_base, chunksz);
+            nr = sslio_read_no_retry(ssl, v[0].iov_base, chunksz);
             if (nr <= 0) {
                 if (nr == 0 && sslio_is_closed_by_peer(ssl)) {
                     howmuch -= ntotal;
@@ -97,8 +97,7 @@ ssl_downgrade:
             n = evbuffer_peek(buf, -1, NULL, v, n);
             for (i = 0; i != n && len == nr; ++i) {
                 len = v[i].iov_len;
-                nr = sslio_write(ssl, v[i].iov_base, len);
-
+                nr = sslio_write_no_retry(ssl, v[i].iov_base, len);
                 if (nr <= 0) {
                     if (nr == 0 && sslio_is_closed_by_peer(ssl)) {
                         goto ssl_downgrade;

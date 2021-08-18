@@ -121,12 +121,11 @@ static void akbuf_flush_sync(struct akbuf *a)
         return;
 
 #if WITH_SSL
-    int total = akbuf_flush_evbuffer(a->buf, *a->pssl, a->fd, a->have_max ? &a->max_time : NULL);
+    akbuf_flush_evbuffer(a->buf, *a->pssl, a->fd, a->have_max ? &a->max_time : NULL);
 #else
-    int total = akbuf_flush_evbuffer(a->buf, a->fd, a->have_max ? &a->max_time : NULL);
+    akbuf_flush_evbuffer(a->buf, a->fd, a->have_max ? &a->max_time : NULL);
 #endif
-    if (total > 0)
-        a->outstanding = evbuffer_get_length(a->buf);
+    a->outstanding = evbuffer_get_length(a->buf);
 }
 
 static void akbuf_flushcb(int fd, short what, void *data)
@@ -308,9 +307,11 @@ size_t akbuf_add(struct akbuf *a, const void *b, size_t s)
 
 size_t akbuf_add_buffer(struct akbuf *a, struct evbuffer *buf, int sync)
 {
+    size_t sz = 0;
     Pthread_mutex_lock(&a->lk);
     if (a->fd != -1 && a->buf) {
         evbuffer_add_buffer(a->buf, buf);
+        sz = evbuffer_get_length(a->buf);
         if (sync) {
             akbuf_flush_sync(a);
         } else if (!a->pending) {
@@ -318,7 +319,6 @@ size_t akbuf_add_buffer(struct akbuf *a, struct evbuffer *buf, int sync)
             event_add(a->pending, NULL);
         }
     }
-    size_t sz = evbuffer_get_length(a->buf);
     Pthread_mutex_unlock(&a->lk);
     return sz;
 }

@@ -422,6 +422,7 @@ static void my_apps_ssl_info_callback(const SSL *s, int where, int ret)
 
 static void sslio_clear_error(sslio *io)
 {
+    errno = 0;
     ERR_clear_error();
     io->protocolerr = 0;
     io->closed_by_peer = 0;
