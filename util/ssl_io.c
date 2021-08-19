@@ -791,3 +791,8 @@ void SBUF2_FUNC(sslio_set_timeout)(sslio *io, int readtimeout, int writetimeout)
     io->readtimeout = readtimeout;
     io->writetimeout = writetimeout;
 }
+
+int SBUF2_FUNC(sslio_pending)(sslio *io)
+{
+    return (io && io->ssl != NULL) ? SSL_pending(io->ssl) : 0;
+}

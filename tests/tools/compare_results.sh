@@ -14,8 +14,8 @@ usage() {
     echo "Options:"
     echo "  -d db name"
     echo "  -s run cdb2sql in script mode"
-    echo "  -r extension for input file(s) (default: $sql_extn)"
-    echo "  -e extension for expected output file(s) (default: $exp_extn)"
+    echo "  -r extension for input file(s) (local: $sql_extn)"
+    echo "  -e extension for expected output file(s) (local: $exp_extn)"
     exit 1
 }
 
@@ -56,10 +56,10 @@ for sqlfile in $sqlfiles; do
 
     for schema in `ls $testname.*.csc2 2> /dev/null` ; do
         table=`echo $schema | cut -d "." -f2`
-        cdb2sql ${CDB2_OPTIONS} $dbname default "drop table if exists $table" > $prep_log 2>&1
+        cdb2sql ${CDB2_OPTIONS} $dbname local "drop table if exists $table" > $prep_log 2>&1
         [ $? -eq 0 ] || prepare_abort $prep_log $testname
 
-        cdb2sql ${CDB2_OPTIONS} $dbname default "create table $table { `cat $schema` }" > $prep_log 2>&1
+        cdb2sql ${CDB2_OPTIONS} $dbname local "create table $table { `cat $schema` }" > $prep_log 2>&1
         [ $? -eq 0 ] || prepare_abort $prep_log $testname
     done
 
@@ -67,13 +67,13 @@ for sqlfile in $sqlfiles; do
 
     if [ -f ${testname}.fastinit ] ; then
         for t in `cat ${testname}.fastinit`; do
-            cmd="cdb2sql ${CDB2_OPTIONS} $dbname default 'truncate $t'"
+            cmd="cdb2sql ${CDB2_OPTIONS} $dbname local 'truncate $t'"
             echo $cmd "> $testname.output"
             eval $cmd 2>&1 >> $testname.fastinit_out
         done
     fi
 
-    cmd="cdb2sql ${CDB2_OPTIONS} $script_mode -f $sqlfile $dbname default "
+    cmd="cdb2sql ${CDB2_OPTIONS} $script_mode -f $sqlfile $dbname local "
     echo $cmd "> $testname.output"
     eval $cmd 2>&1 | perl -pe "s/.n_writeops_done=([0-9]+)/rows inserted='\1'/;
                           s/BLOCK2_SEQV2\(824\)/BLOCK_SEQ(800)/;

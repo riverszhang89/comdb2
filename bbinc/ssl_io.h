@@ -84,4 +84,7 @@ int SBUF2_FUNC(sslio_get_error)(sslio *, char *err, size_t n);
 /* Set read and write timeout */
 void SBUF2_FUNC(sslio_set_timeout)(sslio *, int readtimeout, int writetimeout);
 #define sslio_set_timeout SBUF2_FUNC(sslio_set_timeout)
+
+int SBUF2_FUNC(sslio_pending)(sslio *);
+#define sslio_pending SBUF2_FUNC(sslio_pending)
 #endif

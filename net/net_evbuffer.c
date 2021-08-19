@@ -1648,8 +1648,11 @@ static void readcb(int fd, short what, void *data)
 #   endif
 
 #if WITH_SSL
-    if (evbuffer_read_ssl(input, e->ssl, fd, RD_BUFSZ * NVEC, RD_BUFSZ) <= 0)
+    if (evbuffer_read_ssl(input, e->ssl, fd, RD_BUFSZ, 1) <= 0) {
+        if (errno == EAGAIN)
+            return;
         DISABLE_AND_RECONNECT();
+    }
 #else
     struct iovec v[NVEC];
     const int nv = evbuffer_reserve_space(input, RD_BUFSZ, v, NVEC);
