@@ -57,7 +57,7 @@ int evbuffer_read_ssl(struct evbuffer *buf, sslio *ssl, evutil_socket_t fd, int 
                 break;
             }
 
-            for (i = 0, nremain = chunksz; i != nv && nremain > 0; ++i) {
+            for (nread = i = 0, nremain = chunksz; i != nv && nremain > 0; ++i) {
                 if (v[i].iov_len > nremain)
                     v[i].iov_len = nremain;
                 nread = sslio_read_no_retry(ssl, v[i].iov_base, v[i].iov_len);
