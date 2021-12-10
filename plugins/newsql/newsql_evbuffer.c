@@ -125,7 +125,10 @@ static void newsql_read_again(int dummyfd, short what, void *arg)
             reset_clnt_flags(clnt);
         }
     }
-    event_once(appsock_rd_base, newsql_read_hdr, appdata);
+    add_lru_evbuffer(&appdata->clnt);
+    event_add(appdata->rd_hdr_ev, NULL);
+    //event_base_dump_events(appsock_rd_base, stdout);
+    //event_once(appsock_rd_base, newsql_read_hdr, appdata);
 }
 
 static void newsql_reset_evbuffer(struct newsql_appdata_evbuffer *appdata)
@@ -153,7 +156,8 @@ static int newsql_done_cb(struct sqlclntstate *clnt)
         appdata->query = NULL;
     }
     if (sql_done(appdata->writer) == 0) {
-        event_once(appsock_timer_base, newsql_read_again, appdata);
+        newsql_read_again(-1, 0, appdata);
+        //event_once(appsock_timer_base, newsql_read_again, appdata);
     } else {
         event_once(appsock_timer_base, newsql_cleanup, appdata);
     }

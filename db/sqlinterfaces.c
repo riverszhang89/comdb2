@@ -6563,7 +6563,7 @@ void rem_sql_evbuffer(struct sqlclntstate *clnt)
 
 void add_lru_evbuffer(struct sqlclntstate *clnt)
 {
-    check_appsock_rd_thd();
+    //check_appsock_rd_thd();
     if (in_client_trans(clnt)) {
         /* Point to self -> not in lru_evbuffers list */
         TAILQ_NEXT(clnt, lru_entry) = clnt;

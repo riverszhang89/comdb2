@@ -32,7 +32,7 @@
 #define MSEC(x) (x * 1000) /* millisecond -> microsecond */
 
 //heartbeat will tick every
-static struct timeval heartbeat_time = {.tv_sec = 0, .tv_usec = MSEC(10)};
+static struct timeval heartbeat_time = {.tv_sec = 0, .tv_usec = MSEC(100)};
 
 //send heartbeat if no data every (seconds)
 #define min_hb_time 1
@@ -69,19 +69,21 @@ struct sqlwriter {
 
 static void sql_enable_trickle(struct sqlwriter *writer)
 {
-    event_del(writer->heartbeat_ev);
+    //event_del(writer->heartbeat_ev);
     event_add(writer->heartbeat_trickle_ev, NULL);
 }
 
 static void sql_disable_trickle(struct sqlwriter *writer)
 {
+    return;
     event_add(writer->heartbeat_ev, &heartbeat_time);
     event_del(writer->heartbeat_trickle_ev);
 }
 
 static void sql_enable_flush(struct sqlwriter *writer)
 {
-    sql_disable_heartbeat(writer);
+    //sql_disable_heartbeat(writer);
+    //return;
     struct timeval timeout = {.tv_sec = 1};
     event_add(writer->flush_ev, &timeout);
 }
@@ -91,7 +93,7 @@ static void sql_disable_flush(struct sqlwriter *writer)
     writer->flush = 0;
     writer->released_locks = 0;
     writer->wr_continue = 1;
-    event_del(writer->flush_ev);
+    //event_del(writer->flush_ev);
 }
 
 static void sql_timeout_cb(int fd, short what, void *arg)
@@ -112,7 +114,7 @@ static void sql_timeout_cb(int fd, short what, void *arg)
 void sql_enable_heartbeat(struct sqlwriter *writer)
 {
     event_add(writer->heartbeat_ev, &heartbeat_time);
-    event_del(writer->heartbeat_trickle_ev);
+    //event_del(writer->heartbeat_trickle_ev);
 }
 
 void sql_disable_heartbeat(struct sqlwriter *writer)
@@ -188,10 +190,12 @@ static void sql_flush_cb(int fd, short what, void *arg)
 
 static int sql_flush_int(struct sqlwriter *writer)
 {
-    sql_enable_flush(writer);
-    while (!writer->wr_continue && !writer->bad) {
-        event_base_dispatch(writer->wr_base);
-    }
+    do {
+        sql_flush_cb(event_get_fd(writer->flush_ev), EV_WRITE, writer);
+        //sql_enable_flush(writer);
+        //event_base_dispatch(writer->wr_base);
+    } while (!writer->wr_continue && !writer->bad);
+
     if (writer->wr_continue && !writer->bad) {
         if (!writer->done && !writer->timed_out) {
             sql_enable_heartbeat(writer);
@@ -325,22 +329,24 @@ void sql_trickle_cb(int fd, short what, void *arg)
         abort();
     }
     struct sqlwriter *writer = arg;
-    Pthread_mutex_lock(&writer->wr_lock);
-    sql_trickle_int(writer, fd);
-    Pthread_mutex_unlock(&writer->wr_lock);
+    if (pthread_mutex_trylock(&writer->wr_lock) == 0) {
+        sql_trickle_int(writer, fd);
+        Pthread_mutex_unlock(&writer->wr_lock);
+    }
 }
 
 void sql_heartbeat_cb(int fd, short what, void *arg)
 {
     check_appsock_timer_thd();
     struct sqlwriter *writer = arg;
-    Pthread_mutex_lock(&writer->wr_lock);
-    int len = evbuffer_get_length(writer->wr_buf);
-    time_t now = time(NULL);
-    if (len || difftime(now, writer->sent_at) >= min_hb_time) {
-        sql_enable_trickle(writer);
+    if (pthread_mutex_trylock(&writer->wr_lock) == 0) {
+        int len = evbuffer_get_length(writer->wr_buf);
+        time_t now = time(NULL);
+        if (len || difftime(now, writer->sent_at) >= min_hb_time) {
+            sql_enable_trickle(writer);
+        }
+        Pthread_mutex_unlock(&writer->wr_lock);
     }
-    Pthread_mutex_unlock(&writer->wr_lock);
 }
 
 void sql_reset(struct sqlwriter *writer)
@@ -431,7 +437,7 @@ struct sqlwriter *sqlwriter_new(struct sqlwriter_arg *arg)
     writer->wr_base = event_base_new_with_config(cfg);
     event_config_free(cfg);
 
-    int flush_flags = EV_WRITE | EV_TIMEOUT | EV_PERSIST;
+    int flush_flags = EV_WRITE | EV_TIMEOUT;
     writer->flush_ev = event_new(writer->wr_base, arg->fd, flush_flags, sql_flush_cb, writer);
 
     int hb_flags = EV_TIMEOUT | EV_PERSIST;
