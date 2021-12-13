@@ -437,6 +437,7 @@ static void rd_payload(int dummyfd, short what, void *arg)
     }
     CDB2QUERY *query = NULL;
     int len = appdata->hdr.length;
+    printf("len is %d\n", len);
     void *data = evbuffer_pullup(appdata->rd_buf, len);
     if (!len || (query = cdb2__query__unpack(NULL, len, data)) == NULL) {
         event_once(appsock_timer_base, newsql_cleanup, appdata);
