@@ -350,8 +350,10 @@ static void process_query(struct newsql_appdata_evbuffer *appdata, CDB2QUERY *qu
     int do_read = 0;
     int commit_rollback;
     appdata->query = query;
-    appdata->sqlquery = query->sqlquery;
+    CDB2SQLQUERY *sqlquery = appdata->sqlquery = query->sqlquery;
     struct sqlclntstate *clnt = &appdata->clnt;
+    if (sqlquery == NULL) /* empty sql query */
+        goto out;
     if (!appdata->active) {
         if (add_appsock_connection_evbuffer(clnt) != 0) {
             add_lru_evbuffer(clnt);
@@ -361,12 +363,12 @@ static void process_query(struct newsql_appdata_evbuffer *appdata, CDB2QUERY *qu
         appdata->active = 1;
     }
     if (appdata->initial) {
-        if (newsql_first_run(clnt, query->sqlquery) != 0) {
+        if (newsql_first_run(clnt, sqlquery) != 0) {
             goto out;
         }
         appdata->initial = 0;
     }
-    if (newsql_loop(clnt, query->sqlquery) != 0) {
+    if (newsql_loop(clnt, sqlquery) != 0) {
         goto out;
     }
     if (newsql_should_dispatch(clnt, &commit_rollback) != 0) {
@@ -437,7 +439,6 @@ static void rd_payload(int dummyfd, short what, void *arg)
     }
     CDB2QUERY *query = NULL;
     int len = appdata->hdr.length;
-    printf("len is %d\n", len);
     void *data = evbuffer_pullup(appdata->rd_buf, len);
     if (!len || (query = cdb2__query__unpack(NULL, len, data)) == NULL) {
         event_once(appsock_timer_base, newsql_cleanup, appdata);
