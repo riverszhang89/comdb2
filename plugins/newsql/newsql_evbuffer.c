@@ -125,8 +125,10 @@ static void newsql_read_again(int dummyfd, short what, void *arg)
             reset_clnt_flags(clnt);
         }
     }
-    add_lru_evbuffer(&appdata->clnt);
-    event_add(appdata->rd_hdr_ev, NULL);
+    //add_lru_evbuffer(&appdata->clnt);
+    //event_active
+    //event_add(appdata->rd_hdr_ev, NULL);
+    newsql_read_hdr(-1, 0, appdata);
     //event_base_dump_events(appsock_rd_base, stdout);
     //event_once(appsock_rd_base, newsql_read_hdr, appdata);
 }
@@ -352,7 +354,7 @@ static void process_query(struct newsql_appdata_evbuffer *appdata, CDB2QUERY *qu
     appdata->query = query;
     CDB2SQLQUERY *sqlquery = appdata->sqlquery = query->sqlquery;
     struct sqlclntstate *clnt = &appdata->clnt;
-    if (sqlquery == NULL) /* empty sql query */
+    if (sqlquery == NULL)
         goto out;
     if (!appdata->active) {
         if (add_appsock_connection_evbuffer(clnt) != 0) {
@@ -450,7 +452,7 @@ static void rd_payload(int dummyfd, short what, void *arg)
 
 static void rd_newsql_hdr(int dummyfd, short what, void *arg)
 {
-    check_appsock_rd_thd();
+    //check_appsock_rd_thd();
     struct newsql_appdata_evbuffer *appdata = arg;
     if (what & EV_READ) {
         if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0) {

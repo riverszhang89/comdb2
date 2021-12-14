@@ -6574,7 +6574,7 @@ void add_lru_evbuffer(struct sqlclntstate *clnt)
 
 void rem_lru_evbuffer(struct sqlclntstate *clnt)
 {
-    check_appsock_rd_thd();
+    //check_appsock_rd_thd();
     if (TAILQ_NEXT(clnt, lru_entry) == clnt) {
         return;
     }
