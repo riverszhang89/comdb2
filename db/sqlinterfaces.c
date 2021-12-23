@@ -614,6 +614,7 @@ static LISTC_T(struct sqlclntstate) clntlist;
 static int64_t connid = 0;
 
 static TAILQ_HEAD(lru_evbuffers, sqlclntstate) lru_evbuffers = TAILQ_HEAD_INITIALIZER(lru_evbuffers);
+static pthread_mutex_t lru_evbuffers_mtx = PTHREAD_MUTEX_INITIALIZER;
 static TAILQ_HEAD(sql_evbuffers, sqlclntstate) sql_evbuffers = TAILQ_HEAD_INITIALIZER(sql_evbuffers);
 
 static __thread comdb2ma sql_mspace = NULL;
@@ -6564,26 +6565,27 @@ void rem_sql_evbuffer(struct sqlclntstate *clnt)
 void add_lru_evbuffer(struct sqlclntstate *clnt)
 {
     // needs mutex
-    return;
+    Pthread_mutex_lock(&lru_evbuffers_mtx);
     //check_appsock_rd_thd();
     if (in_client_trans(clnt)) {
         /* Point to self -> not in lru_evbuffers list */
         TAILQ_NEXT(clnt, lru_entry) = clnt;
-        return;
+    } else {
+        TAILQ_INSERT_HEAD(&lru_evbuffers, clnt, lru_entry);
     }
-    TAILQ_INSERT_HEAD(&lru_evbuffers, clnt, lru_entry);
+    Pthread_mutex_unlock(&lru_evbuffers_mtx);
 }
 
 void rem_lru_evbuffer(struct sqlclntstate *clnt)
 {
     // needs mutex
-    return;
+    Pthread_mutex_lock(&lru_evbuffers_mtx);
     //check_appsock_rd_thd();
-    if (TAILQ_NEXT(clnt, lru_entry) == clnt) {
-        return;
+    if (TAILQ_NEXT(clnt, lru_entry) != clnt) {
+        TAILQ_REMOVE(&lru_evbuffers, clnt, lru_entry);
+        TAILQ_NEXT(clnt, lru_entry) = clnt;
     }
-    TAILQ_REMOVE(&lru_evbuffers, clnt, lru_entry);
-    TAILQ_NEXT(clnt, lru_entry) = clnt;
+    Pthread_mutex_unlock(&lru_evbuffers_mtx);
 }
 
 static int close_lru_evbuffer(struct sqlclntstate *self)
