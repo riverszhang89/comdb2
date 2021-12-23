@@ -72,10 +72,6 @@ static void sql_trickle_cb(int fd, short what, void *arg);
 
 static void sql_enable_trickle(struct sqlwriter *writer)
 {
-    if (writer->heartbeat_trickle_ev != NULL)
-        return;
-    int trickle_flags = EV_WRITE | EV_PERSIST;
-    writer->heartbeat_trickle_ev = event_new(appsock_timer_base, writer->fd, trickle_flags, sql_trickle_cb, writer);
     event_add(writer->heartbeat_trickle_ev, NULL);
 }
 
@@ -88,8 +84,6 @@ static void sql_disable_trickle(struct sqlwriter *writer)
 
 static void sql_enable_flush(struct sqlwriter *writer)
 {
-    //sql_disable_heartbeat(writer);
-    //return;
     struct timeval timeout = {.tv_sec = 1};
     event_add(writer->flush_ev, &timeout);
 }
@@ -99,7 +93,6 @@ static void sql_disable_flush(struct sqlwriter *writer)
     writer->flush = 0;
     writer->released_locks = 0;
     writer->wr_continue = 1;
-    //event_del(writer->flush_ev);
 }
 
 static void sql_timeout_cb(int fd, short what, void *arg)
@@ -121,11 +114,6 @@ static void sql_heartbeat_cb(int fd, short what, void *arg);
 
 void sql_enable_heartbeat(struct sqlwriter *writer)
 {
-    if (writer->heartbeat_ev != NULL)
-        return;
-
-    int hb_flags = EV_TIMEOUT | EV_PERSIST;
-    writer->heartbeat_ev = event_new(appsock_timer_base, writer->fd, hb_flags, sql_heartbeat_cb, writer);
     event_add(writer->heartbeat_ev, &heartbeat_time);
 }
 
@@ -210,13 +198,7 @@ static int sql_flush_int(struct sqlwriter *writer)
         //event_base_dispatch(writer->wr_base);
     } while (!writer->wr_continue && !writer->bad);
 
-    if (writer->wr_continue && !writer->bad) {
-        if (!writer->done && !writer->timed_out) {
-            sql_enable_heartbeat(writer);
-        }
-        return 0;
-    }
-    return -1;
+    return (writer->wr_continue && !writer->bad) ? 0 : -1;
 }
 
 int sql_flush(struct sqlwriter *writer)
@@ -316,7 +298,6 @@ static void sql_trickle_int(struct sqlwriter *writer, int fd)
         if (difftime(time(NULL), writer->sent_at) >= min_hb_time && !writer->timed_out) {
             sql_pack_heartbeat(writer);
         } else {
-            sql_disable_trickle(writer);
             return;
         }
     }
@@ -330,9 +311,7 @@ static void sql_trickle_int(struct sqlwriter *writer, int fd)
     }
     writer->sent_at = time(NULL);
     int left = outstanding - n;
-    if (left) {
-        sql_disable_trickle(writer);
-    } else if (evbuffer_get_contiguous_space(writer->wr_buf) < KB(1)) {
+    if (left == 0 && evbuffer_get_contiguous_space(writer->wr_buf) < KB(1)) {
         evbuffer_pullup(writer->wr_buf, KB(4));
     }
 }
@@ -452,8 +431,9 @@ struct sqlwriter *sqlwriter_new(struct sqlwriter_arg *arg)
     writer->wr_base = event_base_new_with_config(cfg);
     event_config_free(cfg);
 
-    int flush_flags = EV_WRITE | EV_TIMEOUT;
-    writer->flush_ev = event_new(writer->wr_base, arg->fd, flush_flags, sql_flush_cb, writer);
+    writer->flush_ev = event_new(writer->wr_base, arg->fd, EV_WRITE, sql_flush_cb, writer);
+    writer->heartbeat_ev = event_new(appsock_timer_base, arg->fd, EV_PERSIST, sql_heartbeat_cb, writer);
+    writer->heartbeat_trickle_ev = event_new(appsock_timer_base, arg->fd, EV_WRITE, sql_trickle_cb, writer);
 
     return writer;
 }
