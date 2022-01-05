@@ -78,6 +78,7 @@ static void sql_disable_flush(struct sqlwriter *writer)
 {
     writer->flush = 0;
     writer->wr_continue = 1;
+    event_del(writer->flush_ev);
 }
 
 static void sql_timeout_cb(int fd, short what, void *arg)
@@ -140,34 +141,24 @@ static void sql_flush_cb(int fd, short what, void *arg)
         return;
     }
     const int min = (writer->done || writer->flush) ? 0 : resume_buf;
-    while (1) {
-        if ((n = evbuffer_write(writer->wr_buf, fd)) <= 0) {
-            break;
-        }
+    if ((n = evbuffer_write(writer->wr_buf, fd)) > 0) {
         writer->sent_at = time(NULL);
         outstanding -= n;
-        if (outstanding <= min) {
-            break;
-        }
-    }
-    if (n <= 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        if (outstanding <= min)
+            sql_disable_flush(writer);
+        else if (evbuffer_get_contiguous_space(writer->wr_buf) < KB(8))
+            evbuffer_pullup(writer->wr_buf, KB(64));
+    } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
         writer->bad = 1;
         event_del(writer->flush_ev);
-    } else if (outstanding <= min) {
-        sql_disable_flush(writer);
-    } else if (evbuffer_get_contiguous_space(writer->wr_buf) < KB(8)) {
-        evbuffer_pullup(writer->wr_buf, KB(64));
     }
     Pthread_mutex_unlock(&writer->wr_lock);
 }
 
 static int sql_flush_int(struct sqlwriter *writer)
 {
-    while (!writer->wr_continue && !writer->bad) {
-        sql_enable_flush(writer);
-        event_base_dispatch(writer->wr_base);
-    }
-
+    sql_enable_flush(writer);
+    event_base_dispatch(writer->wr_base);
     return (writer->wr_continue && !writer->bad) ? 0 : -1;
 }
 
@@ -399,7 +390,7 @@ struct sqlwriter *sqlwriter_new(struct sqlwriter_arg *arg)
     writer->wr_base = event_base_new_with_config(cfg);
     event_config_free(cfg);
 
-    writer->flush_ev = event_new(writer->wr_base, arg->fd, EV_WRITE, sql_flush_cb, writer);
+    writer->flush_ev = event_new(writer->wr_base, arg->fd, EV_WRITE | EV_PERSIST, sql_flush_cb, writer);
     writer->heartbeat_ev = event_new(appsock_timer_base, arg->fd, EV_PERSIST, sql_heartbeat_cb, writer);
     writer->heartbeat_trickle_ev = event_new(appsock_timer_base, arg->fd, EV_WRITE, sql_trickle_cb, writer);
 
