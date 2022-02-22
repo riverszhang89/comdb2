@@ -2446,6 +2446,8 @@ static int check_blob_buffers(struct ireq *iq, blob_buffer_t *blobs, size_t maxb
     if (gbl_disable_blob_check)
         return 0;
 
+    iq->debug = 1;
+
     ondisk = is_tag_ondisk_sc(schema);
     num_cblobs = schema->numblobs;
 
@@ -2512,7 +2514,8 @@ static int check_blob_buffers(struct ireq *iq, blob_buffer_t *blobs, size_t maxb
              * and the string was small enough to fit in the record itself,
              * then the blob shouldn't exist */
             else if (schema && (schema->member[idx].type == SERVER_VUTF8 ||
-                                schema->member[idx].type == SERVER_BLOB2) &&
+                                schema->member[idx].type == SERVER_BLOB2 ||
+                                schema->member[idx].type == SERVER_BLOB) &&
                      ntohl(blob->length) <= schema->member[idx].len - 5 /*hdr*/)
                 inconsistent = blobs[cblob].exists;
             /* otherwise, fall back to regular blob checks */
@@ -2531,11 +2534,13 @@ static int check_blob_buffers(struct ireq *iq, blob_buffer_t *blobs, size_t maxb
                             "blobs[cblob].length=%u blobs[cblob].exists=%d",
                         ntohl(blob->notnull), (unsigned)ntohl(blob->length),
                         (unsigned)blobs[cblob].length, blobs[cblob].exists);
+                    abort();
                 }
                 return cblob + 1;
             }
         }
     }
+    puts(__func__);
     return 0;
 }
 

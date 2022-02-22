@@ -5355,6 +5355,48 @@ TYPES_INLINE int CLIENT_BYTEARRAY_to_SERVER_BLOB(
     blob_buffer_t *inblob, void *out, int outlen, int *outdtsz,
     const struct field_conv_opts *outopts, blob_buffer_t *outblob)
 {
+#if 0
+    int tmp;
+    if (isnull) {
+        set_null(out, outlen);
+    } else {
+        if (outblob) {
+            if (inlen) {
+                if (inlen > gbl_blob_sz_thresh_bytes)
+                    outblob->data = comdb2_bmalloc(blobmem, inlen);
+                else
+                    outblob->data = malloc(inlen);
+                if (!outblob->data) {
+                    logmsg(LOGMSG_ERROR, "CLIENT_BYTEARRAY_to_SERVER_BLOB: "
+                            "malloc %d failed\n",
+                            inlen);
+                    return -1;
+                }
+            } else
+                outblob->data = NULL;
+
+            outblob->exists = 1;
+            outblob->length = inlen;
+            if (inlen)
+                memcpy(outblob->data, in, inlen);
+            outblob->collected = 1;
+        }
+        tmp = htonl(inlen);
+        set_data(out, &tmp, BLOB_ON_DISK_LEN);
+        *outdtsz = BLOB_ON_DISK_LEN;
+    }
+    /* I used to print warning trace if we get here with data but no blob
+     * to store it in.  However, prefaulting can hit this condition, so now
+     * we fail to transfer the blob data silently. */
+    /*
+       else {
+       fprintf(stderr, "CLIENT_BYTEARRAY_to_SERVER_BLOB: no blob!\n");
+       return -1;
+       }
+     */
+    return 0;
+#endif
+
     return CLIENT_BYTEARRAY_to_SERVER_BLOB2(in, inlen, isnull, inopts, inblob, out, outlen, outdtsz, outopts, outblob);
 }
 TYPES_INLINE int CLIENT_PSTR2_to_SERVER_BLOB(
@@ -6226,7 +6268,7 @@ TYPES_INLINE int SERVER_UINT_to_SERVER_UINT(
     DO_SERVER_TO_SERVER(UINT, UINT, UINT);
 }
 
-#if 1
+#if 0
 TYPES_INLINE int SERVER_BLOB_to_SERVER_BLOB(
     const void *in, int inlen, const struct field_conv_opts *inopts,
     blob_buffer_t *inblob, void *out, int outlen, int *outdtsz,
@@ -8120,7 +8162,7 @@ static TYPES_INLINE int SERVER_to_SERVER_NO_CONV(S2S_FUNKY_ARGS) { return -1; }
 #define SERVER_BREAL_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
 #define SERVER_BCSTR_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
 #define SERVER_BYTEARRAY_to_SERVER_BLOB2 SERVER_BYTEARRAY_to_SERVER_BLOB
-//#define SERVER_BLOB_to_SERVER_BLOB SERVER_BLOB2_to_SERVER_BLOB
+#define SERVER_BLOB_to_SERVER_BLOB SERVER_BLOB2_to_SERVER_BLOB
 #define SERVER_BLOB_to_SERVER_BLOB2 SERVER_BLOB2_to_SERVER_BLOB
 #define SERVER_BLOB2_to_SERVER_BLOB2 SERVER_BLOB2_to_SERVER_BLOB
 #define SERVER_DATETIME_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
