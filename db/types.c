@@ -6262,21 +6262,25 @@ TYPES_INLINE int SERVER_UINT_to_SERVER_UINT(
     DO_SERVER_TO_SERVER(UINT, UINT, UINT);
 }
 
+static TYPES_INLINE int SERVER_BLOB_to_SERVER_BLOB_ext(
+    const void *in, int inlen, const struct field_conv_opts *inopts,
+    blob_buffer_t *inblob, void *out, int outlen, int *outdtsz,
+    const struct field_conv_opts *outopts, blob_buffer_t *outblob, int intype);
+
 TYPES_INLINE int SERVER_BLOB_to_SERVER_BLOB(
     const void *in, int inlen, const struct field_conv_opts *inopts,
     blob_buffer_t *inblob, void *out, int outlen, int *outdtsz,
     const struct field_conv_opts *outopts, blob_buffer_t *outblob)
 {
-    if (inlen < BLOB_ON_DISK_LEN || outlen < BLOB_ON_DISK_LEN)
-        return -1;
+    return SERVER_BLOB_to_SERVER_BLOB_ext(in, inlen, inopts, inblob, out, outlen, outdtsz, outopts, outblob, SERVER_BLOB);
+}
 
-    if (inblob && outblob) {
-        memcpy(outblob, inblob, sizeof(blob_buffer_t));
-        bzero(inblob, sizeof(blob_buffer_t));
-    }
-    memcpy(out, in, BLOB_ON_DISK_LEN);
-    *outdtsz = BLOB_ON_DISK_LEN;
-    return 0;
+TYPES_INLINE int SERVER_BLOB_to_SERVER_BLOB2(
+    const void *in, int inlen, const struct field_conv_opts *inopts,
+    blob_buffer_t *inblob, void *out, int outlen, int *outdtsz,
+    const struct field_conv_opts *outopts, blob_buffer_t *outblob)
+{
+    return SERVER_BLOB_to_SERVER_BLOB_ext(in, inlen, inopts, inblob, out, outlen, outdtsz, outopts, outblob, SERVER_BLOB);
 }
 
 /* blobs don't convert easily - we don't have access to the blob data at this
@@ -6443,7 +6447,7 @@ static TYPES_INLINE int SERVER_VUTF8_to_SERVER_VUTF8(
 static TYPES_INLINE int blob2_convert(int len, const void *in, int in_len,
                                       void *out, int out_len,
                                       blob_buffer_t *inblob,
-                                      blob_buffer_t *outblob, int *outdtsz)
+                                      blob_buffer_t *outblob, int *outdtsz, int intype)
 {
     /* if the string was too large to be stored in the in buffer and won't fit
      * in the out buffer, then the string will just be transfered from one blob
@@ -6471,10 +6475,18 @@ static TYPES_INLINE int blob2_convert(int len, const void *in, int in_len,
      * in the out buffer, then the string needs to be copied directly from the
      * in buffer to the out buffer */
     if (len <= in_len && len <= out_len) {
-
         if (inblob && inblob->exists) {
-            logmsg(LOGMSG_ERROR, "blob2_convert: bogus inblob\n");
-            return -1;
+            /* Allow conversion from an empty SERVER_BLOB
+               (A SERVER_BLOB must always exist, even if it's empty) */
+            int is_zero_len_blob = (intype == SERVER_BLOB && len == 0 && in_len == 0);
+            if (is_zero_len_blob) {
+                memcpy(outblob, inblob, sizeof(blob_buffer_t));
+                bzero(inblob, sizeof(blob_buffer_t));
+                return 0;
+            } else {
+                logmsg(LOGMSG_ERROR, "blob2_convert: bogus inblob\n");
+                return -1;
+            }
         }
 
         memcpy(out, in, len);
@@ -6651,38 +6663,21 @@ static TYPES_INLINE int SERVER_BLOB2_to_SERVER_BLOB(
     blob_buffer_t *inblob, void *out, int outlen, int *outdtsz,
     const struct field_conv_opts *outopts, blob_buffer_t *outblob)
 {
-    const char *cin = (const char *)in;
-    int len, tmp;
-
-    if (inlen < BLOB_ON_DISK_LEN || outlen < BLOB_ON_DISK_LEN)
-        return -1;
-
-    if (stype_is_null(in)) {
-        set_null(out, outlen);
-        if (inblob && inblob->exists) {
-            /* shouldn't happen */
-            logmsg(LOGMSG_ERROR, "SERVER_BLOB2_to_SERVER_BLOB: bogus blob!\n");
-            return -1;
-        }
-        return 0;
-    }
-
-    memcpy(out, in, BLOB_ON_DISK_LEN);
-    *outdtsz = BLOB_ON_DISK_LEN;
-
-    memcpy(&tmp, cin + 1, sizeof(int));
-    len = ntohl(tmp);
-
-    /* copy the actual data around */
-    return blob2_convert(len, cin + BLOB_ON_DISK_LEN, inlen - BLOB_ON_DISK_LEN,
-                         (char *)out + BLOB_ON_DISK_LEN,
-                         outlen - BLOB_ON_DISK_LEN, inblob, outblob, outdtsz);
+    return SERVER_BLOB_to_SERVER_BLOB_ext(in, inlen, inopts, inblob, out, outlen, outdtsz, outopts, outblob, SERVER_BLOB2);
 }
 
 static TYPES_INLINE int SERVER_BLOB2_to_SERVER_BLOB2(
     const void *in, int inlen, const struct field_conv_opts *inopts,
     blob_buffer_t *inblob, void *out, int outlen, int *outdtsz,
     const struct field_conv_opts *outopts, blob_buffer_t *outblob)
+{
+    return SERVER_BLOB_to_SERVER_BLOB_ext(in, inlen, inopts, inblob, out, outlen, outdtsz, outopts, outblob, SERVER_BLOB2);
+}
+
+static TYPES_INLINE int SERVER_BLOB_to_SERVER_BLOB_ext(
+    const void *in, int inlen, const struct field_conv_opts *inopts,
+    blob_buffer_t *inblob, void *out, int outlen, int *outdtsz,
+    const struct field_conv_opts *outopts, blob_buffer_t *outblob, int intype)
 {
     const char *cin = (const char *)in;
     int len, tmp;
@@ -6694,7 +6689,7 @@ static TYPES_INLINE int SERVER_BLOB2_to_SERVER_BLOB2(
         set_null(out, outlen);
         if (inblob && inblob->exists) {
             /* shouldn't happen */
-            logmsg(LOGMSG_ERROR, "SERVER_VUTF8_to_SERVER_VUTF8: bogus blob!\n");
+            logmsg(LOGMSG_ERROR, "SERVER_BLOB2_to_SERVER_BLOB2: bogus blob!\n");
             return -1;
         }
         return 0;
@@ -6709,7 +6704,7 @@ static TYPES_INLINE int SERVER_BLOB2_to_SERVER_BLOB2(
     /* copy the actual data around */
     return blob2_convert(len, cin + BLOB_ON_DISK_LEN, inlen - BLOB_ON_DISK_LEN,
                          (char *)out + BLOB_ON_DISK_LEN,
-                         outlen - BLOB_ON_DISK_LEN, inblob, outblob, outdtsz);
+                         outlen - BLOB_ON_DISK_LEN, inblob, outblob, outdtsz, intype);
 }
 
 /* datetime conversions*/
@@ -8185,7 +8180,6 @@ static TYPES_INLINE int SERVER_to_SERVER_NO_CONV(S2S_FUNKY_ARGS) { return -1; }
 #define SERVER_BREAL_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
 #define SERVER_BCSTR_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
 #define SERVER_BYTEARRAY_to_SERVER_BLOB2 SERVER_BYTEARRAY_to_SERVER_BLOB
-#define SERVER_BLOB_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
 #define SERVER_DATETIME_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
 #define SERVER_DATETIMEUS_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
 #define SERVER_INTVYM_to_SERVER_BLOB2 SERVER_to_SERVER_NO_CONV
