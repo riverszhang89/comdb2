@@ -6771,6 +6771,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                 blobs[dt.id].javasp_bytearray = NULL;
             }
         }
+                puts("hmmmmm????");
     } break;
     case OSQL_DBGLOG: {
         osql_dbglog_t dbglog = {0};

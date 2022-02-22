@@ -221,6 +221,7 @@ extern int null_bit;
 
 #define set_null(p, len)                                                       \
     do {                                                                       \
+        puts(__func__);\
         memset(p, 0, len);                                                     \
         bset(p, null_bit);                                                     \
     } while (0)

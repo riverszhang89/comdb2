@@ -1443,8 +1443,11 @@ static int osql_send_qblobs_logic(struct BtCursor *pCur, osqlstate_t *osql,
          * non-null blobs, and the master will fix up those we missed.
          */
 
-        if (!blobs[i].exists)
+        if (!blobs[i].exists) {
+            puts("not existings????");
             continue;
+        }
+        puts("existings!!!!!!!!!!!!");
 
         /* Send length of -2 if this isn't being used in this update. */
         if (updCols && gbl_osql_blob_optimization && blobs[i].length > 0) {

@@ -1178,6 +1178,7 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
             blob_status_to_blob_buffer(&oldblobs, del_blobs_buf);
             blob_status_to_blob_buffer(&oldblobs, add_blobs_buf);
         }
+        puts("hi");
         for (blobno = 0;
              blobno < maxblobs && blobno < iq->usedb->schema->numblobs;
              blobno++) {
@@ -1197,6 +1198,9 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
             if (!(blob->collected) && !(flags & RECFLAGS_DONT_SKIP_BLOBS))
                 continue;
 
+            puts("hi2");
+            printf("blob exists????%d -> %d\n", add_blobs_buf[blobno].exists, blob->exists);
+            // RZ: this is where exists resets to 0????
             add_blobs_buf[blobno] = *blob;
         }
         del_idx_blobs = del_blobs_buf;
@@ -2850,9 +2854,11 @@ err:
 void blob_status_to_blob_buffer(blob_status_t *bs, blob_buffer_t *bf)
 {
     int blobno = 0;
+    printf("%s: %d\n", __func__, bs->numcblobs);
     for (blobno = 0; blobno < bs->numcblobs; blobno++) {
         if (bs->blobptrs[blobno] != NULL) {
             bf[blobno].exists = 1;
+            printf("%s: %p %d\n", __func__, bf + blobno, bf[blobno].exists);
             bf[blobno].data = bs->blobptrs[blobno];
             bf[blobno].length = bs->bloblens[blobno];
             bf[blobno].collected = bs->bloblens[blobno];
