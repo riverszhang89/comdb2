@@ -8010,6 +8010,18 @@ static inline void init_version_num(unsigned long long *version_num, int sz) {
         version_num[i] = -1;
 }
 
+static char *owner = NULL;
+static pthread_mutex_t owner_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+int bdb_is_delfiles_in_progress()
+{
+    int rc;
+    Pthread_mutex_lock(&owner_mtx);
+    rc = (owner != NULL);
+    Pthread_mutex_unlock(&owner_mtx);
+    return rc;
+}
+
 /* given an existing table pointed by bdb_state, check the disk for older
    versions of it
    (i.e. not matching current metadata versioning information), and queue those
@@ -8023,8 +8035,6 @@ static int bdb_process_unused_files(bdb_state_type *bdb_state, tran_type *tran,
 {
     int spew_debug =
         bdb_attr_get(bdb_state->attr, BDB_ATTR_DELETE_OLD_FILE_DEBUG);
-    static char *owner = NULL;
-    static pthread_mutex_t owner_mtx = PTHREAD_MUTEX_INITIALIZER;
     const char blob_ext[] = ".blob";
     const char data_ext[] = ".data";
     const char index_ext[] = ".index";
@@ -8344,7 +8354,7 @@ int bdb_purge_unused_files(bdb_state_type *bdb_state, tran_type *tran,
         return 0;
     }
 
-    if (uf_ptr->lognum && lowfilenum && uf_ptr->lognum >= lowfilenum) {
+    if (uf_ptr->lognum && lowfilenum) {
         if (oldfile_add_ptr(uf_ptr, __func__, __LINE__, spew_debug))
             free(uf_ptr); /* failed to add back so need to free */
         return 1;
