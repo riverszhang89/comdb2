@@ -58,10 +58,9 @@
 static unsigned char sid_ctx[8];
 #endif
 
-int SBUF2_FUNC(ssl_new_ctx)(SSL_CTX **pctx, ssl_mode mode, const char *dir,
-                            char **pcert, X509 **px509cert, char **pkey, EVP_PKEY **pevppkey, char **pca, X509 **px509ca, char **pcrl, X509_CRL **px509crl,
-                            long sess_sz, const char *ciphers, double mintlsver,
-                            char *err, size_t n)
+int SBUF2_FUNC(ssl_new_ctx)(SSL_CTX **pctx, ssl_mode mode, const char *dir, char **pcert, X509 **px509cert, char **pkey,
+                            EVP_PKEY **pevppkey, char **pca, X509 **px509ca, char **pcrl, X509_CRL **px509crl,
+                            long sess_sz, const char *ciphers, double mintlsver, char *err, size_t n)
 {
     SSL_CTX *myctx;
     char *buffer, *cert, *key, *ca, *crl;

@@ -2189,9 +2189,9 @@ static int try_ssl(cdb2_hndl_tp *hndl, SBUF2 *sb, int indx)
 
     cs = (hndl->sess_list == NULL) ? &hndl->cs : &hndl->sess_list->cs;
 
-    rc = ssl_new_ctx(&ctx, hndl->c_sslmode, hndl->sslpath, &hndl->cert, &cs->cert,
-                     &hndl->key, &cs->key, &hndl->ca, &cs->ca, &hndl->crl, &cs->crl, hndl->num_hosts, NULL,
-                     hndl->min_tls_ver, hndl->errstr, sizeof(hndl->errstr));
+    rc = ssl_new_ctx(&ctx, hndl->c_sslmode, hndl->sslpath, &hndl->cert, &cs->cert, &hndl->key, &cs->key, &hndl->ca,
+                     &cs->ca, &hndl->crl, &cs->crl, hndl->num_hosts, NULL, hndl->min_tls_ver, hndl->errstr,
+                     sizeof(hndl->errstr));
     if (rc != 0) {
         hndl->sslerr = 1;
         return -1;
