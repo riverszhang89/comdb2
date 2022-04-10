@@ -125,6 +125,7 @@ static int CDB2_GET_HOSTNAME_FROM_SOCKPOOL_FD = CDB2_GET_HOSTNAME_FROM_SOCKPOOL_
 
 #include <openssl/conf.h>
 #include <openssl/crypto.h>
+#include <openssl/pem.h>
 static ssl_mode cdb2_c_ssl_mode = SSL_ALLOW;
 
 static char cdb2_sslcertpath[PATH_MAX];
@@ -910,6 +911,14 @@ typedef struct cdb2_ssl_sess {
     SSL_SESSION *sess;
 } cdb2_ssl_sess;
 
+typedef struct cdb2_x509_store {
+    X509 *cert, *ca;
+    EVP_PKEY *key;
+#if HAVE_CRL
+    X509_CRL *crl;
+#endif
+} cdb2_x509_store;
+
 struct cdb2_ssl_sess_list {
     cdb2_ssl_sess_list *next;
     char dbname[64];
@@ -920,6 +929,7 @@ struct cdb2_ssl_sess_list {
        the list may change due to SSL re-negotiation
        or database migration. */
     cdb2_ssl_sess *list;
+    cdb2_x509_store cs;
 };
 static cdb2_ssl_sess_list cdb2_ssl_sess_cache;
 
@@ -1024,6 +1034,7 @@ struct cdb2_hndl {
     int cache_ssl_sess;
     double min_tls_ver;
     cdb2_ssl_sess_list *sess_list;
+    cdb2_x509_store cs;
     int nid_dbname;
     /* 1 if it's a newly established session which needs to be cached. */
     int newsess;
@@ -2107,6 +2118,7 @@ static int try_ssl(cdb2_hndl_tp *hndl, SBUF2 *sb, int indx)
     /* An application may use different certificates.
        So we allocate an SSL context for each handle. */
     SSL_CTX *ctx;
+    cdb2_x509_store *cs;
     int rc, dossl = 0;
     cdb2_ssl_sess *p;
 
@@ -2175,8 +2187,10 @@ static int try_ssl(cdb2_hndl_tp *hndl, SBUF2 *sb, int indx)
         return -1;
     }
 
-    rc = ssl_new_ctx(&ctx, hndl->c_sslmode, hndl->sslpath, &hndl->cert,
-                     &hndl->key, &hndl->ca, &hndl->crl, hndl->num_hosts, NULL,
+    cs = (hndl->sess_list == NULL) ? &hndl->cs : &hndl->sess_list->cs;
+
+    rc = ssl_new_ctx(&ctx, hndl->c_sslmode, hndl->sslpath, &hndl->cert, &cs->cert,
+                     &hndl->key, &cs->key, &hndl->ca, &cs->ca, &hndl->crl, &cs->crl, hndl->num_hosts, NULL,
                      hndl->min_tls_ver, hndl->errstr, sizeof(hndl->errstr));
     if (rc != 0) {
         hndl->sslerr = 1;
@@ -6000,13 +6014,12 @@ static int set_up_ssl_params(cdb2_hndl_tp *hndl)
         hndl->cache_ssl_sess = !!atoi(sslenv);
     else
         hndl->cache_ssl_sess = cdb2_cache_ssl_sess;
-    if (hndl->cache_ssl_sess)
-        cdb2_set_ssl_sessions(hndl, cdb2_get_ssl_sessions(hndl));
 
     if ((sslenv = getenv("SSL_MIN_TLS_VER")) != NULL)
         hndl->min_tls_ver = atof(sslenv);
     else
         hndl->min_tls_ver = cdb2_min_tls_ver;
+
     if (hndl->cache_ssl_sess)
         cdb2_set_ssl_sessions(hndl, cdb2_get_ssl_sessions(hndl));
 
@@ -6164,12 +6177,10 @@ static cdb2_ssl_sess_list *cdb2_get_ssl_sessions(cdb2_hndl_tp *hndl)
     for (pos = cdb2_ssl_sess_cache.next; pos != NULL; pos = pos->next) {
         if (strcasecmp(hndl->dbname, pos->dbname) == 0 &&
             strcasecmp(hndl->cluster, pos->cluster) == 0) {
-            /* Don't return if being used. */
-            if (pos->ref)
-                pos = NULL;
-            else
+            if (!pos->ref) {
                 pos->ref = 1;
-            break;
+                break;
+            }
         }
     }
 
@@ -6240,6 +6251,7 @@ static int cdb2_add_ssl_session(cdb2_hndl_tp *hndl)
         hndl->sess_list->cluster[sizeof(hndl->cluster) - 1] = '\0';
         hndl->sess_list->ref = 1;
         hndl->sess_list->n = hndl->num_hosts;
+        hndl->sess_list->cs = hndl->cs;
 
         /* Append it to our internal linkedlist. */
         rc = pthread_mutex_lock(&cdb2_ssl_sess_lock);

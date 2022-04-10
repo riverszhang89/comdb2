@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/x509.h>
 
 #ifndef SBUF2_SERVER
 #  define SBUF2_SERVER 1
@@ -186,7 +187,7 @@ struct ssl_no_protocols {
  * 0 upon success
  */
 int SBUF2_FUNC(ssl_new_ctx)(SSL_CTX **pctx, ssl_mode mode, const char *dir,
-                            char **cert, char **key, char **ca, char **crl,
+                            char **cert, X509 **px509cert, char **key, EVP_PKEY **pevppkey, char **ca, X509 **px509ca, char **crl, X509_CRL **px509crl,
                             long sesssz, const char *ciphers, double mintlsver,
                             char *err, size_t n);
 #define ssl_new_ctx SBUF2_FUNC(ssl_new_ctx)

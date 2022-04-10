@@ -299,7 +299,7 @@ int ssl_bend_init(const char *default_certdir)
             &gbl_ssl_ctx,
             gbl_client_ssl_mode > gbl_rep_ssl_mode ? gbl_client_ssl_mode
                                                    : gbl_rep_ssl_mode,
-            ks, &gbl_cert_file, &gbl_key_file, &gbl_ca_file, &gbl_crl_file,
+            ks, &gbl_cert_file, NULL, &gbl_key_file, NULL, &gbl_ca_file, NULL, &gbl_crl_file, NULL,
             gbl_sess_cache_sz, gbl_ciphers, gbl_min_tls_ver,
             errmsg, sizeof(errmsg));
         if (rc == 0) {

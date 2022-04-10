@@ -33,6 +33,7 @@
 #include <openssl/conf.h>
 #include <openssl/opensslv.h>
 #include <openssl/crypto.h>
+#include <openssl/pem.h>
 
 /* bb */
 #if SBUF2_SERVER
@@ -58,7 +59,7 @@ static unsigned char sid_ctx[8];
 #endif
 
 int SBUF2_FUNC(ssl_new_ctx)(SSL_CTX **pctx, ssl_mode mode, const char *dir,
-                            char **pcert, char **pkey, char **pca, char **pcrl,
+                            char **pcert, X509 **px509cert, char **pkey, EVP_PKEY **pevppkey, char **pca, X509 **px509ca, char **pcrl, X509_CRL **px509crl,
                             long sess_sz, const char *ciphers, double mintlsver,
                             char *err, size_t n)
 {
@@ -67,9 +68,14 @@ int SBUF2_FUNC(ssl_new_ctx)(SSL_CTX **pctx, ssl_mode mode, const char *dir,
     int rc = 0;
     int servermode;
     struct stat buf;
-    STACK_OF(X509_NAME) *cert_names;
     long protocols = 0;
     int ii;
+    FILE *fp = NULL;
+    X509 *x509_cert = NULL, *x509_cert_chain = NULL, *x509_ca = NULL;
+    EVP_PKEY *evp_pkey = NULL;
+#if HAVE_CRL
+    X509_CRL *x509_crl = NULL;
+#endif
 
 #if SBUF2_SERVER
     servermode = 1;
@@ -77,11 +83,22 @@ int SBUF2_FUNC(ssl_new_ctx)(SSL_CTX **pctx, ssl_mode mode, const char *dir,
     servermode = 0;
 #endif
     myctx = NULL;
+    X509_STORE *cs = NULL;
     cert = *pcert;
     key = *pkey;
     ca = *pca;
     crl = *pcrl;
-    cert_names = NULL;
+
+    if (px509cert != NULL)
+        x509_cert = *px509cert;
+    if (px509ca != NULL)
+        x509_ca = *px509ca;
+    if (pevppkey != NULL)
+        evp_pkey = *pevppkey;
+#if HAVE_CRL
+    if (px509crl != NULL)
+        x509_crl = *px509crl;
+#endif
 
     /* If we are told to verify peer, and cacert file is NULL,
        we explicitly make one with the default name so that
@@ -307,23 +324,65 @@ int SBUF2_FUNC(ssl_new_ctx)(SSL_CTX **pctx, ssl_mode mode, const char *dir,
     }
 #endif
 
+    if ((cs = SSL_CTX_get_cert_store(myctx)) == NULL) {
+        ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to get cert store.");
+        goto error;
+    }
+
     if (cert != NULL || servermode == 1) {
-        /* Use certificate. Force error if no cert in server mode */
-        rc = SSL_CTX_use_certificate_chain_file(myctx, cert);
-        if (rc != 1) {
-            ssl_sfliberrprint(err, n, my_ssl_eprintln,
-                              "Failed to use certificate");
+        if (x509_cert == NULL) {
+            fp = fopen(cert, "r");
+            if (fp == NULL) {
+                ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to open certificate");
+                goto error;
+            }
+
+            x509_cert = PEM_read_X509_AUX(fp, NULL, NULL, NULL);
+        }
+        if (x509_cert == NULL) {
+            ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to read certificate");
             goto error;
         }
+        rc = SSL_CTX_use_certificate(myctx, x509_cert);
+        if (rc != 1) {
+            ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to use certificate");
+            goto error;
+        }
+
+        if (fp != NULL) {
+            x509_cert_chain = PEM_read_X509(fp, NULL, NULL, NULL);
+            while (x509_cert_chain != NULL) {
+                rc = SSL_CTX_add0_chain_cert(myctx, x509_cert_chain);
+                if (rc != 1) {
+                    ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to add chain certificate");
+                    goto error;
+                }
+                x509_cert_chain = PEM_read_X509(fp, NULL, NULL, NULL);
+            }
+            fclose(fp);
+        }
+        fp = NULL;
     }
 
     if (key != NULL || servermode == 1) {
+        if (evp_pkey == NULL) {
+            fp = fopen(key, "r");
+            if (fp == NULL) {
+                ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to open private key");
+                goto error;
+            }
+            evp_pkey = PEM_read_PrivateKey(fp, NULL, NULL, NULL);
+            fclose(fp);
+            fp = NULL;
+        }
+        if (evp_pkey == NULL) {
+            ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to read private key");
+            goto error;
+        }
         /* Use private key. Force error if no cert in server mode */
-        rc = SSL_CTX_use_PrivateKey_file(myctx,
-                                         key, SSL_FILETYPE_PEM);
+        rc = SSL_CTX_use_PrivateKey(myctx, evp_pkey);
         if (rc != 1) {
-            ssl_sfliberrprint(err, n, my_ssl_eprintln,
-                              "Failed to use private key");
+            ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to use private key");
             goto error;
         }
     }
@@ -331,51 +390,62 @@ int SBUF2_FUNC(ssl_new_ctx)(SSL_CTX **pctx, ssl_mode mode, const char *dir,
     if (key != NULL || cert != NULL) {
         rc = SSL_CTX_check_private_key(myctx);
         if (rc != 1) {
-            ssl_sfliberrprint(err, n, my_ssl_eprintln,
-                              "Failed to validate private key");
+            ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to validate private key");
             goto error;
         }
     }
 
     /* Load CA cert. */
     if (ca != NULL) {
-        rc = SSL_CTX_load_verify_locations(myctx, ca, NULL);
+        if (x509_ca == NULL) {
+            fp = fopen(ca, "r");
+            if (fp == NULL) {
+                ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to open certificate");
+                goto error;
+            }
+            x509_ca = PEM_read_X509_AUX(fp, NULL, NULL, NULL);
+            fclose(fp);
+            fp = NULL;
+        }
+        if (x509_ca == NULL) {
+            ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to read certificate");
+            goto error;
+        }
+        rc = X509_STORE_add_cert(cs, x509_ca);
         if (rc != 1) {
-            ssl_sfliberrprint(err, n, my_ssl_eprintln,
-                              "Failed to load cacert");
+            ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to load cacert");
             goto error;
         }
-
-        cert_names = SSL_load_client_CA_file(ca);
-        if (cert_names == NULL) {
-            ssl_sfliberrprint(err, n, my_ssl_eprintln,
-                              "Failed to load names from cacert");
-            goto error;
-        }
-
-        SSL_CTX_set_verify(myctx,
-                           SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, NULL);
 
         if (servermode)
-            SSL_CTX_set_client_CA_list(myctx, cert_names);
+            SSL_CTX_add_client_CA(myctx, x509_ca);
+
+        SSL_CTX_set_verify(myctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, NULL);
     }
 
 #if HAVE_CRL
     /* Load the certificate revocation list (CRL). */
     if (crl != NULL) {
-        X509_STORE *cvs = SSL_CTX_get_cert_store(myctx);
-        if (cvs == NULL) { /* Unlikely but just in case */
-            ssl_sfliberrprint(err, n, my_ssl_eprintln,
-                              "Failed to get cert store.");
+        if (x509_crl == NULL) {
+            fp = fopen(crl, "r");
+            if (fp == NULL) {
+                ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to open CRL");
+                goto error;
+            }
+            x509_crl = PEM_read_X509_CRL(fp, NULL, NULL, NULL);
+            fclose(fp);
+            fp = NULL;
+        }
+        if (x509_crl == NULL) {
+            ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to read CRL");
             goto error;
         }
-        rc = X509_STORE_load_locations(cvs, crl, NULL);
+        rc = X509_STORE_add_crl(cs, x509_crl);
         if (rc != 1) {
             ssl_sfliberrprint(err, n, my_ssl_eprintln, "Failed to load CRL.");
             goto error;
         }
-        rc = X509_STORE_set_flags(cvs, X509_V_FLAG_CRL_CHECK |
-                                           X509_V_FLAG_CRL_CHECK_ALL);
+        rc = X509_STORE_set_flags(cs, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
     }
 #endif /* HAVE_CRL */
 
@@ -399,6 +469,21 @@ error:  if (myctx != NULL) {
             SSL_CTX_free(myctx);
             myctx = NULL;
         }
+
+        if (fp != NULL)
+            fclose(fp);
+
+        X509_free(x509_cert_chain);
+        if (px509cert == NULL || x509_cert != *px509cert)
+            X509_free(x509_cert);
+        if (px509ca == NULL || x509_ca != *px509ca)
+            X509_free(x509_ca);
+        if (pevppkey == NULL || evp_pkey != *pevppkey)
+            EVP_PKEY_free(evp_pkey);
+#if HAVE_CRL
+        if (px509crl == NULL || x509_crl != *px509crl)
+            X509_CRL_free(x509_crl);
+#endif
 
         /* Free strdup()'d memory. */
         if (cert != *pcert)
@@ -424,6 +509,29 @@ error:  if (myctx != NULL) {
             *pca = ca;
         if (*pcrl == NULL)
             *pcrl = crl;
+
+        /* If caller didn't request X509 certificates, free them. Otherwise let caller take ownership. */
+        if (px509cert == NULL)
+            X509_free(x509_cert);
+        else if (*px509cert == NULL)
+            *px509cert = x509_cert;
+
+        if (pevppkey == NULL)
+            EVP_PKEY_free(evp_pkey);
+        else if (*pevppkey == NULL)
+            *pevppkey = evp_pkey;
+
+        if (px509ca == NULL)
+            X509_free(x509_ca);
+        else if (*px509ca == NULL)
+            *px509ca = x509_ca;
+
+#if HAVE_CRL
+        if (px509crl == NULL)
+            X509_CRL_free(x509_crl);
+        else if (*px509crl == NULL)
+            *px509crl = x509_crl;
+#endif
     }
 
     return rc;
