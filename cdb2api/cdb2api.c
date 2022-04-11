@@ -143,7 +143,7 @@ static char cdb2_sslcrl[PATH_MAX];
 #endif
 int cdb2_nid_dbname = CDB2_NID_DBNAME_DEFAULT;
 
-#define CDB2_CACHE_SSL_SESS_DEFAULT 0
+#define CDB2_CACHE_SSL_SESS_DEFAULT 1
 static int cdb2_cache_ssl_sess = CDB2_CACHE_SSL_SESS_DEFAULT;
 
 #define CDB2_MIN_TLS_VER_DEFAULT 0
@@ -929,7 +929,7 @@ struct cdb2_ssl_sess_list {
        the list may change due to SSL re-negotiation
        or database migration. */
     cdb2_ssl_sess *list;
-    cdb2_x509_store cs;
+    cdb2_x509_store *cs;
 };
 static cdb2_ssl_sess_list cdb2_ssl_sess_cache;
 
@@ -1034,7 +1034,7 @@ struct cdb2_hndl {
     int cache_ssl_sess;
     double min_tls_ver;
     cdb2_ssl_sess_list *sess_list;
-    cdb2_x509_store cs;
+    cdb2_x509_store *cs;
     int nid_dbname;
     /* 1 if it's a newly established session which needs to be cached. */
     int newsess;
@@ -2118,7 +2118,7 @@ static int try_ssl(cdb2_hndl_tp *hndl, SBUF2 *sb, int indx)
     /* An application may use different certificates.
        So we allocate an SSL context for each handle. */
     SSL_CTX *ctx;
-    cdb2_x509_store *cs;
+    cdb2_x509_store *cs, nullcs = {0};
     int rc, dossl = 0;
     cdb2_ssl_sess *p;
 
@@ -2187,9 +2187,10 @@ static int try_ssl(cdb2_hndl_tp *hndl, SBUF2 *sb, int indx)
         return -1;
     }
 
-    cs = (hndl->sess_list == NULL) ? &hndl->cs : &hndl->sess_list->cs;
+    if ((cs = (hndl->sess_list != NULL) ? hndl->sess_list->cs : hndl->cs) == NULL)
+        cs = &nullcs;
 
-    rc = ssl_new_ctx(&ctx, hndl->c_sslmode, hndl->sslpath, &hndl->cert, &cs->cert, &hndl->key, &cs->key, &hndl->ca,
+    rc = ssl_new_ctx(&ctx, hndl->c_sslmode, hndl->sslpath,&hndl->cert, &cs->cert, &hndl->key, &cs->key, &hndl->ca,
                      &cs->ca, &hndl->crl, &cs->crl, hndl->num_hosts, NULL, hndl->min_tls_ver, hndl->errstr,
                      sizeof(hndl->errstr));
     if (rc != 0) {
@@ -6020,8 +6021,10 @@ static int set_up_ssl_params(cdb2_hndl_tp *hndl)
     else
         hndl->min_tls_ver = cdb2_min_tls_ver;
 
-    if (hndl->cache_ssl_sess)
+    if (hndl->cache_ssl_sess) {
         cdb2_set_ssl_sessions(hndl, cdb2_get_ssl_sessions(hndl));
+        hndl->cs = calloc(1, sizeof(cdb2_x509_store));
+    }
 
     /* Reset for next cdb2_open() */
     cdb2_c_ssl_mode = SSL_ALLOW;
@@ -6252,6 +6255,7 @@ static int cdb2_add_ssl_session(cdb2_hndl_tp *hndl)
         hndl->sess_list->ref = 1;
         hndl->sess_list->n = hndl->num_hosts;
         hndl->sess_list->cs = hndl->cs;
+        hndl->cs = NULL;
 
         /* Append it to our internal linkedlist. */
         rc = pthread_mutex_lock(&cdb2_ssl_sess_lock);

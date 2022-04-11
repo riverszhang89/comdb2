@@ -55,6 +55,7 @@ SET SSL_CERT ${TESTDIR}/charlie.crt
 SET SSL_KEY ${TESTDIR}/charlie.key
 SELECT name FROM whoami
 EOF`
+echo Am I Charlie?
 if [ "$name" != "Charlie Brown" ]; then
     exit 1
 fi
@@ -65,6 +66,7 @@ SET SSL_CERT ${TESTDIR}/sally.crt
 SET SSL_KEY ${TESTDIR}/sally.key
 SELECT name FROM whoami
 EOF`
+echo Am I Sally?
 if [ "$name" != "Sally Brown" ]; then
     exit 1
 fi
@@ -77,6 +79,7 @@ SET USER charlie
 SET PASSWORD brown
 SELECT name FROM whoami
 EOF`
+echo Am I Charlie?
 if [ "$name" != "Charlie Brown" ]; then
     exit 1
 fi
@@ -92,7 +95,9 @@ SELECT name FROM whoami
 EOF`
 browns='Sally Brown
 Charlie Brown'
+echo Are we the Browns?
 if [ "$names" != "$browns" ]; then
+    echo $names
     exit 1
 fi
 
