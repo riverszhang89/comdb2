@@ -570,6 +570,8 @@ static void ssl_accept_evbuffer(int fd, short what, void *arg)
 {
     struct newsql_appdata_evbuffer *appdata = arg;
     SSL *ssl = appdata->ssl_data->ssl;
+    ERR_clear_error();
+
     int rc = SSL_do_handshake(ssl);
     if (rc == 1) {
         if (enable_ssl_evbuffer(appdata) == 0) {
@@ -605,6 +607,8 @@ static int rd_evbuffer_ssl(struct newsql_appdata_evbuffer *appdata)
     SSL *ssl = appdata->ssl_data->ssl;
     int len = KB(16);
     struct iovec v = {0};
+    ERR_clear_error();
+
     if (evbuffer_reserve_space(appdata->rd_buf, len, &v, 1) == -1) {
         return -1;
     }
