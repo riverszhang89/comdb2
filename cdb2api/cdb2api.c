@@ -145,8 +145,8 @@ int cdb2_nid_dbname = CDB2_NID_DBNAME_DEFAULT;
 #define CDB2_CACHE_SSL_SESS_DEFAULT 0
 static int cdb2_cache_ssl_sess = CDB2_CACHE_SSL_SESS_DEFAULT;
 
-#define CDB2_CACHE_SSL_SESS_TTL_DEFAULT 0
-static int cdb2_cache_ssl_sess_ttl = CDB2_CACHE_SSL_SESS_DEFAULT;
+#define CDB2_CACHE_SSL_SESS_TTL_DEFAULT UINT_MAX
+static unsigned int cdb2_cache_ssl_sess_ttl = CDB2_CACHE_SSL_SESS_TTL_DEFAULT;
 
 #define CDB2_MIN_TLS_VER_DEFAULT 0
 static double cdb2_min_tls_ver = CDB2_MIN_TLS_VER_DEFAULT;
@@ -917,7 +917,7 @@ typedef struct cdb2_ssl_sess {
 struct cdb2_ssl_sess_list {
     cdb2_ssl_sess_list *next;
     SSL_CTX *ctx;
-    time_t tm; /* Time the certificate was cached */
+    time_t when; /* Time the certificate was cached */
     char dbname[64];
     char cluster[64];
     int ref;
@@ -1420,16 +1420,16 @@ static void read_comdb2db_cfg(cdb2_hndl_tp *hndl, SBUF2 *s,
                     cdb2_sslcrl[PATH_MAX - 1] = '\0';
                 }
 #endif /* HAVE_CRL */
-            } else if (strcasecmp("ssl_session_cache", tok) == 0) {
-                tok = strtok_r(NULL, " :,", &last);
-                if (tok)
-                    cdb2_cache_ssl_sess = !!atoi(tok);
             } else if (strcasecmp("ssl_session_cache_ttl", tok) == 0) {
                 tok = strtok_r(NULL, " :,", &last);
                 if (tok) {
                     int ttl = atoi(tok);
                     if (ttl >= 0)
                     cdb2_cache_ssl_sess_ttl = ttl;
+            } else if (strcasecmp("ssl_session_cache", tok) == 0) {
+                tok = strtok_r(NULL, " :,", &last);
+                if (tok)
+                    cdb2_cache_ssl_sess = !!atoi(tok);
                 }
             } else if (strcasecmp(SSL_MIN_TLS_VER_OPT, tok) == 0) {
                 tok = strtok_r(NULL, " :,", &last);
@@ -4001,8 +4001,6 @@ static int process_ssl_set_command(cdb2_hndl_tp *hndl, const char *cmd)
         p += sizeof("SSL_SESSION_CACHE");
         p = cdb2_skipws(p);
         hndl->cache_ssl_sess = (strncasecmp(p, "ON", 2) == 0);
-        if (hndl->cache_ssl_sess)
-            cdb2_set_ssl_sessions(hndl, cdb2_get_ssl_sessions(hndl));
     } else if (strncasecmp(p, SSL_MIN_TLS_VER_OPT,
                            sizeof(SSL_MIN_TLS_VER_OPT) - 1) == 0) {
         p += sizeof(SSL_MIN_TLS_VER_OPT);
@@ -4016,7 +4014,7 @@ static int process_ssl_set_command(cdb2_hndl_tp *hndl, const char *cmd)
         /* Reset ssl error flag. */
         hndl->sslerr = 0;
 
-        /* Reset SSL context to swap in new certificates. */
+        /* Reset SSL context to swap in user certificates. */
         if (hndl->sess_list) {
             /* Release the cached session */
             hndl->sess_list->ref = 0;
@@ -4026,6 +4024,9 @@ static int process_ssl_set_command(cdb2_hndl_tp *hndl, const char *cmd)
             SSL_CTX_free(hndl->ctx);
         }
         hndl->ctx = NULL;
+
+        if (hndl->cache_ssl_sess)
+            cdb2_set_ssl_sessions(hndl, cdb2_get_ssl_sessions(hndl));
 
         /* Refresh connection if SSL config has changed. */
         if (hndl->sb != NULL) {
@@ -6048,8 +6049,6 @@ static int set_up_ssl_params(cdb2_hndl_tp *hndl)
         hndl->min_tls_ver = atof(sslenv);
     else
         hndl->min_tls_ver = cdb2_min_tls_ver;
-    if (hndl->cache_ssl_sess)
-        cdb2_set_ssl_sessions(hndl, cdb2_get_ssl_sessions(hndl));
 
     /* Reset for next cdb2_open() */
     cdb2_c_ssl_mode = SSL_ALLOW;
@@ -6205,12 +6204,10 @@ static cdb2_ssl_sess_list *cdb2_get_ssl_sessions(cdb2_hndl_tp *hndl)
     for (pos = cdb2_ssl_sess_cache.next; pos != NULL; pos = pos->next) {
         if (strcasecmp(hndl->dbname, pos->dbname) == 0 &&
             strcasecmp(hndl->cluster, pos->cluster) == 0) {
-            /* Don't return if being used. */
-            if (pos->ref)
-                pos = NULL;
-            else
+            if (!pos->ref) {
                 pos->ref = 1;
-            break;
+                break;
+            }
         }
     }
 
@@ -6222,7 +6219,6 @@ static int cdb2_set_ssl_sessions(cdb2_hndl_tp *hndl, cdb2_ssl_sess_list *arg)
 {
     /* Worst practices of variable naming. */
     int i, j;
-    time_t now;
     cdb2_ssl_sess *p, *q, *r;
 
     if (arg == NULL)
@@ -6242,22 +6238,33 @@ static int cdb2_set_ssl_sessions(cdb2_hndl_tp *hndl, cdb2_ssl_sess_list *arg)
         strncpy(p->host, hndl->hosts[i], sizeof(p->host) - 1);
         p->host[sizeof(p->host) - 1] = '\0';
         p->sess = NULL;
-        for (j = 0, q = arg->list; j != arg->n; ++q) {
+        for (j = 0, q = arg->list; j != arg->n; ++j, ++q) {
             if (strcasecmp(p->host, q->host) == 0) {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+                SSL_SESSION_up_ref(q->sess);
+#endif
                 p->sess = q->sess;
                 break;
             }
         }
     }
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    for (j = 0, q = arg->list; j != arg->n; ++j, ++q)
+        SSL_SESSION_free(q->sess);
+#endif
+
     free(arg->list);
     arg->n = hndl->num_hosts;
     arg->list = r;
 
     hndl->sess_list = arg;
-
-    now = time(NULL);
-    hndl->ctx = arg->ctx;
+    if (time(NULL) - arg->when > cdb2_cache_ssl_sess_ttl) {
+        SSL_CTX_free(arg->ctx);
+        hndl->ctx = NULL;
+    } else {
+        hndl->ctx = arg->ctx;
+    }
 
     return 0;
 }
@@ -6265,7 +6272,6 @@ static int cdb2_set_ssl_sessions(cdb2_hndl_tp *hndl, cdb2_ssl_sess_list *arg)
 static int cdb2_add_ssl_session(cdb2_hndl_tp *hndl)
 {
     int i, rc;
-    SSL_SESSION *sess;
     cdb2_ssl_sess_list *store;
     cdb2_ssl_sess_list *sess_list = hndl->sess_list;
     cdb2_ssl_sess *p;
@@ -6274,11 +6280,10 @@ static int cdb2_add_ssl_session(cdb2_hndl_tp *hndl)
     if (!hndl->cache_ssl_sess)
         return 0;
 
-    /* If the context has changed (most likely due to certificate TTL expiry),
-       refresh the context. */
+    /* If the context has changed (e.g., certificate TTL expiry), refresh the context. */
     if (sess_list != NULL && hndl->sess_list->ctx != hndl->ctx) {
         sess_list->ctx = hndl->ctx;
-        sess_list->tm = time(NULL);
+        sess_list->when = time(NULL);
     }
 
     if (!hndl->newsess)
@@ -6298,6 +6303,8 @@ static int cdb2_add_ssl_session(cdb2_hndl_tp *hndl)
         sess_list->cluster[sizeof(hndl->cluster) - 1] = '\0';
         sess_list->ref = 1;
         sess_list->n = hndl->num_hosts;
+        sess_list->ctx = hndl->ctx;
+        sess_list->when = time(NULL);
 
         /* Append it to our internal linkedlist. */
         rc = pthread_mutex_lock(&cdb2_ssl_sess_lock);
@@ -6333,12 +6340,17 @@ static int cdb2_add_ssl_session(cdb2_hndl_tp *hndl)
         }
     }
 
-    /* Refresh in case of renegotiation. */
     p = &(sess_list->list[hndl->connected_host]);
-    sess = p->sess;
-    p->sess = SSL_get1_session(sslio_get_ssl(hndl->sb));
-    if (sess != NULL)
-        SSL_SESSION_free(sess);
+    if (SSL_session_reused(sslio_get_ssl(hndl->sb))) {
+        /* Partial handshake: extend the lifetime of the session as it's getting reused. */
+        SSL_SESSION_set_time(p->sess, time(NULL));
+    } else {
+        /* Full handshake: need to refresh session. First free the existing session,
+           and then increment ref counter of the new session to keep it alive. */
+        if (p->sess != NULL)
+            SSL_SESSION_free(p->sess);
+        p->sess = SSL_get1_session(sslio_get_ssl(hndl->sb));
+    }
     return 0;
 }
 
