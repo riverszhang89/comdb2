@@ -5990,8 +5990,8 @@ out:
 }
 
 
-static const uint8_t *_get_txn_info(char *msg, unsigned long long rqid,
-                                    uuid_t uuid,  int *type)
+void _get_txn_info(char *msg, unsigned long long rqid,
+                   uuid_t uuid, int *type, const uint8_t **pp_buf, const uint8_t **pp_buf_end)
 {
     const uint8_t *p_buf;
     const uint8_t *p_buf_end;
@@ -6020,7 +6020,10 @@ static const uint8_t *_get_txn_info(char *msg, unsigned long long rqid,
         comdb2uuid_clear(uuid);
     }
 
-    return p_buf;
+    if (pp_buf != NULL)
+        *pp_buf = p_buf;
+    if (pp_buf_end != NULL)
+        *pp_buf_end = p_buf;
 }
 
 
@@ -6040,7 +6043,7 @@ int osql_process_schemachange(struct ireq *iq, unsigned long long rqid,
     int type;
     char *msg = *pmsg;
 
-    p_buf = _get_txn_info(msg, rqid, uuid, &type);
+    _get_txn_info(msg, rqid, uuid, &type, &p_buf, &p_buf_end);
 
     if (type != OSQL_SCHEMACHANGE)
         return 0;
@@ -6174,7 +6177,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     int type;
     char *msg = *pmsg;
 
-    p_buf = _get_txn_info(msg, rqid, uuid, &type);
+    _get_txn_info(msg, rqid, uuid, &type, &p_buf, &p_buf_end);
 
     /* Break down a bundle */
     if (type == OSQL_BUNDLED || type == OSQL_DONE_BUNDLED)
