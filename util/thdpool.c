@@ -703,6 +703,7 @@ static void *thdpool_thd(void *voidarg)
         thddata = alloca(pool->per_thread_data_sz);
         assert(thddata != NULL);
         memset(thddata, 0, pool->per_thread_data_sz);
+        printf("--------- entering !!!! %p\n", thddata);
     }
 
     init_fn = pool->init_fn;
@@ -859,6 +860,10 @@ static void *thdpool_thd(void *voidarg)
         comdb2bma_yield_all();
     }
 thread_exit:
+    if (pool->per_thread_data_sz > 0) {
+        memset(thddata, 0, pool->per_thread_data_sz);
+        printf("--------- exiting!!!! %p\n", thddata);
+    }
 
     delt_fn = pool->delt_fn;
     if (delt_fn)

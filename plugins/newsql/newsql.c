@@ -1924,6 +1924,7 @@ int newsql_loop(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
     clnt->osql.sent_column_data = 0;
 
     /* `thd' gets assigned in sqlenginepool. A fresh connection will not have this. */
+    printf("--------- looping !!!! %p\n", clnt->thd);
     if (clnt->thd && clnt->thd->sqlthd)
         clnt->thd->sqlthd->stop_this_statement = 0;
     if (clnt->tzname[0] == 0 && sql_query->tzname) {

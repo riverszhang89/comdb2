@@ -29,6 +29,7 @@
 #include <str0.h>
 
 #include <newsql.h>
+#include <unistd.h>
 
 extern int gbl_sqlwrtimeoutms;
 
@@ -660,6 +661,7 @@ static int handle_newsql_request(comdb2_appsock_arg_t *arg)
         appdata->query = NULL;
 
         query = read_newsql_query(dbenv, &clnt, sb);
+        sleep(2);
     }
 
 done:
