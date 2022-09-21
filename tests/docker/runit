@@ -59,7 +59,7 @@ if [[ "$script" != "" ]]; then
     cp $script common/user_script
     chmod +x common/user_script
 fi
-docker build -t comdb2test:$prefix -f $src/tests/docker/Dockerfile.install $src
+docker build --network host -t comdb2test:$prefix -f $src/tests/docker/Dockerfile.install $src
 
 echo $cluster >common/cluster
 ssh-keygen -N "" -f common/id_rsa

@@ -1,5 +1,5 @@
+FROM comdb2test:5bd3d619
 ARG REVISION=HEAD
-FROM comdb2test:${REVISION}
 
 RUN mkdir /var/run/sshd && \
     echo 'root:bigsecret' | chpasswd && \
