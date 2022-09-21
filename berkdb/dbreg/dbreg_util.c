@@ -348,6 +348,7 @@ __ufid_clear_dbp(dbenv, dbp)
 	DB_ENV *dbenv;
 	DB *dbp;
 {
+    printf("hello?!!! %s im removing %s\n", __func__, dbp->fname);
 	struct __ufid_to_db_t *ufid;
 	dbp->added_to_ufid = 0;
 	Pthread_mutex_lock(&dbenv->ufid_to_db_lk);
@@ -395,8 +396,11 @@ __ufid_add_dbp(dbenv, dbp)
 	struct __ufid_to_db_t *ufid;
 	int ret = 0;
 
+    printf("hello?!!! %s im adding %s\n", __func__, dbp->fname);
+
 	Pthread_mutex_lock(&dbenv->ufid_to_db_lk);
 	if ((ufid = hash_find(dbenv->ufid_to_db_hash, dbp->fileid))) {
+        printf("%s woah!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! is null???? ufid->dbp %p\n", __func__, ufid->dbp);
 		if (ufid->dbp != NULL) {
 			DB_ASSERT(ufid->dbp == dbp);
 		}
@@ -473,6 +477,7 @@ __ufid_to_db_int(dbenv, txn, dbpp, inufid, lsnp, create)
 		if (ufid->dbp == NULL && create) {
 			DB *dbp = NULL;
 			Pthread_mutex_unlock(&dbenv->ufid_to_db_lk);
+            printf("------------------- ufid->fname ???? %s\n", ufid->fname);
 			ret = __ufid_open(dbenv, txn, &dbp, inufid, ufid->fname, lsnp);
 			Pthread_mutex_lock(&dbenv->ufid_to_db_lk);
 			if (dbp != NULL && ufid->dbp == NULL) {
@@ -992,6 +997,7 @@ __dbreg_do_open(dbenv,
 	DB *dbp;
 	int ret;
 	u_int32_t cstat;
+    printf("%s ????????????????? %s\n", __func__, name);
 
 	if ((ret = db_create(&dbp, lp->dbenv, 0)) != 0)
 		return (ret);
