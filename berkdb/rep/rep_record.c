@@ -4471,6 +4471,8 @@ int bdb_transfer_pglogs_to_queues(void *bdb_state, void *pglogs,
 static unsigned long long getlock_poll_count = 0;
 int gbl_rep_lock_time_ms = 0;
 
+static int abort_in_ufid = 0;
+
 /*
  * __rep_process_txn --
  *
@@ -5009,11 +5011,14 @@ __rep_process_txn(dbenv, rctl, rec, ltrans, maxlsn, commit_gen)
 	DB_LSN maxlsn;
 	uint32_t *commit_gen;
 {
+	abort_in_ufid = 1;
 	static int lastpr = 0;
 	int now;
 	if (!gbl_rep_process_txn_time) {
-		return __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn,
+		int rc = __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn,
 			commit_gen, 0, NULL, NULL);
+		abort_in_ufid = 0;
+		return rc;
 	} else {
 		int rc;
 		long long usecs;
@@ -5036,6 +5041,7 @@ __rep_process_txn(dbenv, rctl, rec, ltrans, maxlsn, commit_gen)
 				rep_process_txn_usc / rep_process_txn_cnt);
 			lastpr = now;
 		}
+		abort_in_ufid = 0;
 
 		return rc;
 	}
