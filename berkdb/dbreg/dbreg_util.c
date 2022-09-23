@@ -205,8 +205,12 @@ __dbreg_open_files_int(dbenv, flags)
 		 * For this we output DBREG_RCLOSE records so the files will be
 		 * closed on the forward pass.
 		 */
-        DB *dbp = lp->dbentry[fnp->id].dbp;
-        logmsg(LOGMSG_WARN, "%d: __dbreg_register_log changing (%d %s) to %s \n", fnp->id, dbp ? dbp->fname : "null!!!", (char *)dbtp->data);
+		DB *dbp2;
+		if (fnp->id < dblp->dbentry_cnt)
+			dbp2 = dblp->dbentry[fnp->id].dbp;
+		else
+			dbp2 = NULL;
+		logmsg(LOGMSG_WARN, "%d: __dbreg_register_log changing (%d %s) to %s \n", __LINE__, fnp->id, dbp2 ? dbp2->fname : "null!!!", (char *)dbtp->data);
 		if ((ret = __dbreg_register_log(dbenv,
 			    NULL, &rlsn, oflags,
 			    F_ISSET(dblp,
