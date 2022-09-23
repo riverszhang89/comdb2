@@ -418,7 +418,7 @@ __dbreg_open_file(dbenv, txn, argp, info)
 			if (dbp->meta_pgno != argp->meta_pgno ||
 			    memcmp(dbp->fileid,
 				argp->uid.data, DB_FILE_ID_LEN) != 0) {
-                printf("%s ----------------- !!!!!!!!! %s %s\n", __func__, dbp->fname, (char *)argp->name.data);
+                logmsg(LOGMSG_WARN, "%s not the same ???? ----------------- !!!!!!!!! %s %s\n", __func__, dbp->fname, (char *)argp->name.data);
 				MUTEX_THREAD_UNLOCK(dbenv, lp->mutexp);
 				(void)__dbreg_revoke_id(dbp, 0,
 				    DB_LOGFILEID_INVALID);

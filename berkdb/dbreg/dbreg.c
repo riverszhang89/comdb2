@@ -302,6 +302,8 @@ __dbreg_get_id(dbp, txn, idp)
 	fid_dbt.data = dbp->fileid;
 	fid_dbt.size = DB_FILE_ID_LEN;
 
+	DB *dbp = lp->dbentry[id].dbp;
+	logmsg(LOGMSG_WARN, "%d: __dbreg_register_log changing (%d %s) to %s \n", id, dbp ? dbp->fname : "null!!!", (char *)dbtp->data);
 	if ((ret = __dbreg_register_log(dbenv, txn, &retlsn,
 					F_ISSET(dbp, DB_AM_NOT_DURABLE) ? DB_LOG_NOT_DURABLE : 0,
                     DBREG_OPEN, r_name.size == 0 ? NULL : &r_name, &fid_dbt, id,
@@ -533,6 +535,8 @@ __dbreg_close_id(dbp, txn)
 	fid_dbt.size = DB_FILE_ID_LEN;
 
 	Pthread_rwlock_wrlock(&gbl_dbreg_log_lock);
+	DB *dbp = lp->dbentry[fnp->id].dbp;
+	logmsg(LOGMSG_WARN, "%d: __dbreg_register_log changing (%d %s) to %s \n", fnp->id, dbp ? dbp->fname : "null!!!", (char *)dbtp->data);
 	ret = __dbreg_register_log(dbenv, txn, &rlsn,
 		F_ISSET(dbp, DB_AM_NOT_DURABLE) ? DB_LOG_NOT_DURABLE : 0,
 		DBREG_CLOSE, dbtp, &fid_dbt, fnp->id,
