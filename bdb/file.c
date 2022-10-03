@@ -1746,6 +1746,7 @@ static int bdb_close_int(bdb_state_type *bdb_state, int envonly)
 int bdb_handle_reset_tran(bdb_state_type *bdb_state, tran_type *trans,
                           tran_type *cltrans)
 {
+#if 0
     DB_TXN *tid = trans ? trans->tid : NULL;
     DB_TXN *cltid = cltrans ? cltrans->tid : NULL;
     int rc = close_dbs_txn(bdb_state, cltid);
@@ -1765,6 +1766,7 @@ int bdb_handle_reset_tran(bdb_state_type *bdb_state, tran_type *trans,
         logmsg(LOGMSG_ERROR, "upgrade: open_dbs as master failed\n");
         return -1;
     }
+#endif
     bdb_state->isopen = 1;
 
     return 0;
