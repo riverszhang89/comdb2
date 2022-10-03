@@ -57,6 +57,8 @@ static const char revid[] = "$Id: dbreg_rec.c,v 11.120 2003/10/27 15:54:31 sue E
 #include "dbinc/qam.h"
 
 #include "printformats.h"
+char *thesame = NULL;
+
 
 static int __dbreg_open_file __P((DB_ENV *,
     DB_TXN *, __dbreg_register_args *, void *));
@@ -91,12 +93,23 @@ __dbreg_register_recover(dbenv, dbtp, lsnp, op, info)
 	dblp = dbenv->lg_handle;
 	dbp = NULL;
 
+    static DB_LSN prev = {0, 0};
+
 #ifdef DEBUG_RECOVER
 	REC_PRINT(__dbreg_register_print);
 #endif
 	do_open = do_close = 0;
 	if ((ret = __dbreg_register_read(dbenv, dbtp->data, &argp)) != 0)
 		goto out;
+
+    printf("%s I've read %d:%d, op %d opcode %d fileid %d\n", __func__, lsnp->file, lsnp->offset, op, argp->opcode, argp->fileid);
+
+#if 0
+    if (lsnp->file == prev.file && lsnp->offset == prev.offset && argp->opcode == 3)
+        abort();
+#endif
+
+    prev = *lsnp;
 
 	/* we're in a forward recovery pass opening files - */
 	if ((op == DB_TXN_OPENFILES || op == DB_TXN_POPENFILES) &&
@@ -402,6 +415,7 @@ __dbreg_open_file(dbenv, txn, argp, info)
 		return (ENOENT);
 	}
 
+
 	/*
 	 * When we're opening, we have to check that the name we are opening
 	 * is what we expect.  If it's not, then we close the old file and
@@ -413,12 +427,22 @@ __dbreg_open_file(dbenv, txn, argp, info)
 	else
 		dbe = NULL;
 
+
+
+    int isnull = (dbe == NULL || dbe->dbp == NULL);
+    free(thesame);
+    thesame = NULL;
+    logmsg(LOGMSG_WARN, "%s 1111 is null %d --------------- !!!!!!!!! changing (%d %s) to  %s\n", __func__, isnull, argp->fileid, isnull ? "nullfname" : dbe->dbp->fname, (char *)argp->name.data);
+
+
 	if (dbe != NULL) {
 		if ((dbp = dbe->dbp) != NULL) {
 			if (dbp->meta_pgno != argp->meta_pgno ||
 			    memcmp(dbp->fileid,
 				argp->uid.data, DB_FILE_ID_LEN) != 0) {
-                logmsg(LOGMSG_WARN, "%s not the same ???? ----------------- !!!!!!!!! %s %s\n", __func__, dbp->fname, (char *)argp->name.data);
+                logmsg(LOGMSG_WARN, "%s not the same ???? ----------------- !!!!!!!!! changing (%d %s) to  %s\n", __func__, argp->fileid, dbp->fname, (char *)argp->name.data);
+                if (isnull)
+                    abort();
 				MUTEX_THREAD_UNLOCK(dbenv, lp->mutexp);
 				(void)__dbreg_revoke_id(dbp, 0,
 				    DB_LOGFILEID_INVALID);
@@ -436,6 +460,8 @@ __dbreg_open_file(dbenv, txn, argp, info)
 			DB_ASSERT(dbe->dbp == dbp);
 			MUTEX_THREAD_UNLOCK(dbenv, lp->mutexp);
 
+            puts("damn the same????");
+            thesame = strdup(dbp->fname);
 			/*
 			 * This is a successful open.  We need to record that
 			 * in the txnlist so that we know how to handle the

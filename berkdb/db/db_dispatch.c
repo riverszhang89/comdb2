@@ -698,6 +698,8 @@ __db_dispatch(dbenv, dtab, dtabsize, db, lsnp, redo, info)
 				return (0);
 			}
 		}
+        void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
+        comdb2_cheapstack_sym(stderr, "db dispatch %d: lsn %d:%d rectype %d\n", __LINE__, lsnp->file, lsnp->offset, rectype);
 		if (rectype >= DB_user_BEGIN && dbenv->app_dispatch != NULL)
 			return (dbenv->app_dispatch(dbenv, db, lsnp, redo));
 		else {

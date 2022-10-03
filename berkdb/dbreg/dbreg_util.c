@@ -147,6 +147,8 @@ void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 #include <tohex.h>
 void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 #endif
+#include <tohex.h>
+void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 
 /*
  * __dbreg_open_files --
@@ -205,12 +207,15 @@ __dbreg_open_files_int(dbenv, flags)
 		 * For this we output DBREG_RCLOSE records so the files will be
 		 * closed on the forward pass.
 		 */
-		DB *dbp2;
-		if (fnp->id < dblp->dbentry_cnt)
-			dbp2 = dblp->dbentry[fnp->id].dbp;
-		else
-			dbp2 = NULL;
-		logmsg(LOGMSG_WARN, "%d: __dbreg_register_log changing (%d %s) to %s \n", __LINE__, fnp->id, dbp2 ? dbp2->fname : "null!!!", (char *)dbtp->data);
+		extern int gbl_ready;
+		if (gbl_ready) {
+			DB *dbp2;
+			if (fnp->id >= 0 && fnp->id < dblp->dbentry_cnt && dblp->dbentry != NULL)
+				dbp2 = dblp->dbentry[fnp->id].dbp;
+			else
+				dbp2 = NULL;
+			logmsg(LOGMSG_WARN, "%d: __dbreg_register_log changing (%d %s) to %s \n", __LINE__, fnp->id, dbp2 ? dbp2->fname : "null!!!", (char *)dbtp->data);
+		}
 		if ((ret = __dbreg_register_log(dbenv,
 			    NULL, &rlsn, oflags,
 			    F_ISSET(dblp,
@@ -348,13 +353,19 @@ __dbreg_close_files(dbenv)
 	return (ret);
 }
 
+extern char *thesame;
 // PUBLIC: int __ufid_clear_dbp __P(( DB_ENV *, DB *));
 int
 __ufid_clear_dbp(dbenv, dbp)
 	DB_ENV *dbenv;
 	DB *dbp;
 {
-    printf("hello?!!! %s im removing %s\n", __func__, dbp->fname);
+	extern int gbl_ready;
+	printf("hello?!!! %s im removing %s %p thesame %s?\n", __func__, dbp->fname, dbp, thesame);
+#if 0
+	if (thesame != NULL && gbl_ready && strcmp(thesame, dbp->fname) == 0)
+		abort();
+#endif
 	struct __ufid_to_db_t *ufid;
 	dbp->added_to_ufid = 0;
 	Pthread_mutex_lock(&dbenv->ufid_to_db_lk);
@@ -365,11 +376,11 @@ __ufid_clear_dbp(dbenv, dbp)
 		ufid->dbp = NULL;
 	}
 	Pthread_mutex_unlock(&dbenv->ufid_to_db_lk);
-#if defined (UFID_HASH_DEBUG)
-    char fid_str[(DB_FILE_ID_LEN * 2) + 1] = {0};
-    if (dbp) fileid_str(dbp->fileid, fid_str);
-	comdb2_cheapstack_sym(stderr, "td %p %s removing %p %s\n", pthread_self(), __func__,
-        dbp, fid_str);
+#if 0
+    //char fid_str[(DB_FILE_ID_LEN * 2) + 1] = {0};
+    //if (dbp) fileid_str(dbp->fileid, fid_str);
+	comdb2_cheapstack_sym(stderr, "td %p %s removing %p\n", pthread_self(), __func__,
+        dbp);
 #endif
 	return 0;
 }
@@ -402,13 +413,13 @@ __ufid_add_dbp(dbenv, dbp)
 	struct __ufid_to_db_t *ufid;
 	int ret = 0;
 
-    printf("hello?!!! %s im adding %s\n", __func__, dbp->fname);
+    printf("hello?!!! %s im adding %s %p\n", __func__, dbp->fname, dbp);
 
 	Pthread_mutex_lock(&dbenv->ufid_to_db_lk);
 	if ((ufid = hash_find(dbenv->ufid_to_db_hash, dbp->fileid))) {
         printf("%s woah!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! is null???? ufid->dbp %p\n", __func__, ufid->dbp);
-		if (ufid->dbp != NULL) {
-			DB_ASSERT(ufid->dbp == dbp);
+		if (ufid->dbp != NULL && ufid->dbp != dbp) {
+			ufid->dbp->added_to_ufid = 0;
 		}
 	} else {
 		if ((ret = __os_malloc(dbenv, sizeof(*ufid), &ufid)) != 0) {
@@ -422,6 +433,7 @@ __ufid_add_dbp(dbenv, dbp)
 		hash_add(dbenv->ufid_to_db_hash, ufid);
 	}
 
+	//comdb2_cheapstack_sym(stderr, "td %p %s adding %p\n", pthread_self(), __func__, dbp);
 #if defined (UFID_HASH_DEBUG)
 	char fid_str[(DB_FILE_ID_LEN * 2) + 1] = {0};
 	if (dbp) fileid_str(dbp->fileid, fid_str);
@@ -434,6 +446,7 @@ __ufid_add_dbp(dbenv, dbp)
 	return ret;
 }
 
+extern int abort_in_ufid;
 static int
 __ufid_open(dbenv, txn, dbpp, inufid, name, lsnp)
 	DB_ENV *dbenv;
@@ -447,6 +460,9 @@ __ufid_open(dbenv, txn, dbpp, inufid, name, lsnp)
 	DB *dbp;
 	int ret;
 	dblp = dbenv->lg_handle;
+
+	if (abort_in_ufid)
+		abort();
 
 	if ((ret = db_create(&dbp, dbenv, 0)) != 0) {
 		logmsg(LOGMSG_FATAL,"__dbreg_fid_to_fname error creating db\n");
@@ -722,8 +738,14 @@ __dbreg_id_to_db_int_int(dbenv, txn, dbpp, ndx, inc, tryopen, lsnp,
 	 */
 	if (ndx >= dblp->dbentry_cnt ||
 	    (!dblp->dbentry[ndx].deleted && dblp->dbentry[ndx].dbp == NULL)) {
+
+		if (abort_in_ufid) {
+            puts("preparing to abort!!!");
+        }
+
 		if (!tryopen || F_ISSET(dblp, DBLOG_RECOVER)) {
 			ret = ENOENT;
+            printf("preparing to abort!!! %d %d\n", tryopen, F_ISSET(dblp, DBLOG_RECOVER));
 
 			goto err;
 		}
@@ -743,6 +765,7 @@ __dbreg_id_to_db_int_int(dbenv, txn, dbpp, ndx, inc, tryopen, lsnp,
 			 * case this will fail too.  Then it's up to the
 			 * caller to reopen the file.
 			 */
+            printf("preparing to abort!!! %d %d \n", __LINE__, ndx);
 			return (ENOENT);
 
 		/*
@@ -768,6 +791,11 @@ __dbreg_id_to_db_int_int(dbenv, txn, dbpp, ndx, inc, tryopen, lsnp,
 
 		extern int gbl_ufid_log;
 		extern int gbl_ufid_dbreg_test;
+
+
+		if (abort_in_ufid) {
+			abort();
+        }
 
 		if ((gbl_ufid_log || gbl_ufid_dbreg_test) &&
 			(ret = __ufid_find_db(dbenv, txn, dbpp, fname->ufid, lsnp)) == 0) {
@@ -1163,6 +1191,12 @@ __dbreg_lazy_id(dbp)
 		(void)__txn_abort(txn);
 		goto err;
 	}
+
+
+#if 0
+	if (strcmp(dbp->fname, "XXX.t18_0000000000870000.datas0") == 0 && id == 78)
+		abort();
+#endif
 
 	if ((ret = __txn_commit(txn, DB_TXN_NOSYNC)) != 0)
 		goto err;

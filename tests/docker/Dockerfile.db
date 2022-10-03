@@ -1,4 +1,4 @@
-FROM comdb2test:5bd3d619
+FROM comdb2test:2fad58fa
 ARG REVISION=HEAD
 
 RUN mkdir /var/run/sshd && \

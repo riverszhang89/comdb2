@@ -761,6 +761,7 @@ __db_close(dbp, txn, flags)
 	dbpflags = dbp->flags;
 
 	if (dbp->added_to_ufid) {
+		printf("AM I LOGGING ON????? %p %d\n", dbp, LOGGING_ON(dbp->dbenv));
 		__ufid_clear_dbp(dbenv,  dbp);
 	}
 
@@ -963,6 +964,7 @@ __db_refresh(dbp, txn, flags, deferred_closep)
 		 * Discard the log file id, if any.  We want to log the close
 		 * if and only if this is not a recovery dbp.
 		 */
+		printf("%d: revoking %p\n", __LINE__, dbp);
 		if (F_ISSET(dbp, DB_AM_RECOVER))
 			t_ret = __dbreg_revoke_id(dbp, 0, DB_LOGFILEID_INVALID);
 		else {

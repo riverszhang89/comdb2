@@ -2053,6 +2053,7 @@ __txn_dispatch_undo(dbenv, txnp, rdbt, key_lsn, txnlist)
 	comdb2_cheapstack_sym(stderr, "%s undoing [%d:%d]", __func__,
 			key_lsn->file, key_lsn->offset);
 #endif
+    fprintf(stderr, "db dispatch %d: lsn %d:%d\n", __LINE__, key_lsn->file, key_lsn->offset);
 	ret = __db_dispatch(dbenv, dbenv->recover_dtab,
 		dbenv->recover_dtab_size, rdbt, key_lsn, DB_TXN_ABORT, txnlist);
 	if (F_ISSET(txnp, TXN_CHILDCOMMIT))

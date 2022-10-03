@@ -2592,6 +2592,8 @@ __rep_check_applied_lsns(dbenv, lc, in_recovery_verify)
 		if (in_recovery_verify && type == DB___dbreg_register)
 			return 0;
 
+        fprintf(stderr, "db dispatch %d: lsn %d:%d\n", __LINE__, lsn.file, lsn.offset);
+
 		/* see what pages this record references */
 		if ((ret =
 			__db_dispatch(dbenv, dbenv->pgnos_dtab,
@@ -2599,6 +2601,7 @@ __rep_check_applied_lsns(dbenv, lc, in_recovery_verify)
 				DB_TXN_GETALLPGNOS, &t)) != 0) {
 			__db_err(dbenv, "can't discover pgnos for " PR_LSN,
 				PARM_LSN(lsn));
+            fprintf(stderr, "db dispatch %d: lsn %d:%d\n", __LINE__, lsn.file, lsn.offset);
 			__db_dispatch(dbenv, dbenv->pgnos_dtab,
 				dbenv->pgnos_dtab_size, &logrec, &lsn,
 				DB_TXN_GETALLPGNOS, &t);
@@ -3560,6 +3563,7 @@ gap_check:		max_lsn_dbtp = NULL;
 				wait_for_running_transactions(dbenv);
 			}
 
+            fprintf(stderr, "db dispatch %d: txnid %u lsn %d:%d\n", __LINE__, txnid, rp->lsn.file, rp->lsn.offset);
 			ret = __db_dispatch(dbenv, dbenv->recover_dtab,
 				dbenv->recover_dtab_size, rec, &rp->lsn,
 				DB_TXN_APPLY, NULL);
@@ -3895,6 +3899,7 @@ worker_thd(struct thdpool *pool, void *work, void *thddata, int op)
 
 			/* Map the txnid to the context */
 			if (dispatch_rectype(rectype)) {
+                fprintf(stderr, "db dispatch %d: lsn %d:%d\n", __LINE__, rr->lsn.file, rr->lsn.offset);
 				rc = __db_dispatch(dbenv, dbenv->recover_dtab,
 					dbenv->recover_dtab_size, &tmpdbt, &rr->lsn,
 					DB_TXN_APPLY, rq->processor->txninfo);
@@ -3906,6 +3911,7 @@ worker_thd(struct thdpool *pool, void *work, void *thddata, int op)
 
 			rr->logdbt.app_data = &rp->context;
 			if (dispatch_rectype(rectype)) {
+                fprintf(stderr, "db dispatch %d: lsn %d:%d\n", __LINE__, rr->lsn.file, rr->lsn.offset);
 				rc = __db_dispatch(dbenv, dbenv->recover_dtab,
 					dbenv->recover_dtab_size, &rr->logdbt,
 					&rr->lsn, DB_TXN_APPLY,
@@ -4471,7 +4477,7 @@ int bdb_transfer_pglogs_to_queues(void *bdb_state, void *pglogs,
 static unsigned long long getlock_poll_count = 0;
 int gbl_rep_lock_time_ms = 0;
 
-static int abort_in_ufid = 0;
+int abort_in_ufid = 0;
 
 /*
  * __rep_process_txn --
@@ -4821,6 +4827,10 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 		/* here's the bug!!!! ! */
 		qsort(lc.array, lc.nlsns, sizeof(struct logrecord),
 			__rep_lsn_cmp);
+
+        printf("------- %d: I've collected %d lsn records for txnid %u, first %d:%d, last %d:%d\n",
+                __LINE__, lc.nlsns, txnid, lc.array[0].lsn.file, lc.array[0].lsn.offset,
+                lc.array[lc.nlsns-1].lsn.file, lc.array[lc.nlsns-1].lsn.offset);
 	}
 
 
@@ -4884,6 +4894,7 @@ __rep_process_txn_int(dbenv, rctl, rec, ltrans, maxlsn, commit_gen, lockid, rp,
 		}
 
 		if (dispatch_rectype(rectype)) {
+            fprintf(stderr, "db dispatch %d: lsn %d:%d\n", __LINE__, lsnp->file, lsnp->offset);
 			if ((ret = __db_dispatch(dbenv, dbenv->recover_dtab,
 					dbenv->recover_dtab_size,
 					needed_to_get_record_from_log ? &data_dbt :
