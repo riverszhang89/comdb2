@@ -152,8 +152,10 @@ ___os_open_extend(dbenv, name, log_size, page_size, flags, mode, fhpp)
 
 	if (LF_ISSET(DB_OSO_RDONLY))
 		oflags |= O_RDONLY;
-	else
+	else {
 		oflags |= O_RDWR;
+        //printf("%d ___os_openhandle(%s %d)\n", __LINE__, name, oflags);
+    }
 
 	if (LF_ISSET(DB_OSO_TRUNC)) {
 #if defined (UFID_HASH_DEBUG)
@@ -181,6 +183,7 @@ ___os_open_extend(dbenv, name, log_size, page_size, flags, mode, fhpp)
 		oflags |= O_CIO;
 #elif defined(_LINUX_SOURCE)
 		oflags |= (O_DIRECT | O_SYNC);
+        //printf("%d ___os_openhandle(%s %d)\n", __LINE__, name, oflags);
 #else
 		oflags |= O_DIRECT;
 #endif
@@ -193,19 +196,23 @@ ___os_open_extend(dbenv, name, log_size, page_size, flags, mode, fhpp)
 #if defined(_AIX) && !defined (TESTSUITE)
 		oflags |= O_DSYNC;
 #elif defined(_LINUX_SOURCE)
-		oflags |= O_SYNC;
+		//oflags |= O_SYNC;
+        //printf("%d ___os_openhandle(%s %d)\n", __LINE__, name, oflags);
 #endif
 	}
 #endif
 
-	if (LF_ISSET(DB_OSO_OSYNC))
+	if (LF_ISSET(DB_OSO_OSYNC)) {
 		oflags |= O_SYNC;
+       // printf("%d ___os_openhandle(%s %d)\n", __LINE__, name, oflags);
+    }
 
 #ifdef HAVE_QNX
 	if (LF_ISSET(DB_OSO_REGION))
 		return (__os_qnx_region_open(dbenv, name, oflags, mode, fhpp));
 #endif
 
+    //printf("___os_openhandle(%s %d)\n", name, oflags);
 	/* Open the file. */
 	if ((ret = __os_openhandle(dbenv, name, oflags, mode, &fhp)) != 0)
 		return (ret);
