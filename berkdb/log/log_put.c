@@ -67,7 +67,7 @@ static int __log_put_next __P((DB_ENV *,
 static int __log_putr __P((DB_LOG *, DB_LSN *, const DBT *, u_int32_t, HDR *));
 #include <fcntl.h>
 static int __log_write __P((DB_LOG *, void *, u_int32_t));
-static void __log_sync_range __P((DB_LOG *));
+static void __log_sync_range __P((DB_LOG *, u_int32_t, u_int32_t));
 
 pthread_mutex_t log_write_lk = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t log_write_cond = PTHREAD_COND_INITIALIZER;
@@ -367,6 +367,7 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 			R_LOCK(dbenv, &dblp->reginfo);
 			lock_held = 1;
 		}
+        //printf("%d %d %d\n", DB_FLUSH, DB_LOG_WRNOSYNC, flags);
 		if ((ret = __log_flush_commit(dbenv, &lsn, flags)) != 0)
 			goto panic_check;
 	}
@@ -915,9 +916,7 @@ __write_inmemory_buffer(dblp, write_all)
 		Pthread_mutex_unlock(&log_write_lk);
 		return ret;
 	} else {
-		ret =  __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off);
-		//__os_fsync(dblp->dbenv, dblp->lfhp);
-		return ret;
+		return __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off);
 	}
 }
 
@@ -1877,6 +1876,7 @@ __log_fill_segments(dblp, startlsn, lsn, addr, len)
 	return (0);
 }
 
+int enqueue_pushlogs_work(int32_t file, int32_t offset);
 /*
  * __log_fill --
  *	Write information into the log.
@@ -1931,28 +1931,42 @@ __log_fill(dblp, lsn, addr, len)
 
 		/* If we fill the buffer, flush it. */
 		if (lp->b_off == bsize) {
+			u_int32_t woff = lp->w_off;
 			if ((ret = __log_write(dblp, dblp->bufp, bsize)) != 0)
 				return (ret);
-			__log_sync_range(dblp);
+			__log_sync_range(dblp, woff, bsize);
 			lp->b_off = 0;
 			++lp->stat.st_wcount_fill;
-		}
+        }
+        
 	}
+#if 0
+    if (lp->lsn.offset + 4096 > lp->log_size) {
+        printf("1 want to push from %d:%d to %d:%d\n", lp->lsn.file, lp->lsn.offset,
+                lp->lsn.file+1, 0);
+        enqueue_pushlogs_work(lp->lsn.file + 1, 0);
+    } else if (lp->b_off + 512 > bsize) {
+        int offset = lp->lsn.offset;
+        printf("2 want to push from %d:%d to %d:%d\n", lp->lsn.file, lp->lsn.offset,
+                lp->lsn.file, ((offset / bsize) + 1) * bsize);
+        enqueue_pushlogs_work(lp->lsn.file, ((offset / bsize) + 1) * bsize);
+    }
+#endif
 	return (0);
 }
 
 static void
-__log_sync_range(dblp)
+__log_sync_range(dblp, offset, length)
 	DB_LOG *dblp;
+	u_int32_t offset;
+	u_int32_t length;
 {
 	DB_ENV *dbenv;
 	LOG *lp;
-	return;
 
 	dbenv = dblp->dbenv;
 	lp = dblp->reginfo.primary;
-
-	sync_file_range(dblp->lfhp->fd, lp->w_off, lp->buffer_size, SYNC_FILE_RANGE_WRITE);
+	sync_file_range(dblp->lfhp->fd, offset, length, SYNC_FILE_RANGE_WRITE);
 }
 
 /*

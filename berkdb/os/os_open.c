@@ -196,7 +196,7 @@ ___os_open_extend(dbenv, name, log_size, page_size, flags, mode, fhpp)
 #if defined(_AIX) && !defined (TESTSUITE)
 		oflags |= O_DSYNC;
 #elif defined(_LINUX_SOURCE)
-		//oflags |= O_SYNC;
+		oflags |= O_SYNC;
         //printf("%d ___os_openhandle(%s %d)\n", __LINE__, name, oflags);
 #endif
 	}

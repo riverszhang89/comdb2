@@ -1914,6 +1914,9 @@ int udppfault_thdpool_init(void);
 extern struct thdpool *gbl_pgcompact_thdpool;
 int pgcompact_thdpool_init(void);
 
+struct thdpool *gbl_pushlogs_thdpool;
+int pushlogs_thdpool_init(void);
+
 int get_dbnum_by_handle(bdb_state_type *bdb_state);
 int get_dbnum_by_name(bdb_state_type *bdb_state, const char *name);
 int send_myseqnum_to_master(bdb_state_type *, int nodelay);

@@ -3497,6 +3497,11 @@ static int init(int argc, char **argv)
         return -1;
     }
 
+    if (pushlogs_thdpool_init()) {
+        logmsg(LOGMSG_FATAL, "failed to initialise page compact module\n");
+        return -1;
+    }
+
     initresourceman(NULL);
 
     /* Initialize the opcode handler hash */

@@ -32,6 +32,7 @@
 #include <epochlib.h>
 
 #include <bdb_api.h>
+#include <bdb_int.h>
 
 #include "comdb2.h"
 #include "logmsg.h"
@@ -41,30 +42,38 @@ static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 extern pthread_mutex_t schema_change_in_progress_mutex;
 
 static char target[SIZEOF_SEQNUM];
+static char from[SIZEOF_SEQNUM];
 static int have_thread = 0;
 
 static int delayms = 0;
 
-static char junk[2048];
+static char junk[512];
+int nlogpushwrites = 0;
 
 static void *pushlogs_thread(void *voidarg)
 {
     comdb2_name_thread(__func__);
     int rc;
+#if 0
     int lastreport = 0;
+#endif
     thrman_register(THRTYPE_PUSHLOG);
-    int nwrites = 0;
 
     thread_started("pushlog");
 
     memset(junk, '@', sizeof(junk));
 
+    int nnn = 0;
     backend_thread_event(thedb, COMDB2_THR_EVENT_START_RDWR);
+
+    bdb_get_seqnum(thedb->bdb_env, (seqnum_type *)from);
 
     while (1) {
         tran_type *trans;
         struct ireq iq;
+#if 0
         int now;
+#endif
         char cur_seqnum[SIZEOF_SEQNUM];
         struct dbtable *db;
         int done;
@@ -79,6 +88,7 @@ static void *pushlogs_thread(void *voidarg)
             break;
         }
 
+#if 0
         /* report progress */
         now = comdb2_time_epoch();
         if (now - lastreport >= 5) {
@@ -90,13 +100,15 @@ static void *pushlogs_thread(void *voidarg)
                    bdb_format_seqnum((seqnum_type *)cur_seqnum, b2, sizeof(b2)),
                    nwrites);
         }
+#endif
 
         /* see if we're still needed */
         done = 0;
+        seqnum_type * hi = (seqnum_type *)from, *what = (seqnum_type *)target;
         Pthread_mutex_lock(&mutex);
         if (bdb_seqnum_compare(thedb->bdb_env, (seqnum_type *)target,
                                (seqnum_type *)cur_seqnum) <= 0) {
-            logmsg(LOGMSG_USER, "Have reached target LSN\n");
+            logmsg(LOGMSG_USER, "Have reached target LSN from %d:%d to %d:%d %d \n", hi->lsn.file, hi->lsn.offset, what->lsn.file, what->lsn.offset, nnn);
             have_thread = 0;
             done = 1;
         }
@@ -139,17 +151,20 @@ static void *pushlogs_thread(void *voidarg)
             Pthread_mutex_unlock(&mutex);
             break;
         }
-        nwrites++;
+        nlogpushwrites++;
+        nnn++;
 
         /* throttle this */
         if (delayms)
             usleep(delayms * 1000);
     }
 
+#if 0
     if (nwrites > 0) {
         flush_db();
         broadcast_flush_all();
     }
+#endif
 
     backend_thread_event(thedb, COMDB2_THR_EVENT_DONE_RDWR);
     logmsg(LOGMSG_USER, "pushlogs thread exiting\n");
@@ -180,16 +195,50 @@ void push_next_log(void)
     int filenum;
     int rc;
 
-    char cur_seqnum[SIZEOF_SEQNUM];
-
     /* get current lsn */
-    rc = bdb_get_seqnum(thedb->bdb_env, (seqnum_type *)cur_seqnum);
+    rc = bdb_get_seqnum(thedb->bdb_env, (seqnum_type *)from);
     if (rc != 0)
         return;
 
-    memcpy(&filenum, cur_seqnum, sizeof(int));
+    memcpy(&filenum, from, sizeof(int));
 
     logmsg(LOGMSG_USER, "pushing to logfile %d\n", filenum + 1);
 
     set_target_lsn(filenum + 1, 0);
+}
+
+struct thdpool *gbl_pushlogs_thdpool;
+int pushlogs_thdpool_init(void)
+{
+    gbl_pushlogs_thdpool = thdpool_create("pushnextpool", 0);
+
+    thdpool_set_stack_size(gbl_pushlogs_thdpool,  (1 << 20));
+    thdpool_set_minthds(gbl_pushlogs_thdpool, 1);
+    thdpool_set_maxthds(gbl_pushlogs_thdpool, 1);
+    thdpool_set_maxqueue(gbl_pushlogs_thdpool, 100);
+    thdpool_set_linger(gbl_pushlogs_thdpool, 10);
+    thdpool_set_longwaitms(gbl_pushlogs_thdpool, 10000);
+    return 0;
+}
+
+static void pushlogs_do_work(struct thdpool *pool, void *work, void *thddata)
+{
+}
+
+static void pushlogs_do_work_pp(struct thdpool *pool, void *work, void *thddata, int op)
+{
+    switch (op) {
+    case THD_RUN:
+        pushlogs_do_work(pool, work, thddata);
+        break;
+    }
+    free(work);
+}
+
+int enqueue_pushlogs_work(int32_t file, int32_t offset)
+{
+    if (!have_thread)
+        set_target_lsn(file, offset);
+    //thdpool_enqueue(gbl_pushlogs_thdpool, pushlogs_do_work_pp, arg, 0, NULL, 0);
+    return 0;
 }
