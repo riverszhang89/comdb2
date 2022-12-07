@@ -67,7 +67,7 @@ static int __log_put_next __P((DB_ENV *,
 static int __log_putr __P((DB_LOG *, DB_LSN *, const DBT *, u_int32_t, HDR *));
 #include <fcntl.h>
 static int __log_write __P((DB_LOG *, void *, u_int32_t));
-static void __log_sync_range __P((DB_LOG *));
+static void __log_sync_range __P((DB_LOG *, off_t));
 
 pthread_mutex_t log_write_lk = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t log_write_cond = PTHREAD_COND_INITIALIZER;
@@ -915,9 +915,7 @@ __write_inmemory_buffer(dblp, write_all)
 		Pthread_mutex_unlock(&log_write_lk);
 		return ret;
 	} else {
-		ret =  __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off);
-		//__os_fsync(dblp->dbenv, dblp->lfhp);
-		return ret;
+		return __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off);
 	}
 }
 
@@ -953,9 +951,12 @@ __log_flush_commit(dbenv, lsnp, flags)
 	if (LF_ISSET(DB_FLUSH))
 		ret = __log_flush_int(dblp, &flush_lsn, 1);
 	else if (!__inmemory_buf_empty(lp)) {
-		if ((ret = __write_inmemory_buffer(dblp, 1)) == 0)
+		if ((ret = __write_inmemory_buffer(dblp, 1)) == 0) {
+			__os_fsync(dblp->dbenv, dblp->lfhp);
 			lp->b_off = 0;
+		}
 	}
+
 
 	/*
 	 * If a flush supporting a transaction commit fails, we must abort the
@@ -1931,9 +1932,10 @@ __log_fill(dblp, lsn, addr, len)
 
 		/* If we fill the buffer, flush it. */
 		if (lp->b_off == bsize) {
+			off_t off = lp->w_off;
 			if ((ret = __log_write(dblp, dblp->bufp, bsize)) != 0)
 				return (ret);
-			__log_sync_range(dblp);
+			__log_sync_range(dblp, off);
 			lp->b_off = 0;
 			++lp->stat.st_wcount_fill;
 		}
@@ -1942,17 +1944,17 @@ __log_fill(dblp, lsn, addr, len)
 }
 
 static void
-__log_sync_range(dblp)
+__log_sync_range(dblp, off)
 	DB_LOG *dblp;
+	off_t off;
 {
 	DB_ENV *dbenv;
 	LOG *lp;
-	return;
 
 	dbenv = dblp->dbenv;
 	lp = dblp->reginfo.primary;
 
-	sync_file_range(dblp->lfhp->fd, lp->w_off, lp->buffer_size, SYNC_FILE_RANGE_WRITE);
+	sync_file_range(dblp->lfhp->fd, off, 0, SYNC_FILE_RANGE_WRITE);
 }
 
 /*
