@@ -915,7 +915,9 @@ __write_inmemory_buffer(dblp, write_all)
 		Pthread_mutex_unlock(&log_write_lk);
 		return ret;
 	} else {
-		return __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off);
+		ret = __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off);
+		__os_fsync(dblp->dbenv, dblp->lfhp);
+		return ret;
 	}
 }
 
