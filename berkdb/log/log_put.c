@@ -12,6 +12,7 @@ static const char revid[] = "$Id: log_put.c,v 11.145 2003/09/13 19:20:39 bostic 
 
 #ifndef NO_SYSTEM_INCLUDES
 #include <sys/types.h>
+#include <fcntl.h>
 
 #if TIME_WITH_SYS_TIME
 #include <sys/time.h>
@@ -84,6 +85,7 @@ pthread_mutex_t gbl_logput_lk = PTHREAD_MUTEX_INITIALIZER;
 /* TODO: Delete once finished with testing on local reps */
 extern int gbl_is_physical_replicant;
 int gbl_abort_on_illegal_log_put = 0;
+extern int gbl_wal_osync;
 
 /*
  * __log_put_pp --
@@ -1039,6 +1041,9 @@ __log_newfile(dblp, lsnp)
 
 		/* Reset the file write offset. */
 		lp->w_off = 0;
+#ifdef _LINUX_SOURCE
+		lp->s_off = 0;
+#endif
 	} else
 		lastoff = 0;
 
@@ -1538,7 +1543,7 @@ flush:	MUTEX_LOCK(dbenv, flush_mutexp);
 		R_UNLOCK(dbenv, &dblp->reginfo);
 
 	/* Sync all writes to disk. */
-	if ((ret = __os_fsync(dbenv, dblp->lfhp)) != 0) {
+	if (!gbl_wal_osync && (ret = __os_fsync(dbenv, dblp->lfhp)) != 0) {
 		MUTEX_UNLOCK(dbenv, flush_mutexp);
 		if (release)
 			R_LOCK(dbenv, &dblp->reginfo);
@@ -1969,6 +1974,14 @@ __log_write(dblp, addr, len)
 
 	/* Reset the buffer offset and update the seek offset. */
 	lp->w_off += len;
+
+#ifdef _LINUX_SOURCE
+	off_t s_len = lp->w_off - lp->s_off;
+	if (!gbl_wal_osync && s_len >= 4096) {
+		sync_file_range(dblp->lfhp->fd, lp->s_off, s_len, SYNC_FILE_RANGE_WRITE);
+		lp->s_off = lp->w_off;
+	}
+#endif
 
 	/* Update written statistics. */
 	if ((lp->stat.st_w_bytes += len) >= MEGABYTE) {

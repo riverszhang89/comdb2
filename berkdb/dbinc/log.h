@@ -191,6 +191,9 @@ struct __log {
 	size_t	  l_off;		/* Last byte written in the buffer. */
 	u_int32_t w_off;		/* Current write offset in the file. */
 	u_int32_t len;			/* Length of the last record. */
+#ifdef _LINUX_SOURCE
+	u_int32_t s_off;		/* Current sync_file_range offset in the file. */
+#endif
 
 	/*
 	 * The s_lsn LSN is the last LSN that we know is on disk, not just

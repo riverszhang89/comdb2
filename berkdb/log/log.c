@@ -436,6 +436,9 @@ __log_recover(dblp)
 	lp->b_off = 0;
 	lp->l_off = 0;
 	lp->w_off = lp->lsn.offset;
+#ifdef _LINUX_SOURCE
+	lp->s_off = lp->w_off;
+#endif
 
 skipsearch:
 	if (FLD_ISSET(dbenv->verbose, DB_VERB_RECOVERY))
@@ -1127,6 +1130,9 @@ __log_vtruncate(dbenv, lsn, ckplsn, trunclsn)
 	/* Initialize the in-region buffer to a pristine state. */
 	ZERO_LSN(lp->f_lsn);
 	lp->w_off = lp->lsn.offset;
+#ifdef _LINUX_SOURCE
+	lp->s_off = lp->w_off;
+#endif
 
 	if (trunclsn != NULL)
 		*trunclsn = lp->lsn;
