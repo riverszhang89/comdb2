@@ -1560,6 +1560,7 @@ flush:	MUTEX_LOCK(dbenv, flush_mutexp);
 	 * set for the new buffer.
 	 */
 	lp->s_lsn = s_lsn;
+    lp->s_off = w_off;
 
 	/*
 	 * The s_lsn optimization doesn't work for the segmented buffer case
@@ -1977,8 +1978,8 @@ __log_write(dblp, addr, len)
 
 #ifdef _LINUX_SOURCE
 	off_t s_len = lp->w_off - lp->s_off;
-	if (!gbl_wal_osync && s_len >= 4096) {
-		sync_file_range(dblp->lfhp->fd, lp->s_off, s_len, SYNC_FILE_RANGE_WRITE);
+	if (!gbl_wal_osync && s_len >= lp->buffer_size) {
+		sync_file_range(dblp->lfhp->fd, lp->s_off, 0, SYNC_FILE_RANGE_WRITE);
 		lp->s_off = lp->w_off;
 	}
 #endif

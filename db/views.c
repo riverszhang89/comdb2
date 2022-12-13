@@ -773,7 +773,7 @@ static int _extract_shardname_index(const char *tblName,
 #ifdef __GNUC__
 #ifndef __clang__
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-truncation"
+//#pragma GCC diagnostic ignored "-Wformat-truncation"
 #endif
 #endif
 /** dummy version for now */

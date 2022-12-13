@@ -238,6 +238,7 @@ void add_fingerprint(struct sqlclntstate *clnt, sqlite3_stmt *stmt, const char *
 
         char fp[FINGERPRINTSZ*2+1]; /* 16 ==> 33 */
         util_tohex(fp, (char *)t->fingerprint, FINGERPRINTSZ);
+#if 0
         struct reqlogger *statlogger = NULL;
 
         // dump to statreqs immediately
@@ -246,6 +247,7 @@ void add_fingerprint(struct sqlclntstate *clnt, sqlite3_stmt *stmt, const char *
         reqlog_logf(statlogger, REQL_INFO, "fp=%s sql=\"%s\"\n", fp, t->zNormSql);
         reqlog_diffstat_dump(statlogger);
         reqlog_free(statlogger);
+#endif
 
         if (gbl_verbose_normalized_queries) {
             logmsg(LOGMSG_USER, "NORMALIZED [%s] {%s} ==> {%s}\n",
