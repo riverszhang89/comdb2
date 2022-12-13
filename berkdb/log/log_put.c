@@ -1543,7 +1543,7 @@ flush:	MUTEX_LOCK(dbenv, flush_mutexp);
 		R_UNLOCK(dbenv, &dblp->reginfo);
 
 	/* Sync all writes to disk. */
-	if (!gbl_wal_osync && (ret = __os_fsync(dbenv, dblp->lfhp)) != 0) {
+	if (gbl_wal_osync && (ret = __os_fsync(dbenv, dblp->lfhp)) != 0) {
 		MUTEX_UNLOCK(dbenv, flush_mutexp);
 		if (release)
 			R_LOCK(dbenv, &dblp->reginfo);
