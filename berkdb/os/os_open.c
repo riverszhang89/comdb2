@@ -73,7 +73,7 @@ ___os_open(dbenv, name, flags, mode, fhpp)
 }
 
 int gbl_force_direct_io = 1;
-int gbl_wal_osync = 0;
+int gbl_wal_osync = 1;
 /*
  * __os_open_extend --
  *	Open a file descriptor (including page size and log size information).
