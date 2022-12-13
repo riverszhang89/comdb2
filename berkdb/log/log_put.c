@@ -1543,7 +1543,7 @@ flush:	MUTEX_LOCK(dbenv, flush_mutexp);
 		R_UNLOCK(dbenv, &dblp->reginfo);
 
 	/* Sync all writes to disk. */
-	if (gbl_wal_osync && (ret = __os_fsync(dbenv, dblp->lfhp)) != 0) {
+	if (!gbl_wal_osync && (ret = __os_fsync(dbenv, dblp->lfhp)) != 0) {
 		MUTEX_UNLOCK(dbenv, flush_mutexp);
 		if (release)
 			R_LOCK(dbenv, &dblp->reginfo);
@@ -1978,10 +1978,12 @@ __log_write(dblp, addr, len)
 
 #ifdef _LINUX_SOURCE
 	off_t s_len = lp->w_off - lp->s_off;
+#if 0
 	if (!gbl_wal_osync && s_len >= lp->buffer_size) {
 		sync_file_range(dblp->lfhp->fd, lp->s_off, 0, SYNC_FILE_RANGE_WRITE);
 		lp->s_off = lp->w_off;
 	}
+#endif
 #endif
 
 	/* Update written statistics. */
