@@ -265,14 +265,18 @@ __log_put_int_int(dbenv, lsnp, contextp, udbt, flags, off_context, usr_ptr)
 
 	ZERO_LSN(old_lsn);
 
+#if 0
     Pthread_mutex_lock(&gbl_logput_lk);
+#endif
 	if ((ret =
 		__log_put_next(dbenv, lsnp, contextp, dbt, udbt, &hdr, &old_lsn,
 		    off_context, key, flags)) != 0)
 		goto panic_check;
 
+#if 0
     Pthread_cond_broadcast(&gbl_logput_cond);
     Pthread_mutex_unlock(&gbl_logput_lk);
+#endif
 
 	lsn = *lsnp;
 
