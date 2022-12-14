@@ -466,13 +466,11 @@ void *checkpoint_thread(void *arg)
                                                             &crtlogfile);
                 BDB_RELLOCK();
 
-#if 0
                 if (!broken) {
                     /* if we jumped to a new log file, trickle a checkpoint */
                     if (logfile.file != crtlogfile.file)
                         break;
                 }
-#endif
 
                 crt_time_msec = osql_log_time();
             } while (crt_time_msec < end_sleep_time_msec);
