@@ -12,6 +12,7 @@ static const char revid[] = "$Id: log_put.c,v 11.145 2003/09/13 19:20:39 bostic 
 
 #ifndef NO_SYSTEM_INCLUDES
 #include <sys/types.h>
+#include <fcntl.h> /* for sync_file_range */
 
 #if TIME_WITH_SYS_TIME
 #include <sys/time.h>
@@ -65,7 +66,6 @@ static int __log_put_next __P((DB_ENV *,
 	DB_LSN *, u_int64_t *, DBT *, const DBT *, HDR *, DB_LSN *, int,
 	u_int8_t *key, u_int32_t));
 static int __log_putr __P((DB_LOG *, DB_LSN *, const DBT *, u_int32_t, HDR *));
-#include <fcntl.h>
 static int __log_write __P((DB_LOG *, void *, u_int32_t));
 static void __log_sync_range __P((DB_LOG *, off_t));
 
@@ -913,12 +913,11 @@ __write_inmemory_buffer(dblp, write_all)
 		ret = __write_inmemory_buffer_lk(dblp, NULL, write_all);
 
 		Pthread_mutex_unlock(&log_write_lk);
-		return ret;
 	} else {
-		ret = __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off);
-		__os_fsync(dblp->dbenv, dblp->lfhp);
-		return ret;
+		if ((ret = __log_write(dblp, dblp->bufp, (u_int32_t)lp->b_off)) == 0)
+			__os_fsync(dblp->dbenv, dblp->lfhp);
 	}
+	return ret;
 }
 
 
@@ -953,12 +952,9 @@ __log_flush_commit(dbenv, lsnp, flags)
 	if (LF_ISSET(DB_FLUSH))
 		ret = __log_flush_int(dblp, &flush_lsn, 1);
 	else if (!__inmemory_buf_empty(lp)) {
-		if ((ret = __write_inmemory_buffer(dblp, 1)) == 0) {
-			__os_fsync(dblp->dbenv, dblp->lfhp);
+		if ((ret = __write_inmemory_buffer(dblp, 1)) == 0)
 			lp->b_off = 0;
-		}
 	}
-
 
 	/*
 	 * If a flush supporting a transaction commit fails, we must abort the
@@ -1945,18 +1941,22 @@ __log_fill(dblp, lsn, addr, len)
 	return (0);
 }
 
+extern int gbl_wal_osync;
 static void
 __log_sync_range(dblp, off)
 	DB_LOG *dblp;
 	off_t off;
 {
+    /* Linux only: hint the OS that we're about to fsync the log file. */
+#ifdef _LINUX_SOURCE
 	DB_ENV *dbenv;
 	LOG *lp;
-
 	dbenv = dblp->dbenv;
 	lp = dblp->reginfo.primary;
 
-	sync_file_range(dblp->lfhp->fd, off, 0, SYNC_FILE_RANGE_WRITE);
+    if (!gbl_wal_osync)
+        sync_file_range(dblp->lfhp->fd, off, 0, SYNC_FILE_RANGE_WRITE);
+#endif
 }
 
 /*
