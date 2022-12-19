@@ -8867,3 +8867,26 @@ int bdb_debug_log(bdb_state_type *bdb_state, tran_type *trans, int inop)
     op.data = &endianized;
     return bdb_state->dbenv->debug_log(bdb_state->dbenv, tid, &op, NULL, NULL);
 }
+
+int bdb_shrink(bdb_state_type *bdb_state)
+{
+	int rc, dta, stripe;
+	DB_ENV *dbenv;
+	DB_TXN *txn;
+	DB *dbp;
+
+	dbenv = bdb_state->dbenv;
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+
+	for (dta = 0; dta < MAXDTAFILES; ++dta) {
+        for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
+			if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
+				rc = dbp->shrink(dbp, txn);
+				if (rc != 0)
+					break;
+			}
+		}
+	}
+
+	return rc;
+}

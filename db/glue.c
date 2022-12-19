@@ -6204,3 +6204,20 @@ static int sync_state_to_protobuf(int sync) {
 static int syncmode_callback(bdb_state_type *bdb_state) {
     return sync_state_to_protobuf(thedb->rep_sync);
 }
+
+int db_shrink(const char *name)
+{
+	int ret;
+	dbtable *db;
+
+	rdlock_schema_lk();
+	db = get_dbtable_by_name(name);
+	if (db == NULL) {
+		logmsg(LOGMSG_USER, "table \"%s\" not found", name);
+		ret = -1;
+	} else {
+		ret = bdb_shrink(get_bdb_handle(db, AUXDB_NONE));
+	}
+	unlock_schema_lk();
+	return ret;
+}

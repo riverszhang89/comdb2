@@ -27,10 +27,13 @@
 #include "dbinc/btree.h"
 #include "dbinc/lock.h"
 #include "dbinc/log.h"
+#include "dbinc/mp.h"
 #include "dbinc/txn.h"
 #include "dbinc_auto/dbreg_auto.h"
 #include "dbinc_auto/dbreg_ext.h"
 #include "dbinc_auto/btree_ext.h"
+
+#include "logmsg.h"
 
 /*
  * __db_pgcompact --
@@ -115,6 +118,136 @@ __db_ispgcompactible(dbp, pgno, dbt, ff)
 		ret = EINVAL;
 	}
 
+	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
+		ret = t_ret;
+	return (ret);
+}
+
+static int pgno_cmp(const void *x, const void *y)
+{
+	return ((*(db_pgno_t *)x) - (*(db_pgno_t *)y));
+}
+
+/*
+ * __db_shrink_pp --
+ *	DB->shrink pre/post processing.
+ *
+ * PUBLIC: int __db_shrink_pp __P((DB *, DB_TXN *));
+ */
+
+int
+__db_shrink_pp(dbp, txn)
+	DB *dbp;
+	DB_TXN *txn;
+{
+	DB_ENV *dbenv;
+	int handle_check, ret;
+
+	dbenv = dbp->dbenv;
+
+	PANIC_CHECK(dbenv);
+
+	if (F_ISSET(dbp, DB_AM_OPEN_CALLED)) {
+		ret = __db_mi_open(dbenv, "DB->shrink", 1);
+		return (ret);
+	}
+
+	/* Check for consistent transaction usage. */
+	if ((ret = __db_check_txn(dbp, NULL, DB_LOCK_INVALIDID, 0)) != 0)
+		return (ret);
+
+	handle_check = IS_REPLICATED(dbenv, dbp);
+	if (handle_check && (ret = __db_rep_enter(dbp, 1, 0)) != 0)
+		return (ret);
+
+	/* Remove the file. */
+	ret = __db_shrink(dbp, txn);
+
+	if (handle_check)
+		__db_rep_exit(dbenv);
+	return (ret);
+}
+
+
+/*
+ * __db_shrink --
+ *  Shrink a database
+ *
+ * PUBLIC: int __db_shrink __P((DB *, DB_TXN *));
+ */
+int
+__db_shrink(dbp, txn)
+	DB *dbp;
+	DB_TXN *txn;
+{
+	int ret, t_ret;
+    DB_ENV *dbenv;
+	DBC *dbc;
+	DBMETA *meta;
+	DB_MPOOLFILE *dbmfp;
+	DB_LOCK metalock;
+	PAGE *h;
+	db_pgno_t pgno;
+	size_t npgs, pglistsz;
+	db_pgno_t *pglist;
+
+    dbenv = dbp->dbenv;
+	dbmfp = dbp->mpf;
+
+	LOCK_INIT(metalock);
+	pgno = PGNO_BASE_MD;
+
+	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0)
+		return (ret);
+
+	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_WWRITE, 0, &metalock)) != 0)
+		goto done;
+	if ((ret = __memp_fget(dbmfp, &pgno, 0, &meta)) != 0)
+		goto done;
+
+	npgs = 0;
+	pglistsz = 16;
+	if ((ret = __os_malloc(dbenv, sizeof(db_pgno_t) * pglistsz, &pglist)) != 0)
+		goto done;
+
+	for (pgno = meta->free; pgno != PGNO_INVALID; ++npgs) {
+		pglistsz <<= 1;
+		if ((ret =  __os_realloc(dbenv, sizeof(db_pgno_t) * pglistsz, &pglist)) != 0)
+			goto done;
+
+		pglist[npgs] = pgno;
+
+		/* We have metalock. No need to lock free pages. */
+		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0)
+			goto done;
+		pgno = NEXT_PGNO(h);
+		if ((ret = __memp_fput(dbmfp, h, 0)) != 0)
+			goto done;
+	}
+
+	if (npgs == 0)
+		goto done;
+
+	qsort(pglist, sizeof(db_pgno_t), npgs, pgno_cmp);
+
+	logmsg(LOGMSG_WARN, "freelist after sorting (%zu pages): ", npgs);
+	for (int i = 0; i != npgs; ++i) {
+		logmsg(LOGMSG_WARN, "%u ", pglist[i]);
+	}
+	logmsg(LOGMSG_WARN, "\n");
+
+	/* We have a sorted freelist at this point. Now see how far we can truncate. */
+	for (pgno = meta->last_pgno; npgs > 0 && pglist[npgs - 1] == pgno && pgno != PGNO_INVALID; --npgs, --pgno) ;
+
+	/* `npgs' is where we can safely truncate. */
+	logmsg(LOGMSG_WARN, "last pgno %u truncation point %zu\n", meta->last_pgno, npgs);
+		
+done:
+	__os_free(dbenv, pglist);
+	if ((t_ret = __TLPUT(dbc, metalock)) != 0 && ret == 0)
+		ret = t_ret;
+	if ((t_ret = __memp_fput(dbmfp, meta, 0)) != 0 && ret == 0)
+		ret = t_ret;
 	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
 		ret = t_ret;
 	return (ret);

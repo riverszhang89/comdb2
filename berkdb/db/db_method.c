@@ -245,6 +245,7 @@ __db_init(dbp, flags)
 	dbp->remove = __db_remove_pp;
 	dbp->rename = __db_rename_pp;
 	dbp->truncate = __db_truncate_pp;
+	dbp->shrink = __db_shrink_pp;
 	dbp->set_alloc = __db_set_alloc;
 	dbp->set_append_recno = __db_set_append_recno;
 	dbp->get_cachesize = __db_get_cachesize;
