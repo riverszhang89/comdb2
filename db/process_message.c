@@ -1880,6 +1880,9 @@ clipper_usage:
             }
         } else if (tokcmp(tok, ltok, "repl_wait") == 0) {
             repl_wait_stats();
+        } else if (tokcmp(tok, ltok, "pgmv") == 0) {
+            void print_pgmv_stats();
+            print_pgmv_stats();
         } else if (ltok == 0) {
             unsigned long long rep_retry;
             unsigned long long msgs_processed;
@@ -5200,6 +5203,33 @@ clipper_usage:
         }
     } else if (tokcmp(tok, ltok, "do_not_use_modsnap_for_snapshot") == 0) {
         gbl_use_modsnap_for_snapshot = 0;
+    } else if (tokcmp(tok, ltok, "rebuild_freelist") == 0) {
+        char tbl[MAXTABLELEN];
+        tok = segtok(line, lline, &st, &ltok);
+        if (ltok == 0) {
+            logmsg(LOGMSG_ERROR, "needed a table name\n");
+            return -1;
+        }
+        tokcpy0(tok, ltok, tbl, sizeof(tbl));
+        rebuild_freelist(tbl);
+    } else if (tokcmp(tok, ltok, "pgswap") == 0) {
+        char tbl[MAXTABLELEN];
+        tok = segtok(line, lline, &st, &ltok);
+        if (ltok == 0) {
+            logmsg(LOGMSG_ERROR, "needed a table name\n");
+            return -1;
+        }
+        tokcpy0(tok, ltok, tbl, sizeof(tbl));
+        rc = pgswap(tbl);
+    } else if (tokcmp(tok, ltok, "evict_from_cache") == 0) {
+        char tbl[MAXTABLELEN];
+        tok = segtok(line, lline, &st, &ltok);
+        if (ltok == 0) {
+            logmsg(LOGMSG_ERROR, "needed a table name\n");
+            return -1;
+        }
+        tokcpy0(tok, ltok, tbl, sizeof(tbl));
+        rc = evict_from_cache(tbl);
     } else {
         // see if any plugins know how to handle this
         struct message_handler *h;

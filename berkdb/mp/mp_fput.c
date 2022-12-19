@@ -81,7 +81,7 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	if (flags) {
 		if ((ret = __db_fchk(dbenv, "memp_fput", flags,
 		    DB_MPOOL_CLEAN | DB_MPOOL_DIRTY |DB_MPOOL_DISCARD |
-		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT)) != 0)
+		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT | DB_MPOOL_EVICT)) != 0)
 			 return (ret);
 		if ((ret = __db_fcchk(dbenv, "memp_fput",
 		    flags, DB_MPOOL_CLEAN, DB_MPOOL_DIRTY)) != 0)
@@ -172,6 +172,14 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	}
 	if (LF_ISSET(DB_MPOOL_DISCARD))
 		F_SET(bhp, BH_DISCARD);
+	if (LF_ISSET(DB_MPOOL_EVICT)) {
+		if (F_ISSET(bhp, BH_DIRTY) || F_ISSET(bhp, BH_DIRTY_CREATE) || F_ISSET(bhp, BH_LOCKED)) {
+			/* can't evict a dirty or locked page. make it low priority instead */
+			F_SET(bhp, BH_DISCARD);
+		} else {
+			F_SET(bhp, BH_EVICT);
+		}
+	}
 
 	/*
 	 * Check for a reference count going to zero.  This can happen if the
@@ -306,7 +314,13 @@ done:
 	if (F_ISSET(bhp, BH_LOCKED) && bhp->ref_sync != 0)
 		--bhp->ref_sync;
 
-	MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+	/* There's no more references to this page. If the evict flag is on, free it. */
+	if (F_ISSET(bhp, BH_EVICT) && bhp->ref == 0 && bhp->ref_sync == 0 && !F_ISSET(bhp, BH_LOCKED)) {
+		/* __memp_bhfree() releases the hash mutex */
+		__memp_bhfree(dbmp, hp, bhp, 1);
+	} else {
+		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+	}
 
 	/*
 	 * On every buffer put we update the buffer generation number and check
