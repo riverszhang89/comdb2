@@ -3686,4 +3686,10 @@ void csc2_allow_bools(void);
 void csc2_disallow_bools(void);
 int csc2_used_bools(void);
 
+int rebuild_freelist(const char *);
+int pgswap(const char *);
+int pgswap_overflow(const char *);
+int evict_from_cache(const char *);
+void *pgmv_thr(void *);
+
 #endif /* !INCLUDED_COMDB2_H */
