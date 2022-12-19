@@ -2397,4 +2397,6 @@ struct sqlclntstate;
 int release_locks_int(const char *trace, const char *func, int line, struct sqlclntstate *);
 #define release_locks(trace) release_locks_int(trace, __func__, __LINE__, NULL)
 
+int bdb_rebuild_freelist(bdb_state_type *bdb_state);
+int bdb_pgswap(bdb_state_type *bdb_state);
 #endif

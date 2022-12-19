@@ -5172,6 +5172,24 @@ clipper_usage:
         } else {
             logmsg(LOGMSG_USER, "Commit LSN map is not active\n");
         }
+    } else if (tokcmp(tok, ltok, "rebuild_freelist") == 0) {
+        char tbl[MAXTABLELEN];
+        tok = segtok(line, lline, &st, &ltok);
+        if (ltok == 0) {
+            logmsg(LOGMSG_ERROR, "needed a table name\n");
+            return -1;
+        }
+        tokcpy0(tok, ltok, tbl, sizeof(tbl));
+        rebuild_freelist(tbl);
+    } else if (tokcmp(tok, ltok, "pgswap") == 0) {
+        char tbl[MAXTABLELEN];
+        tok = segtok(line, lline, &st, &ltok);
+        if (ltok == 0) {
+            logmsg(LOGMSG_ERROR, "needed a table name\n");
+            return -1;
+        }
+        tokcpy0(tok, ltok, tbl, sizeof(tbl));
+        rc = pgswap(tbl);
     } else {
         // see if any plugins know how to handle this
         struct message_handler *h;

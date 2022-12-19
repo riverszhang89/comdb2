@@ -1801,6 +1801,17 @@ struct __db {
 	int  (*get_numpages) __P((DB *, db_pgno_t *));
 
 	/*
+	 * Rebuilds the freelist in the page-order. Additionally ftruncates the file
+     * if there're continuous free pages at the end of the file.
+	 */
+	int  (*rebuild_freelist) __P((DB *, DB_TXN *));
+    /*
+     * Scan the file backwards, and swap in-use pages with
+     * lower-numbered free pages.
+     */
+	int  (*pgswap) __P((DB *, DB_TXN *));
+
+	/*
 	 * Never called; these are a place to save function pointers
 	 * so that we can undo an associate.
 	 */

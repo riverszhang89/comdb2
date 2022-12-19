@@ -216,7 +216,8 @@ __db_next_freepage(DB *dbp, db_pgno_t * pg)
 	if (TYPE(h) != P_INVALID) {
 		fprintf(stderr,
 		    "encountered non-invalid page %u (type %d) while reading free list\n",
-		    *pg, PGTYPE(h));
+		    *pg, TYPE(h));
+		__memp_fput(mpf, h, 0);
 		return EINVAL;
 	}
 
@@ -264,7 +265,7 @@ __db_dump_freepages(DB *dbp, FILE *out)
     mpf = dbp->mpf;
     rc = __memp_fget(mpf, &pg, 0, &meta);
     if (rc) {
-        fprintf(stderr, "Error getting metapage: %d\n", rc);
+        logmsg(LOGMSG_USER, "Error getting metapage: %d\n", rc);
         return rc;
     }
 
@@ -272,30 +273,30 @@ __db_dump_freepages(DB *dbp, FILE *out)
     __memp_fput(mpf, meta, 0);
 
     if (pg == PGNO_INVALID) {
-        fprintf(out, "(EMPTY)\n");
+        logmsg(LOGMSG_USER, "(EMPTY)\n");
         return 0;
     }
 
-    fprintf(out, "freelist {\n");
+    logmsg(LOGMSG_USER, "freelist {\n");
 
     while(pg != PGNO_INVALID) {
-        fprintf(out, "%6u ", pg);
+        logmsg(LOGMSG_USER, "%6u ", pg);
         i++;
         if (i % 8 == 0) {
-            printf("\n");
+            logmsg(LOGMSG_USER, "\n");
             lastcr = 1;
         }
         else
             lastcr = 0;
         rc = __db_next_freepage(dbp, &pg);
         if (rc) {
-            fprintf(stderr, "rc %d getting freelist page %u\n", rc, pg);
+            logmsg(LOGMSG_USER, "rc %d getting freelist page %u\n", rc, pg);
             break;
         }
     }
     if (!lastcr) 
-        fprintf(out, "\n");
-    fprintf(out, "}\n");
+        logmsg(LOGMSG_USER, "\n");
+    logmsg(LOGMSG_USER, "}\n");
     return rc;
 }
 
@@ -312,19 +313,20 @@ int __os_physwrite(DB_ENV *dbenv, DB_FH * fhp, void *addr, size_t len,
 
 #include <arpa/inet.h>
 
-int __db_new_original(DBC *dbc, u_int32_t type, PAGE **pagepp);
+int __db_new_original(DBC *dbc, u_int32_t type, PAGE **pagepp, int noextend);
 
 /*
- * __db_new --
+ * __db_new_ex --
  *	Get a new page, preferably from the freelist.
  *
- * PUBLIC: int __db_new __P((DBC *, u_int32_t, PAGE **));
+ * PUBLIC: int __db_new_ex __P((DBC *, u_int32_t, PAGE **, int));
  */
 int
-__db_new(dbc, type, pagepp)
+__db_new_ex(dbc, type, pagepp, noextend)
 	DBC *dbc;
 	u_int32_t type;
 	PAGE **pagepp;
+	int noextend;
 {
 	DB *dbp;
 	DB_LSN lsn;
@@ -351,7 +353,7 @@ __db_new(dbc, type, pagepp)
 	page_extent_size = dbc->dbp->dbenv->page_extent_size;
 	if (page_extent_size == 0 ||
 	    dbc->dbp == ((DB_REP *)dbc->dbp->dbenv->rep_handle)->rep_db)
-		return __db_new_original(dbc, type, pagepp);
+		return __db_new_original(dbc, type, pagepp, noextend);
 
 	*pagepp = NULL;
 
@@ -363,6 +365,8 @@ __db_new(dbc, type, pagepp)
 		goto err;
 
 	extend = (meta->free == PGNO_INVALID);
+	if (extend && noextend)
+		goto err;
 	meta_flags = DB_MPOOL_DIRTY;
 
 
@@ -549,10 +553,11 @@ err:
 }
 
 int
-__db_new_original(dbc, type, pagepp)
+__db_new_original(dbc, type, pagepp, noextend)
 	DBC *dbc;
 	u_int32_t type;
 	PAGE **pagepp;
+	int noextend;
 {
 	DBMETA *meta;
 	DB *dbp;
@@ -602,6 +607,8 @@ __db_new_original(dbc, type, pagepp)
 		extend = 0;
 	}
 
+	if (extend && noextend)
+		goto err;
 
 	/* If this is a temp file, don't make this call */
 	if (gbl_check_sparse_files && mpf->fhp) {
@@ -1066,4 +1073,20 @@ done:
 	if (buf)
 		free(buf);
 	return npages;
+}
+
+/*
+ * __db_new --
+ *	Get a new page, preferably from the freelist.
+ *
+ * PUBLIC: int __db_new __P((DBC *, u_int32_t, PAGE **));
+ */
+
+int
+__db_new(dbc, type, pagepp)
+	DBC *dbc;
+	u_int32_t type;
+	PAGE **pagepp;
+{
+	return __db_new_ex(dbc, type, pagepp, 0);
 }
