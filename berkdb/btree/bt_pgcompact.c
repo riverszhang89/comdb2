@@ -276,8 +276,8 @@ out:
 	return (ret);
 }
 
-/* Compress page images? Default to true. */
-int gbl_compress_page_compact_log = 1;
+/* Compress page images? Default to false. */
+int gbl_compress_page_compact_log = 0;
 
 #define ALLOCA_LZ4_BUFFER() do {					\
 	if (gbl_compress_page_compact_log)				\

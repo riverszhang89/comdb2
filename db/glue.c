@@ -6210,6 +6210,10 @@ int db_shrink(const char *name)
 	int ret;
 	dbtable *db;
 
+	if (name == NULL) {
+		return -1;
+	}
+
 	rdlock_schema_lk();
 	db = get_dbtable_by_name(name);
 	if (db == NULL) {

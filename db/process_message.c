@@ -4958,6 +4958,15 @@ clipper_usage:
             thdpool_print_stats(stdout, gbl_verify_thdpool);
         else
             logmsg(LOGMSG_USER, "Verify threadpool is not active\n");
+    } else if (tokcmp(tok, ltok, "shrink") == 0) {
+		char tbl[MAXTABLELEN];
+        tok = segtok(line, lline, &st, &ltok);
+		if (ltok == 0) {
+			logmsg(LOGMSG_ERROR, "needed a table name\n");
+			return -1;
+		}
+        tokcpy0(tok, ltok, tbl, sizeof(tbl));
+		db_shrink(tbl);
     } else {
         // see if any plugins know how to handle this
         struct message_handler *h;

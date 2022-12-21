@@ -1354,3 +1354,41 @@ __db_pg_prealloc_recover(dbenv, dbtp, lsnp, op, info)
 done:
 out:	REC_CLOSE;
 }
+
+/*
+ * __db_truncate_freelist_recover --
+ *	Recovery function for truncate_freelist.
+ *
+ * PUBLIC: int __db_truncate_freelist_recover
+ * PUBLIC:   __P((DB_ENV *, DBT *, DB_LSN *, db_recops, void *));
+ */
+int
+__db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
+	DB_ENV *dbenv;
+	DBT *dbtp;
+	DB_LSN *lsnp;
+	db_recops op;
+	void *info;
+{
+	/* TODO FIXME XXX */
+	__db_truncate_freelist_args *argp;
+	DB *file_dbp;
+	DBC *dbc;
+	DBMETA *meta;
+	DB_MPOOLFILE *mpf;
+	PAGE *pagep;
+	db_pgno_t pgno;
+	int cmp_n, cmp_p, created, level, modified, ret;
+
+	meta = NULL;
+	pagep = NULL;
+	REC_PRINT(__db_truncate_freelist_print);
+	REC_INTRO(__db_truncate_freelist_read, 0);
+
+
+done:
+	*lsnp = argp->prev_lsn;
+	ret = 0;
+
+out:	REC_CLOSE;
+}

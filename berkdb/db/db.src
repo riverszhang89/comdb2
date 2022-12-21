@@ -260,3 +260,16 @@ ARG	pgno		db_pgno_t	lu
 ARG	vec_len		u_int32_t	lu
 ARG	ptype		u_int32_t	lu
 END
+
+/*
+ * sort_freelist: used to sort freelist.
+ *
+ */
+BEGIN truncate_freelist	70
+DB	fileid		int32_t		ld
+POINTER	meta_lsn	DB_LSN *	lu
+ARG	meta_pgno	db_pgno_t	lu
+ARG	notch		u_int32_t	lu
+DBT     fl        DBT         s
+DBT     fllsn     DBT         s
+END

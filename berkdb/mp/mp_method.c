@@ -515,3 +515,29 @@ __memp_get_refcnt(dbenv, fileid, refp)
 
 	return (0);
 }
+
+/*
+ * __memp_shrink
+ *	Shrink a file backed by the buffer pool
+ *
+ * PUBLIC: int __memp_shrink __P((DB_MPOOLFILE *, off_t));
+ */
+int
+__memp_shrink(dbmfp, size)
+	DB_MPOOLFILE *dbmfp;
+	off_t size;
+{
+	DB_ENV *dbenv;
+	DB_MPOOL *dbmp;
+	MPOOLFILE *mfp;
+
+	dbenv = dbmfp->dbenv;
+	dbmp = dbenv->mp_handle;
+	mfp = dbmfp->mfp;
+
+	R_LOCK(dbenv, dbmp->reginfo);
+	__os_truncate(dbenv, dbmfp->fhp, size);
+	R_UNLOCK(dbenv, dbmp->reginfo);
+
+	return 0;
+}

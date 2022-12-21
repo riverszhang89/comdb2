@@ -3633,4 +3633,6 @@ void csc2_allow_bools(void);
 void csc2_disallow_bools(void);
 int csc2_used_bools(void);
 
+int db_shrink(const char *);
+
 #endif /* !INCLUDED_COMDB2_H */
