@@ -11,6 +11,7 @@ static const char revid[] = "$Id: db_rec.c,v 11.48 2003/08/27 03:54:18 ubell Exp
 #endif /* not lint */
 
 #ifndef NO_SYSTEM_INCLUDES
+#include <arpa/inet.h>
 #include <sys/types.h>
 
 #include <string.h>
@@ -1370,25 +1371,76 @@ __db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	db_recops op;
 	void *info;
 {
-	/* TODO FIXME XXX */
 	__db_truncate_freelist_args *argp;
 	DB *file_dbp;
 	DBC *dbc;
 	DBMETA *meta;
 	DB_MPOOLFILE *mpf;
 	PAGE *pagep;
-	db_pgno_t pgno;
-	int cmp_n, cmp_p, created, level, modified, ret;
+	db_pgno_t pgno, *pglist;
+	DB_LSN *pglsnlist;
+	int cmp_n, cmp_p, modified, ret;
+	int check_page = gbl_check_page_in_recovery;
+	size_t npages, ii;
 
 	meta = NULL;
-	pagep = NULL;
+
 	REC_PRINT(__db_truncate_freelist_print);
 	REC_INTRO(__db_truncate_freelist_read, 0);
 
+	if ((ret = __memp_fget(mpf, &argp->meta_pgno, 0, &meta)) != 0) {
+		/* The metadata page must always exist on redo. */
+		if (DB_REDO(op)) {
+			ret = __db_pgerr(file_dbp, argp->meta_pgno, ret);
+			goto out;
+		} else {
+			goto done;
+		}
+	}
+
+	if (check_page) {
+		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 0);
+		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 1);
+	}
+
+	modified = 0;
+	cmp_n = log_compare(lsnp, &LSN(meta));
+	cmp_p = log_compare(&LSN(meta), &argp->meta_lsn);
+	CHECK_LSN(op, cmp_p, &LSN(meta), &argp->meta_lsn, lsnp, argp->fileid, argp->meta_pgno);
+
+	npages = argp->fl.size / sizeof(db_pgno_t);
+
+	pglist = argp->fl.data;
+	pglsnlist = argp->fllsn.data;
+
+	for (ii = 0; ii != npages; ++ii) {
+		pglist[ii] = ntohl(pglist[ii]);
+		pglsnlist[ii].file = ntohl(pglsnlist[ii].file);
+		pglsnlist[ii].offset = ntohl(pglsnlist[ii].offset);
+	}
+
+	if (cmp_p == 0 && DB_REDO(op)) {
+		ret = __db_shrink_redo(dbc, NULL, meta, npages, argp->notch, pglist, pglsnlist);
+		modified = 1;
+	} else if (cmp_n == 0 && DB_UNDO(op)) {
+		modified = 1;
+	}
+
+	if (check_page) {
+		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 0);
+		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 1);
+	}
+
+	if ((ret = __memp_fput(mpf, meta, modified ? DB_MPOOL_DIRTY : 0)) != 0)
+		goto out;
+	meta = NULL;
 
 done:
 	*lsnp = argp->prev_lsn;
 	ret = 0;
 
-out:	REC_CLOSE;
+out:	
+	if (meta != NULL)
+		(void)__memp_fput(mpf, meta, 0);
+	REC_CLOSE;
 }

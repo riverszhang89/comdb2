@@ -8878,6 +8878,8 @@ int bdb_shrink(bdb_state_type *bdb_state)
     BDB_READLOCK("bdb_shrink");
 	dbenv = bdb_state->dbenv;
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc != 0)
+		goto out;
 
 	for (dta = 0; dta < MAXDTAFILES; ++dta) {
         for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
@@ -8889,7 +8891,11 @@ int bdb_shrink(bdb_state_type *bdb_state)
 		}
 	}
 
-	rc = txn->commit(txn, 0);
-    BDB_RELLOCK();
+	if (rc == 0)
+		rc = txn->commit(txn, 0);
+	else
+		txn->abort(txn);
+out:
+	BDB_RELLOCK();
 	return rc;
 }

@@ -46,21 +46,21 @@ if [ $? != 0 ]; then
 fi
 
 ### generate SQL
-rm -rf dum.txt
-touch dum.txt
-echo 'BEGIN' >>dum.txt
-for i in `seq 1 30000`; do
-  echo 'insert into dum (txt) values ("It is only with the heart that one can see rightly; what is essential is invisible to the eye.");' >>dum.txt
-done
-echo 'COMMIT' >>dum.txt
-
-rm -rf sql.txt
-touch sql.txt
-echo 'BEGIN' >>sql.txt
-for i in `seq 1 24000`; do
-  echo "insert into t (i) values ($i);" >>sql.txt
-done
-echo 'COMMIT' >>sql.txt
+#rm -rf dum.txt
+#touch dum.txt
+#echo 'BEGIN' >>dum.txt
+#for i in `seq 1 30000`; do
+#  echo 'insert into dum (txt) values ("It is only with the heart that one can see rightly; what is essential is invisible to the eye.");' >>dum.txt
+#done
+#echo 'COMMIT' >>dum.txt
+#
+#rm -rf sql.txt
+#touch sql.txt
+#echo 'BEGIN' >>sql.txt
+#for i in `seq 1 24000`; do
+#  echo "insert into t (i) values ($i);" >>sql.txt
+#done
+#echo 'COMMIT' >>sql.txt
 
 outloop=1
 while [ $outloop -le 4 ]; do
