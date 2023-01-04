@@ -170,22 +170,23 @@ __db_shrink_pp(dbp, txn)
 }
 
 /* __db_shrink_redo --
- *  Massage the freelist and truncate the file
+ *  sort the freelist in page order and truncate the file
  *
- * PUBLIC: int __db_shrink_redo __P((DBC *, DB_TXN *, DBMETA *, size_t, size_t, db_pgno_t *, DB_LSN *));
+ * PUBLIC: int __db_shrink_redo __P((DBC *, DB_TXN *, DBMETA *, size_t, db_pgno_t *, DB_LSN *, int *));
  */
 int
-__db_shrink_redo(dbc, txn, meta, npages, notch, pglist, pglsnlist)
+__db_shrink_redo(dbc, txn, meta, npages, pglist, pglsnlist, pmodified)
 	DBC *dbc;
 	DB_TXN *txn;
 	DBMETA *meta;
-	size_t npages, notch;
+	size_t npages;
 	db_pgno_t *pglist;
 	DB_LSN *pglsnlist;
+	int *pmodified;
 {
-	int ret, modified;
+	int ret;
 	off_t newsize;
-	size_t ii;
+	size_t ii, notch;
 
 	DB_ENV *dbenv;
 	DB_MPOOLFILE *dbmfp;
@@ -198,9 +199,11 @@ __db_shrink_redo(dbc, txn, meta, npages, notch, pglist, pglsnlist)
 	dbp = dbc->dbp;
 	dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
+
 	if (txn == NULL)
 		txn = dbc->txn;
 
+	*pmodified = 0;
 	memset(&pgnos, 0, sizeof(DBT));
 	memset(&lsns, 0, sizeof(DBT));
 	htonpglist = NULL;
@@ -210,6 +213,7 @@ __db_shrink_redo(dbc, txn, meta, npages, notch, pglist, pglsnlist)
 	if (!DBC_LOGGING(dbc)) {
 		LSN_NOT_LOGGED(LSN(meta));
 	} else {
+		/* Convert page numbers and LSN's from host order to network order */
 		if ((ret = __os_malloc(dbenv, sizeof(db_pgno_t) * npages, &htonpglist)) != 0)
 			goto out;
 		if ((ret = __os_malloc(dbenv, sizeof(DB_LSN) * npages, &htonpglsnlist)) != 0)
@@ -226,11 +230,29 @@ __db_shrink_redo(dbc, txn, meta, npages, notch, pglist, pglsnlist)
 		lsns.size = npages * sizeof(DB_LSN);
 		lsns.data = htonpglsnlist;
 
-		ret = __db_truncate_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, notch, &pgnos, &lsns);
+		ret = __db_truncate_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, &pgnos, &lsns);
 
 		if (ret != 0)
 			goto out;
 	}
+
+	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
+
+	logmsg(LOGMSG_WARN, "freelist after sorting (%zu pages): ", npages);
+	for (int i = 0; i != npages; ++i) {
+		logmsg(LOGMSG_WARN, "%u ", pglist[i]);
+	}
+
+	/* We have a sorted freelist at this point. Now see how far we can truncate. */
+	for (notch = npages, pgno = meta->last_pgno; notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID; --notch, --pgno) ;
+
+	/* pglist[notch] is where in the freelist we can safely truncate. */
+	if (notch == npages) {
+		logmsg(LOGMSG_WARN, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], meta->last_pgno);
+		goto out;
+	}
+
+	logmsg(LOGMSG_WARN, "last pgno %u truncation point (array index) %zu\n", meta->last_pgno, notch);
 
 	/* rebuild the freelist, in page order */
 	for (ii = 0; ii != notch; ++ii) {
@@ -261,7 +283,7 @@ __db_shrink_redo(dbc, txn, meta, npages, notch, pglist, pglsnlist)
 	meta->free = pglist[0];
 	/* pglist[notch] is where we will truncate. so point last_pgno to the page before this. */
 	meta->last_pgno = pglist[notch] - 1;
-	modified = 1;
+	*pmodified = 1;
 
 	/* shrink the file */
 	newsize = meta->pagesize * (off_t)(meta->last_pgno + 1); /* +1 for meta page */
@@ -273,6 +295,25 @@ out:
 	__os_free(dbenv, htonpglsnlist);
 
 	return (ret);
+}
+
+/* __db_shrink_undo --
+ *  undo
+ *
+ * PUBLIC: int __db_shrink_undo __P((DBC *, DB_TXN *, DBMETA *, db_pgno_t, size_t, db_pgno_t *, DB_LSN *, int *));
+ */
+int
+__db_shrink_undo(dbc, txn, meta, last_pgno, npages, pglist, pglsnlist, pmodified)
+	DBC *dbc;
+	DB_TXN *txn;
+	DBMETA *meta;
+	db_pgno_t last_pgno;
+	size_t npages;
+	db_pgno_t *pglist;
+	DB_LSN *pglsnlist;
+	int *pmodified;
+{
+	return (0);
 }
 
 /*
@@ -351,25 +392,7 @@ __db_shrink(dbp, txn)
 	if (npages == 0)
 		goto out;
 
-	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
-
-	logmsg(LOGMSG_WARN, "freelist after sorting (%zu pages): ", npages);
-	for (int i = 0; i != npages; ++i) {
-		logmsg(LOGMSG_WARN, "%u ", pglist[i]);
-	}
-
-	/* We have a sorted freelist at this point. Now see how far we can truncate. */
-	for (notch = npages, pgno = meta->last_pgno; notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID; --notch, --pgno) ;
-
-	/* pglist[notch] is where in the freelist we can safely truncate. */
-	if (notch == npages) {
-		logmsg(LOGMSG_WARN, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], meta->last_pgno);
-		goto out;
-	}
-
-	logmsg(LOGMSG_WARN, "last pgno %u truncation point (array index) %zu\n", meta->last_pgno, notch);
-
-	ret = __db_shrink_redo(dbc, txn, meta, npages, notch, pglist, pglsnlist);
+	ret = __db_shrink_redo(dbc, txn, meta, npages, pglist, pglsnlist, &modified);
 
 out:
 	__os_free(dbenv, pglist);

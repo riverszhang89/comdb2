@@ -1420,10 +1420,9 @@ __db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	}
 
 	if (cmp_p == 0 && DB_REDO(op)) {
-		ret = __db_shrink_redo(dbc, NULL, meta, npages, argp->notch, pglist, pglsnlist);
-		modified = 1;
+		ret = __db_shrink_redo(dbc, NULL, meta, npages, pglist, pglsnlist, &modified);
 	} else if (cmp_n == 0 && DB_UNDO(op)) {
-		modified = 1;
+		ret = __db_shrink_undo(dbc, NULL, meta, argp->last_pgno, npages, pglist, pglsnlist, &modified);
 	}
 
 	if (check_page) {
