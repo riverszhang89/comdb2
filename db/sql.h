@@ -262,6 +262,7 @@ typedef struct {
     int trans_has_sp;     /* running a stored procedure */
     int maxchunksize;     /* multi-transaction bulk mode */
     int crtchunksize;     /* how many rows are processed already */
+    int nchunks;          /* number of chunks. 0 for a non-chunked transaction. */
 } dbtran_type;
 typedef dbtran_type trans_t;
 
@@ -731,6 +732,9 @@ struct sqlclntstate {
 
     struct query_effects effects;
     struct query_effects log_effects;
+    /* unlike `effects', which is reset on a new transaction, `chunk_effects' keeps track of cumulative query results
+     * from a chunked "transaction", which consists of multiple small transactions (aka chunks). */
+    struct query_effects chunk_effects;
     int64_t nsteps;
 
     struct user current_user;

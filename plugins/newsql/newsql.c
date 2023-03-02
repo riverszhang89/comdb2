@@ -177,17 +177,21 @@ static int fill_snapinfo(struct sqlclntstate *clnt, int *file, int *offset)
     return rcode;
 }
 
+/* Returns cumulative but non-atomic query effects for a chunked transacion. */
+static struct query_effects *newsql_get_query_effects(struct sqlclntstate *clnt)
+{
+    return (clnt->dbtran.nchunks > 1) ? &clnt->chunk_effects : &clnt->effects;
+}
+
 #define _has_effects(clnt, sql_response)                                       \
     CDB2EFFECTS effects = CDB2__EFFECTS__INIT;                                 \
-                                                                               \
-    clnt->effects.num_affected = clnt->effects.num_updated +                   \
-                                 clnt->effects.num_deleted +                   \
-                                 clnt->effects.num_inserted;                   \
-    effects.num_affected = clnt->effects.num_affected;                         \
-    effects.num_selected = clnt->effects.num_selected;                         \
-    effects.num_updated = clnt->effects.num_updated;                           \
-    effects.num_deleted = clnt->effects.num_deleted;                           \
-    effects.num_inserted = clnt->effects.num_inserted;                         \
+    struct query_effects *ep = newsql_get_query_effects(clnt);                 \
+    ep->num_affected = ep->num_updated + ep->num_deleted + ep->num_inserted;   \
+    effects.num_affected = ep->num_affected;                                   \
+    effects.num_selected = ep->num_selected;                                   \
+    effects.num_updated = ep->num_updated;                                     \
+    effects.num_deleted = ep->num_deleted;                                     \
+    effects.num_inserted = ep->num_inserted;                                   \
                                                                                \
     sql_response.effects = &effects;
 
@@ -2164,7 +2168,7 @@ void newsql_effects(CDB2SQLRESPONSE *r, CDB2EFFECTS *e, struct sqlclntstate *cln
         return;
     }
     set_sent_data_to_client(clnt, 1, __func__, __LINE__);
-    struct query_effects *effects = &clnt->effects;
+    struct query_effects *effects = newsql_get_query_effects(clnt);
     effects->num_affected = effects->num_updated + effects->num_deleted + effects->num_inserted;
     e->num_affected = effects->num_affected;
     e->num_selected = effects->num_selected;
