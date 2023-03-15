@@ -1524,16 +1524,9 @@ static int bdb_flush_int(bdb_state_type *bdb_state, int *bdberr, int force)
 
     *bdberr = BDBERR_NOERROR;
 
-    rc = bdb_state->dbenv->log_flush(bdb_state->dbenv, NULL);
-    if (rc != 0) {
-        logmsg(LOGMSG_ERROR, "log_flush err %d\n", rc);
-        *bdberr = BDBERR_MISC;
-        return -1;
-    }
+    bdb_flush_cache(bdb_state);
 
-    if (bdb_state->repinfo->master_host != bdb_state->repinfo->myhost)
-        bdb_flush_cache(bdb_state);
-    else {
+    if (bdb_state->repinfo->master_host == bdb_state->repinfo->myhost) {
         start = comdb2_time_epochms();
         rc = ll_checkpoint(bdb_state, force);
         if (rc != 0) {
