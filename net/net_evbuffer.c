@@ -379,10 +379,9 @@ struct event_info {
 
     /* akq backed */
     int akq_gen;
+    int akq_payload_len; /* total length of all enqueued akq works */
     time_t rd_full;
     pthread_mutex_t akq_lk;
-    struct evbuffer *akq_buf;
-    struct evbuffer *payload_buf;
 
     /* read */
     struct evbuffer *rd_buf;
@@ -424,6 +423,7 @@ struct user_msg_info {
     int gen;
     struct event_info *e;
     net_send_message_header msg;
+    uint8_t *payload;
 };
 
 #if 0
@@ -682,8 +682,6 @@ static struct event_info *event_info_new(struct net_info *n, struct host_info *h
     e->service = n->service;
     e->host_info = h;
     e->net_info = n;
-    e->payload_buf = evbuffer_new();
-    e->akq_buf = evbuffer_new();
     setup_wire_hdrs(e);
     struct event_hash_entry *entry = malloc(sizeof(struct event_hash_entry));
     make_event_hash_key(entry->key, n->service, h->host);
@@ -1091,11 +1089,10 @@ static void check_rd_full(struct event_info *e)
 {
     if (e->rd_full) return;
     uint64_t max_bytes = e->net_info->rd_max;
-    size_t outstanding = evbuffer_get_length(e->akq_buf) + evbuffer_get_length(e->payload_buf);
-    if (outstanding < max_bytes) return;
+    if (e->akq_payload_len < max_bytes) return;
     e->rd_full = time(NULL);
     event_del(e->rd_ev);
-    hprintf("SUSPENDING RD outstanding:%zumb (max:%zumb )\n", (size_t)(outstanding / MB(1)), (size_t) (max_bytes / MB(1)));
+    hprintf("SUSPENDING RD outstanding:%zumb (max:%zumb )\n", (size_t)(e->akq_payload_len / MB(1)), (size_t) (max_bytes / MB(1)));
 }
 
 static void message_done(struct event_info *e)
@@ -1125,26 +1122,22 @@ static void user_msg_callback(void *work)
     struct event_info *e = info->e;
     net_send_message_header *msg = &info->msg;
     const int datalen = msg->datalen;
-    const int payload_len = evbuffer_get_length(e->payload_buf);
-    if (unlikely(payload_len < datalen)) {
-        Pthread_mutex_lock(&e->akq_lk);
-        evbuffer_add_buffer(e->payload_buf, e->akq_buf);
-        Pthread_mutex_unlock(&e->akq_lk);
-    }
+    e->akq_payload_len -= datalen;
+    if (e->akq_payload_len < 0)
+        e->akq_payload_len = 0;
     if (unlikely(e->rd_full)) {
         uint64_t max_bytes = e->net_info->rd_max;
-        size_t outstanding = evbuffer_get_length(e->akq_buf) + evbuffer_get_length(e->payload_buf);
-        if (outstanding < (max_bytes * resume_lvl)) {
+        if (e->akq_payload_len < (max_bytes * resume_lvl)) {
             time_t diff = time(NULL) - e->rd_full;
-            hprintf("RESUMING RD outstanding:%zumb (max:%"PRIu64"mb ) after:%ds\n", outstanding / MB(1), max_bytes / MB(1), (int)diff);
+            hprintf("RESUMING RD outstanding:%zumb (max:%"PRIu64"mb ) after:%ds\n", (size_t)(e->akq_payload_len / MB(1)), max_bytes / MB(1), (int)diff);
             e->rd_full = 0;
             evtimer_once(rd_base, resume_read, e);
         }
     }
     if (likely(info->gen == e->akq_gen)) {
-        user_msg(e, msg, evbuffer_pullup(e->payload_buf, datalen));
+        user_msg(e, msg, info->payload);
     }
-    evbuffer_drain(e->payload_buf, datalen);
+    free(info->payload);
 }
 
 static int process_user_msg(struct event_info *e)
@@ -1180,10 +1173,10 @@ static int process_user_msg(struct event_info *e)
         info.gen = e->akq_gen;
         info.e = e;
         info.msg = *msg;
-        Pthread_mutex_lock(&e->akq_lk);
-        evbuffer_remove_buffer(e->rd_buf, e->akq_buf, datalen);
+        info.payload = malloc(datalen);
+        evbuffer_remove(e->rd_buf, info.payload, datalen);
+        e->akq_payload_len += datalen;
         check_rd_full(e);
-        Pthread_mutex_unlock(&e->akq_lk);
         akq_enqueue_work(q, &info);
     } else {
         user_msg(e, msg, evbuffer_pullup(e->rd_buf, datalen));
@@ -3294,28 +3287,33 @@ int write_list_evbuffer(host_node_type *host_node_ptr, int type,
     int nodrop = flags & WRITE_MSG_NOLIMIT;
     int nodelay = flags & WRITE_MSG_NODELAY;
     struct event_info *e = host_node_ptr->event_info;
-    struct evbuffer *buf = evbuffer_new();
-    size_t bytes_written;
-    if (buf == NULL) {
-        rc = -1;
-        goto out;
-    }
-    if (evbuffer_add(buf, e->wirehdr[type], e->wirehdr_len) != 0) {
-        rc = -1;
-        goto out;
-    }
-    for (int i = 0; i < n; ++i) {
-        if (evbuffer_add(buf, iov[i].iov_base, iov[i].iov_len) != 0) {
-            rc = -1;
-            goto out;
-        }
-    }
-    bytes_written = evbuffer_get_length(buf);
+    size_t sz;
+    struct iovec v[1];
+    uint8_t *b;
+
     Pthread_mutex_lock(&e->wr_lk);
     if (!e->flush_buf) {
        rc = -3;
     } else if ((rc = skip_send(e, nodrop, 0)) == 0) {
-        if ((rc = evbuffer_add_buffer(e->flush_buf, buf)) == 0) {
+        sz = e->wirehdr_len;
+        for (int i = 0; i < n; ++i)
+            sz += iov[i].iov_len;
+
+        const int nv = evbuffer_reserve_space(e->flush_buf, sz, v, 1);
+        if (nv != 1) {
+            return -1;
+        }
+
+        b = v[0].iov_base;
+        memcpy(b, e->wirehdr[type], e->wirehdr_len);
+        b += e->wirehdr_len;
+        for (int i = 0; i < n; ++i) {
+            memcpy(b, iov[i].iov_base, iov[i].iov_len);
+            b += iov[i].iov_len;
+        }
+        v[0].iov_len = sz;
+
+        if ((rc = evbuffer_commit_space(e->flush_buf, v, 1)) == 0) {
             flush_evbuffer(e, nodelay);
         } else {
             rc = -1;
@@ -3324,15 +3322,12 @@ int write_list_evbuffer(host_node_type *host_node_ptr, int type,
     if (rc==0) {
         if (e->net_info && e->net_info->netinfo_ptr) {
             netinfo_type *netinfo_ptr = e->net_info->netinfo_ptr;
-            netinfo_ptr->stats.bytes_written += bytes_written;
+            netinfo_ptr->stats.bytes_written += sz;
         }
-        host_node_ptr->stats.bytes_written += bytes_written;
-        update_host_net_queue_stats(host_node_ptr, 1, bytes_written);
+        host_node_ptr->stats.bytes_written += sz;
+        update_host_net_queue_stats(host_node_ptr, 1, sz);
     }
     Pthread_mutex_unlock(&e->wr_lk);
-out:if (buf) {
-        evbuffer_free(buf);
-    }
     return rc;
 }
 
