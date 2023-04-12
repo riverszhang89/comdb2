@@ -9459,6 +9459,7 @@ void cancel_sql_statement_with_cnonce(const char *cnonce)
 void sql_dump_running_statements(void)
 {
     struct sql_thread *thd;
+    struct sqlclntstate *clnt;
     BtCursor *cur;
     struct tm tm;
     char rqid[50];
@@ -9470,24 +9471,29 @@ void sql_dump_running_statements(void)
         localtime_r((time_t *)&t, &tm);
         Pthread_mutex_lock(&thd->lk);
 
-        if (thd->clnt && thd->clnt->sql) {
-            if (thd->clnt->osql.rqid) {
+        if ((clnt = thd->clnt) != NULL) {
+            Pthread_mutex_lock(&clnt->sql_lk);
+            if (!clnt->sql) {
+                Pthread_mutex_unlock(&clnt->sql_lk);
+                continue;
+            }
+            if (clnt->osql.rqid) {
                 uuidstr_t us;
                 snprintf(rqid, sizeof(rqid), "txn %016llx %s",
-                         thd->clnt->osql.rqid,
-                         comdb2uuidstr(thd->clnt->osql.uuid, us));
+                         clnt->osql.rqid,
+                         comdb2uuidstr(clnt->osql.uuid, us));
             } else
                 rqid[0] = 0;
 
             logmsg(LOGMSG_USER, "id %d %02d/%02d/%02d %02d:%02d:%02d %s%s pid %d task %s ", thd->id,
                    tm.tm_mon + 1, tm.tm_mday, 1900 + tm.tm_year, tm.tm_hour,
-                   tm.tm_min, tm.tm_sec, rqid, thd->clnt->origin, thd->clnt->conninfo.pid, thd->clnt->argv0 ? thd->clnt->argv0 : "???");
-            logmsg(LOGMSG_USER, "%s\n", thd->clnt->sql);
+                   tm.tm_min, tm.tm_sec, rqid, clnt->origin, clnt->conninfo.pid, clnt->argv0 ? clnt->argv0 : "???");
+            logmsg(LOGMSG_USER, "%s\n", clnt->sql);
 
-            int nparams = thd->clnt->plugin.param_count(thd->clnt);
+            int nparams = clnt->plugin.param_count(clnt);
             char param[255];
             for (int i = 0; i < nparams; i++) {
-                char *value = param_string_value(thd->clnt, i, param, sizeof(param));
+                char *value = param_string_value(clnt, i, param, sizeof(param));
                 if (value)
                     logmsg(LOGMSG_USER, "    %s\n", value);
             }
@@ -9515,6 +9521,7 @@ void sql_dump_running_statements(void)
                            cur->nmove, cur->nfind, cur->nwrite);
                 }
             }
+            Pthread_mutex_unlock(&clnt->sql_lk);
         }
         Pthread_mutex_unlock(&thd->lk);
     }

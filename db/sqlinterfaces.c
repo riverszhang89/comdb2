@@ -5158,6 +5158,10 @@ int tdef_to_tranlevel(int tdef)
 
 void cleanup_clnt(struct sqlclntstate *clnt)
 {
+    /* Grab clnt's sql_lk. This prevents sql_dump_running_statements()
+       from seeing a stale clnt */
+    Pthread_mutex_lock(&clnt->sql_lk);
+
     if (clnt->ctrl_sqlengine == SQLENG_INTRANS_STATE) {
         handle_sql_intrans_unrecoverable_error(clnt);
     }
@@ -5230,6 +5234,7 @@ void cleanup_clnt(struct sqlclntstate *clnt)
     clnt->dml_tables = NULL;
     destroy_hash(clnt->ddl_contexts, free_clnt_ddl_context);
     clnt->ddl_contexts = NULL;
+    clnt->sql = NULL;
 
     Pthread_mutex_destroy(&clnt->wait_mutex);
     Pthread_cond_destroy(&clnt->wait_cond);
@@ -5238,7 +5243,14 @@ void cleanup_clnt(struct sqlclntstate *clnt)
     Pthread_mutex_destroy(&clnt->dtran_mtx);
     Pthread_mutex_destroy(&clnt->state_lk);
     Pthread_mutex_destroy(&clnt->sql_tick_lk);
+
+    Pthread_mutex_unlock(&clnt->sql_lk);
+
+    /* Grab the big sql lock. This prevents sql_dump_running_statements()
+       from locking a destroyed mutex */
+    Pthread_mutex_lock(&gbl_sql_lock);
     Pthread_mutex_destroy(&clnt->sql_lk);
+    Pthread_mutex_unlock(&gbl_sql_lock);
 }
 
 void reset_clnt(struct sqlclntstate *clnt, int initial)
