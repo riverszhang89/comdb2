@@ -361,6 +361,7 @@ static void sql_trickle_int(struct sqlwriter *writer, int fd)
     const int outstanding = evbuffer_get_length(writer->wr_buf);
     if (!outstanding) {
         if (difftime(time(NULL), writer->sent_at) >= min_hb_time && !writer->timed_out) {
+            puts("going to write a hb now!!!!!");
             sql_pack_heartbeat(writer);
         } else {
             return;
@@ -392,18 +393,32 @@ static void sql_trickle_cb(int fd, short what, void *arg)
 static void sql_heartbeat_cb(int fd, short what, void *arg)
 {
     struct sqlwriter *writer = arg;
+
+    time_t now = time(NULL);
+    if (difftime(now, writer->sent_at) >= min_hb_time) {
+        printf("hb: now %ld sent at %ld\n", now, writer->sent_at);
+        puts("hb: delaying to make sure that a heartbeat goes out after last row!!!!");
+        sleep(5);
+        puts("hb: wake up");
+    }
+
     if (pthread_mutex_trylock(&writer->wr_lock) == 0) {
         int len = evbuffer_get_length(writer->wr_buf);
         time_t now = time(NULL);
+        printf("hb 2: now %ld sent at %ld\n", now, writer->sent_at);
         if (len || difftime(now, writer->sent_at) >= min_hb_time) {
+            printf("hb %p: heartbeat_trickle!\n", writer);
             event_add(writer->heartbeat_trickle_ev, NULL);
         }
         Pthread_mutex_unlock(&writer->wr_lock);
+    } else {
+        puts("hb: huh???????????????");
     }
 }
 
 void sql_reset(struct sqlwriter *writer)
 {
+    printf("__func__ %s %p\n", __func__, writer);
     writer->bad = 0;
     writer->done = 0;
     writer->flush = 0;
@@ -423,6 +438,8 @@ int sql_done(struct sqlwriter *writer)
     if (done_cb_evbuffer(clnt) != 0) {
         return -1;
     }
+    puts("sql_done -- sleep to let hb go out");
+    sleep(3);
     Pthread_mutex_lock(&writer->wr_lock);
     writer->done = 1;
     if (writer->bad) {

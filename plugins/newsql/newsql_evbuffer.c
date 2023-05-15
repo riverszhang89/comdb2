@@ -912,8 +912,17 @@ static int newsql_write_evbuffer(struct sqlclntstate *clnt, int type, int state,
         hdr.length = htonl(response_len);
         arg.hdr = &hdr;
     }
+    if (resp->response_type == RESPONSE_TYPE__LAST_ROW) {
+        puts("zzzzzz sleeping for last row");
+        sleep(2);
+        puts("zzzzzz wake up to write last");
+    }
     arg.resp = resp;
-    return sql_write(appdata->writer, &arg, flush);
+    int rc = sql_write(appdata->writer, &arg, flush);
+    if (resp->response_type == RESPONSE_TYPE__LAST_ROW) {
+        puts("zzzzzz last written");
+    }
+    return rc;
 }
 
 static int newsql_write_hdr_evbuffer(struct sqlclntstate *clnt, int h, int state)
