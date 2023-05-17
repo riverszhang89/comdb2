@@ -2115,6 +2115,7 @@ void newsql_reset(struct sqlclntstate *clnt)
                   from the sockpool. */
         handle_sql_intrans_unrecoverable_error(clnt);
     }
+    printf("------------------------------ OHAI %s --------------------\n", __func__);
     reset_clnt(clnt, 0);
     clnt->tzname[0] = 0;
     clnt->osql.count_changes = 1;
