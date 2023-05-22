@@ -413,6 +413,7 @@ static void sql_heartbeat_cb(int fd, short what, void *arg)
         Pthread_mutex_unlock(&writer->wr_lock);
     } else {
         puts("hb: huh???????????????");
+        abort();
     }
 }
 
@@ -438,8 +439,9 @@ int sql_done(struct sqlwriter *writer)
     if (done_cb_evbuffer(clnt) != 0) {
         return -1;
     }
-    puts("sql_done -- sleep to let hb go out");
+    printf(":%lx sql_done -- sleep to let hb go out\n", pthread_self());
     sleep(3);
+    printf(":%lx sql_done -- awake\n", pthread_self());
     Pthread_mutex_lock(&writer->wr_lock);
     writer->done = 1;
     if (writer->bad) {

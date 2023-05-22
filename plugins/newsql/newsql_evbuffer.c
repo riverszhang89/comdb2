@@ -913,14 +913,14 @@ static int newsql_write_evbuffer(struct sqlclntstate *clnt, int type, int state,
         arg.hdr = &hdr;
     }
     if (resp->response_type == RESPONSE_TYPE__LAST_ROW) {
-        puts("zzzzzz sleeping for last row");
-        sleep(2);
-        puts("zzzzzz wake up to write last");
+        printf("%lx %s: this is last row, sleep 2 seconds\n", pthread_self(), __func__);
+        //sleep(2);
+        printf("%lx %s: I'm awake\n", pthread_self(), __func__);
     }
     arg.resp = resp;
     int rc = sql_write(appdata->writer, &arg, flush);
     if (resp->response_type == RESPONSE_TYPE__LAST_ROW) {
-        puts("zzzzzz last written");
+        printf("%lx %s: I've written last row\n", pthread_self(), __func__);
     }
     return rc;
 }
