@@ -5392,6 +5392,11 @@ void reset_clnt(struct sqlclntstate *clnt, int initial)
     if (gbl_sockbplog) {
         init_bplog_socket(clnt);
     }
+
+    if (!initial) {
+        if (clnt->lasttype != RESPONSE_TYPE__LAST_ROW && clnt->lasttype != 0)
+            abort();
+    }
 }
 
 void reset_clnt_flags(struct sqlclntstate *clnt)

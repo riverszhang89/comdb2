@@ -928,6 +928,8 @@ struct sqlclntstate {
     // Latch last statement's cost for comdb2_last_cost to fetch
     int64_t last_cost;
     int disable_fdb_push;
+
+    int lasttype;
 };
 
 /* Query stats. */
