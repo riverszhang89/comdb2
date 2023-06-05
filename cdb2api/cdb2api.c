@@ -2703,6 +2703,7 @@ retry:
     *buf = realloc(*buf, hdr.length);
     if ((*buf) == NULL) {
         fprintf(stderr, "%s: out of memory realloc(%d)\n", __func__, hdr.length);
+        abort();
         rc = -1;
         goto after_callback;
     }

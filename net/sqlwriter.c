@@ -22,6 +22,7 @@
 #include <event2/event.h>
 
 #include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include <compile_time_assert.h>
 #include <locks_wrap.h>
@@ -130,11 +131,17 @@ void sql_disable_timeout(struct sqlwriter *writer)
 
 static int wr_evbuffer_ssl(struct sqlwriter *writer, int fd)
 {
+    ERR_clear_error();
     int len = evbuffer_get_length(writer->wr_buf);
     if (len > KB(16)) len = KB(16);
     const void *buf = evbuffer_pullup(writer->wr_buf, len);
     int rc = SSL_write(writer->ssl, buf, len);
     if (rc > 0) evbuffer_drain(writer->wr_buf, rc);
+    else {
+        int ioerr = SSL_get_error(writer->ssl, rc);
+        if (ioerr == SSL_ERROR_WANT_READ || ioerr == SSL_ERROR_WANT_WRITE)
+            abort();
+    }
     return rc;
 }
 
