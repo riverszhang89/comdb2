@@ -226,8 +226,8 @@ int start_schema_change_tran(struct ireq *iq, tran_type *trans)
     if (s->tran == trans && iq->sc_seed) {
         seed = iq->sc_seed;
         logmsg(LOGMSG_INFO, "Starting schema change: "
-                            "transactionally reuse seed 0x%llx\n",
-               seed);
+                            "transactionally reuse seed 0x%llx tran %p\n",
+               seed, trans);
     } else if (s->resume) {
         unsigned int host = 0;
         logmsg(LOGMSG_INFO, "Resuming schema change: fetching seed\n");

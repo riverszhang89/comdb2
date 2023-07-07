@@ -399,6 +399,7 @@ static int check_table_version(struct ireq *iq, struct schema_change_type *sc)
     int rc, bdberr;
     unsigned long long version;
     rc = bdb_table_version_select(sc->tablename, NULL, &version, &bdberr);
+    printf("--------------------------------- %p version %lld my version %d\n", sc, version, sc->usedbtablevers);
     if (rc != 0) {
         errstat_set_strf(&iq->errstat,
                          "failed to get version for table:%s rc:%d",
@@ -410,6 +411,7 @@ static int check_table_version(struct ireq *iq, struct schema_change_type *sc)
         errstat_set_strf(&iq->errstat,
                          "stale version for table:%s master:%llu replicant:%d",
                          sc->tablename, version, sc->usedbtablevers);
+        sc_errf(sc, "stale version for %p table:%s master:%llu replicant:%d", sc, sc->tablename, version, sc->usedbtablevers);
         iq->errstat.errval = ERR_SC;
         return SC_INTERNAL_ERROR;
     }

@@ -31,6 +31,7 @@
 #include "comdb2_atomic.h"
 #include "views.h"
 #include "macc_glue.h"
+#include "str0.h"
 
 static int prepare_sc_plan(struct schema_change_type *s, int old_changed,
                            struct dbtable *db, struct dbtable *newdb,
@@ -360,6 +361,7 @@ static void check_for_idx_rename(struct dbtable *newdb, struct dbtable *olddb)
 
 static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
                           tran_type *tran);
+int do_fastinit(struct ireq *, struct schema_change_type *, tran_type *);
 static int optionsChanged(struct schema_change_type *sc, struct scinfo *scinfo){
     if(sc->headers != scinfo->olddb_odh || 
         sc->ip_updates != scinfo->olddb_inplace_updates ||
@@ -386,8 +388,12 @@ int do_alter_table(struct ireq *iq, struct schema_change_type *s,
     struct scinfo scinfo;
     struct errstat err = {0};
 
-    if (s->partition.type == PARTITION_MERGE)
-        return do_merge_table(iq, s, tran);
+    if (s->partition.type >= PARTITION_MERGE) {
+        rc = do_merge_table(iq, s, tran);
+        if (rc == SC_OK && s->partition.type > PARTITION_MERGE)
+            rc = do_fastinit(iq, s, tran);
+        return rc;
+    }
 
 #ifdef DEBUG_SC
     logmsg(LOGMSG_INFO, "do_alter_table() %s\n", s->resume ? "resuming" : "");
@@ -718,6 +724,8 @@ static int do_merge_table(struct ireq *iq, struct schema_change_type *s,
     int rc;
     struct scinfo scinfo;
 
+    logmsg(LOGMSG_INFO, "---------------- do_merge_table() %s\n", s->resume ? "resuming" : "");
+
 #ifdef DEBUG_SC
     logmsg(LOGMSG_INFO, "do_alter_table() %s\n", s->resume ? "resuming" : "");
 #endif
@@ -891,6 +899,8 @@ convert_records:
 
 static int finalize_merge_table(struct ireq *iq, struct schema_change_type *s,
                                 tran_type *transac);
+static int finalize_repartition_table(struct ireq *, struct schema_change_type *, tran_type *);
+
 #define BACKOUT                                                                \
     do {                                                                       \
         sc_errf(s, "%s:%d backing out\n", __func__, __LINE__);                 \
@@ -905,9 +915,15 @@ int finalize_alter_table(struct ireq *iq, struct schema_change_type *s,
     struct dbtable *newdb = s->newdb;
     void *old_bdb_handle, *new_bdb_handle;
     int olddb_bthashsz;
+    printf("%s: !!!!!!!!!!!!!!!!! sc kind is %d partition type %d\n", __func__, s->kind, s->partition.type);
 
     if (s->partition.type == PARTITION_MERGE)
         return finalize_merge_table(iq, s, transac);
+    if (s->partition.type > PARTITION_MERGE) {
+        s->kind = SC_TRUNCATETABLE;
+        s->same_schema = 1;
+        s->done_type = fastinit;
+    }
 
     iq->usedb = db;
 
@@ -1198,6 +1214,15 @@ static int finalize_merge_table(struct ireq *iq, struct schema_change_type *s,
     s->newdb = NULL; /* we not really own it*/
     s->done_type = drop; /* we need to drop the merged table */
     return finalize_drop_table(iq, s, transac);
+}
+
+extern int finalize_fastinit_table(struct ireq *iq, struct schema_change_type *s, tran_type *tran);
+static int finalize_repartition_table(struct ireq *iq, struct schema_change_type *s, tran_type *transac)
+{
+    s->kind = SC_TRUNCATETABLE;
+    s->same_schema = 1;
+    s->done_type = fastinit;
+    return finalize_alter_table(iq, s, transac);
 }
 
 int do_upgrade_table_int(struct schema_change_type *s)

@@ -165,6 +165,7 @@ int finalize_fastinit_table(struct ireq *iq, struct schema_change_type *s,
 {
     int rc = 0;
     struct dbtable *db = s->db;
+    printf("hello-------------------------------------------------- %s\n", __func__);
     if (db->n_rev_constraints > 0 && !self_referenced_only(db)) {
         int i;
         struct schema_change_type *sc_pending;

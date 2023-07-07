@@ -8479,6 +8479,7 @@ static int bdb_table_version_upsert_int(bdb_state_type *bdb_state,
     }
 
     version = flibc_htonll(version);
+    printf("?????????????????????? %s %lld\n", schema_version.tblname, version);
     rc = bdb_lite_add(llmeta_bdb_state, tran, &version, sizeof(version), key,
                       bdberr);
     if (rc || *bdberr != BDBERR_NOERROR) {
