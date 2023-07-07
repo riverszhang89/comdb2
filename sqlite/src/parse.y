@@ -2037,7 +2037,19 @@ alter_table_commit_pending ::= SET COMMIT PENDING. {
   comdb2AlterCommitPending(pParse);
 }
 
-alter_table_partitioned ::= partitioned_by.
+alter_table_partitioned ::= PARTITIONED BY alter_partition_options.
+alter_partition_options ::= TIME PERIOD STRING(P) RETENTION INTEGER(R) START STRING(S). {
+    comdb2AlterTimePartition(pParse, &P, &R, &S);
+}
+alter_partition_options ::= NONE. {
+    comdb2SaveMergeTable(pParse, NULL, NULL, 1);
+}
+alter_partition_options ::= MANUAL RETENTION INTEGER(R) START INTEGER(S). {
+    comdb2AlterManualPartition(pParse, &R, &S);
+}
+alter_partition_options ::= MANUAL RETENTION INTEGER(R). {
+    comdb2AlterManualPartition(pParse, &R, 0);
+}
 alter_table_merge ::= merge_with_alter.
 
 // Even though they make the syntax a bit ugly, the parentheses were
