@@ -1972,7 +1972,7 @@ void *create_constraint_table()
 {
     struct temp_table *newtbl = NULL;
     int bdberr = 0;
-    newtbl = (struct temp_table *)bdb_temp_list_create(thedb->bdb_env, &bdberr);
+    newtbl = (struct temp_table *)bdb_temp_table_create(thedb->bdb_env, &bdberr);
     if (newtbl == NULL || bdberr != 0) {
         logmsg(LOGMSG_ERROR, "failed to create temp table err %d\n", bdberr);
         return NULL;
