@@ -400,6 +400,8 @@ __db_shrink(dbp, txn)
 		goto out;
     }
 
+    /* TODO FIXME this is where pages are exchanged !!!! */
+
     /* log the change */
 	if (!DBC_LOGGING(dbc)) {
 		LSN_NOT_LOGGED(LSN(meta));
@@ -433,9 +435,6 @@ __db_shrink(dbp, txn)
 
     /* not recovery, but same routine */
 	ret = __db_shrink_redo(dbc, &LSN(meta), meta, &prev_metalsn, npages, pglist, pglsnlist, &modified);
-    puts("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
-    sleep(10);
-    abort();
 
 out:
 	__os_free(dbenv, pglist);
