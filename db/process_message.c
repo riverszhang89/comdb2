@@ -4966,7 +4966,7 @@ clipper_usage:
 			return -1;
 		}
         tokcpy0(tok, ltok, tbl, sizeof(tbl));
-		db_shrink(tbl);
+		shrink_table(tbl);
     } else {
         // see if any plugins know how to handle this
         struct message_handler *h;

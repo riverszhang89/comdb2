@@ -6205,7 +6205,7 @@ static int syncmode_callback(bdb_state_type *bdb_state) {
     return sync_state_to_protobuf(thedb->rep_sync);
 }
 
-int db_shrink(const char *name)
+int shrink_table(const char *name)
 {
 	int ret;
 	dbtable *db;

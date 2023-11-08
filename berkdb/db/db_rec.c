@@ -893,6 +893,13 @@ do_meta:
 		/* Need to redo update described. */
 		LSN(meta) = *lsnp;
 		meta->free = argp->next;
+		/*
+		 * Make sure that meta->last_pgno always reflects the largest page
+		 * that we've ever allocated.
+		 */
+		if (argp->pgno > meta->last_pgno) {
+			meta->last_pgno = argp->pgno;
+		}
 		modified = 1;
 	} else if (cmp_n == 0 && DB_UNDO(op)) {
 		/* Need to undo update described. */
@@ -905,15 +912,6 @@ do_meta:
 		 */
 		if (!IS_ZERO_LSN(argp->page_lsn))
 			meta->free = argp->pgno;
-		modified = 1;
-	}
-
-	/*
-	 * Make sure that meta->last_pgno always reflects the largest page
-	 * that we've ever allocated.
-	 */
-	if (argp->pgno > meta->last_pgno) {
-		meta->last_pgno = argp->pgno;
 		modified = 1;
 	}
 
@@ -1024,8 +1022,9 @@ __db_pg_free_recover_int(dbenv, argp, file_dbp, lsnp, mpf, op, data)
 		 * we are a replica, then we never executed the
 		 * original allocation which incremented meta->free.
 		 */
-		if (meta->last_pgno < meta->free)
+		if (meta->last_pgno < meta->free) {
 			meta->last_pgno = meta->free;
+		}
 		LSN(meta) = *lsnp;
 		modified = 1;
 	} else if (cmp_n == 0 && DB_UNDO(op)) {
@@ -1413,17 +1412,29 @@ __db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	pglist = argp->fl.data;
 	pglsnlist = argp->fllsn.data;
 
+	/* host order */
 	for (ii = 0; ii != npages; ++ii) {
 		pglist[ii] = ntohl(pglist[ii]);
 		pglsnlist[ii].file = ntohl(pglsnlist[ii].file);
 		pglsnlist[ii].offset = ntohl(pglsnlist[ii].offset);
 	}
 
-	if (cmp_p == 0 && DB_REDO(op)) {
-		ret = __db_shrink_redo(dbc, NULL, meta, npages, pglist, pglsnlist, &modified);
-	} else if (cmp_n == 0 && DB_UNDO(op)) {
-		ret = __db_shrink_undo(dbc, NULL, meta, argp->last_pgno, npages, pglist, pglsnlist, &modified);
+	if (DB_REDO(op)) {
+		ret = __db_shrink_redo(dbc, lsnp, meta, &LSN(meta), npages, pglist, pglsnlist, &modified);
+		if (cmp_p == 0) {
+			LSN(meta) = *lsnp;
+		}
+	} else if (DB_UNDO(op)) {
+		ret = __db_shrink_undo(dbc, lsnp, meta, &LSN(meta), argp->last_pgno, npages, pglist, pglsnlist, &modified);
+		if (cmp_n == 0) {
+			LSN(meta) = argp->meta_lsn;
+		}
 	}
+
+#if 0
+	if (!modified)
+		abort();
+#endif
 
 	if (check_page) {
 		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 0);

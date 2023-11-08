@@ -517,26 +517,31 @@ __memp_get_refcnt(dbenv, fileid, refp)
 }
 
 /*
- * __memp_shrink
+ * __memp_resize
  *	Shrink a file backed by the buffer pool
  *
- * PUBLIC: int __memp_shrink __P((DB_MPOOLFILE *, off_t));
+ * PUBLIC: int __memp_resize __P((DB_MPOOLFILE *, db_pgno_t));
  */
 int
-__memp_shrink(dbmfp, size)
+__memp_resize(dbmfp, pgno)
 	DB_MPOOLFILE *dbmfp;
-	off_t size;
+	db_pgno_t pgno;
 {
 	DB_ENV *dbenv;
 	DB_MPOOL *dbmp;
 	MPOOLFILE *mfp;
+	int ret;
+	size_t pagesize;
 
 	dbenv = dbmfp->dbenv;
 	dbmp = dbenv->mp_handle;
 	mfp = dbmfp->mfp;
+	pagesize = mfp->stat.st_pagesize;
 
 	R_LOCK(dbenv, dbmp->reginfo);
-	__os_truncate(dbenv, dbmfp->fhp, size);
+	ret = __os_truncate(dbenv, dbmfp->fhp, pagesize * (pgno + 1));
+	if (ret == 0)
+		mfp->last_pgno = pgno;
 	R_UNLOCK(dbenv, dbmp->reginfo);
 
 	return 0;

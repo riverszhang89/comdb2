@@ -489,8 +489,9 @@ __db_new(dbc, type, pagepp)
 		 * We don't want these pages brought into the mpool, since they
 		 * may not be needed, but want them available for reads later on
 		 * So trick the mpool into believing the pages are there. */
-		if (meta->last_pgno > mpf->mfp->last_pgno)
+		if (meta->last_pgno > mpf->mfp->last_pgno) {
 			mpf->mfp->last_pgno = meta->last_pgno;
+		}
 
 		t->commit(t, 0);
 		t = NULL;
