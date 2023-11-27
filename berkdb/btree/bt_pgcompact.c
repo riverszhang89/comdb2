@@ -1493,13 +1493,12 @@ error_out:
 /*
  * __bam_find_leaf_key --
  *  Given a pgno, return the leftmost key from the subtree, which can be used to search down the btree
- *
- * PUBLIC: int __bam_find_leaf_key __P((DBC *, db_pgno, DBT *));
  */
-int
-__bam_find_leaf_key(dbc, pgno, key)
+static int
+__bam_find_leaf_key(dbc, pgno, pglvl, key)
 	DBC *dbc;
 	db_pgno_t pgno;
+	int *pglvl;
 	DBT *keyp;
 {
 	DB *dbp;
@@ -1512,24 +1511,60 @@ __bam_find_leaf_key(dbc, pgno, key)
 	dbp = dbc->dbp;
 	dbmfp = dbp->mpf;
 	cp = (BTREE_CURSOR *)dbc->internal;
+	h = cp->page;
 
 	h = NULL;
 	memset(keyp, sizeof(DBT), 0);
 
-	while (1) {
-		ACQUIRE_CUR_COUPLE(dbc, DB_LOCK_READ, pgno, ret);
-		if (ret != 0)
-			break;
-
-		/* If we find a leaf page, we're done. */
-		if (ISLEAF(cp->page))
-			break;
-
-		pgno = GET_BINTERNAL(dbc->dbp, cp->page, 0)->pgno;
+	ACQUIRE_CUR_COUPLE(dbc, DB_LOCK_READ, pgno, ret);
+	if (ret == 0) {
+		*pglvl = LEVEL(h);
+		/* descend from pgno till we hit a non-internal page */
+		while (ret == 0 && ISINTERNAL(h)) {
+			pgno = GET_BINTERNAL(dbc->dbp, cp->page, 0)->pgno;
+			ACQUIRE_CUR_COUPLE(dbc, DB_LOCK_READ, pgno, ret);
+		}
 	}
 
 	if (ret == 0) {
-		ret = __db_ret(dbp, h, 0, keyp, &keyp->data, &keyp->ulen);
+		/* If we have a leaf page, return its 1st key; if we hit a page we don't know
+		 * how to process, mask out the rcode */
+		if (ISLEAF(cp->page))
+			ret = __db_ret(dbp, h, 0, keyp, &keyp->data, &keyp->ulen);
+		else
+			ret = -1;
 	}
 	return (ret);
+}
+
+int
+__bam_swap_page(dbc, pgno)
+	DBC *dbc;
+	db_pgno_t pgno;
+{
+	int ret, pglvl, unused;
+	DBT key;
+	BTREE_CURSOR *cp = NULL;
+	PAGE *h, *nh, *ph, *pph;
+
+	cp = NULL;
+	h = nh = ph = pph = NULL;
+
+
+	ret = __bam_find_leaf_key(dbc, pgno, &pglvl, &key);
+	if (ret != 0)
+		goto done;
+
+	ret = __bam_search(dbc, PGNO_INVALID, &key, S_WRITE | S_PARENT, pglvl, NULL, &unused);
+	if (ret != 0) {
+		if (ret == DB_NOTFOUND) /* key disappeared. this is okay */
+			ret = 0;
+		goto done:
+	}
+
+	cp = (BTREE_CURSOR *)dbc->internal;
+	h = cp->csp->page;
+
+done:
+	return ret;
 }
