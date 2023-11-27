@@ -125,13 +125,184 @@ __db_ispgcompactible(dbp, pgno, dbt, ff)
 	return (ret);
 }
 
-static int pgno_cmp(const void *x, const void *y)
+/*
+ * __db_relink --
+ *	Relink around a deleted page.
+ *
+ * PUBLIC: int __db_relink __P((DBC *, u_int32_t, PAGE *, PAGE **, int));
+ */
+int
+__db_pg_swap(dbc, txn, pgno, new_pgno)
+	DBC *dbc;
+	DB_TXN *txn;
+	db_pgno_t pgno, newpgno;
+{
+	DB *dbp;
+	PAGE *p, *np, *pp;
+	DB_LOCK pl, npl, ppl;
+	DB_LSN *nlsnp, *plsnp, ret_lsn;
+	DB_MPOOLFILE *mpf;
+	int ret;
+
+	dbp = dbc->dbp;
+	np = pp = NULL;
+	LOCK_INIT(npl);
+	LOCK_INIT(ppl);
+	nlsnp = plsnp = NULL;
+	mpf = dbp->mpf;
+	ret = 0;
+
+	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, 0, &pl)) != 0)
+		go err;
+	if ((ret = __memp_fget(mfp, &pgno, 0, &p)) != 0) {
+		__db_pgerr(dbp, pgno, ret);
+		goto err;
+	}
+
+	if (p->next_pgno != PGNO_INVALID) {
+		if (ret = __db_lget(dbc, 0, p->next_pgno, DB_LOCK_WRITE, 0, &npl) != 0)
+			goto err;
+		if ((ret = __memp_fget(mpf, &p->next_pgno, 0, &np)) != 0) {
+			ret = __db_pgerr(dbp, p->next_pgno, ret);
+			goto err;
+		}
+		nlsnp = &np->lsn;
+	}
+	if (p->prev_pgno != PGNO_INVALID) {
+		if ((ret = __db_lget(dbc, 0, p->prev_pgno, DB_LOCK_WRITE, 0, &ppl)) != 0)
+			goto err;
+		if ((ret = __memp_fget(mpf, &p->prev_pgno, 0, &pp)) != 0) {
+			ret = __db_pgerr(dbp, p->prev_pgno, ret);
+			goto err;
+		}
+		plsnp = &pp->lsn;
+	}
+
+	/* Log the change. */
+	if (DBC_LOGGING(dbc)) {
+		ret = __db_pg_swap_log(dbp, txn, &ret_lsn, 0, PGNO(p), LSN(p), PGNO(np), LSN(np), PGNO(pp), LSN(pp));
+		if (ret != 0)
+			goto err;
+		/* TODO FIXME handle new-snapisol pglogs? */
+	} else {
+		LSN_NOT_LOGGED(ret_lsn);
+	}
+
+	if (np != NULL)
+		np->lsn = *lsnp;
+	if (pp != NULL)
+		pp->lsn = *lsnp;
+	pagep->lsn = *lsn;
+
+	if (np != NULL) {
+		np->prev_pgno = new_pgno;
+		ret = __memp_fput(mpf, np, DB_MPOOL_DIRTY);
+		if (ret != 0)
+			goto err;
+		(void)__TLPUT(dbc, npl);
+	}
+
+	if (pp != NULL) {
+		pp->next_pgno = new_pgno;
+		pp->next_pgno = pagep->next_pgno;
+		if ((ret = __memp_fput(mpf, pp, DB_MPOOL_DIRTY)) != 0)
+			goto err;
+		if (needlock)
+			(void)__TLPUT(dbc, ppl);
+	}
+	return (0);
+
+err:	if (np != NULL)
+		(void)__memp_fput(mpf, np, 0);
+	if (needlock)
+		(void)__TLPUT(dbc, npl);
+	if (pp != NULL)
+		(void)__memp_fput(mpf, pp, 0);
+	if (needlock)
+		(void)__TLPUT(dbc, ppl);
+	return (ret);
+}
+
+static int
+pgno_cmp(const void *x, const void *y)
 {
 	return ((*(db_pgno_t *)x) - (*(db_pgno_t *)y));
 }
 
+int __db_dump_freepages(DB *dbp, FILE *out);
 
-int __db_dump_freelist(DB *dbp, db_pgno_t first);
+static int __db_swap_pages(dbc, txn, meta, pglist, npages)
+	DBC *dbc;
+	DB_TXN *txn;
+	DBMETA *meta;
+	db_pgno_t *pglist;
+	size_t npages;
+{
+	DB_ENV *dbenv;
+	DB_MPOOLFILE *dbmfp;
+	DB *dbp;
+	PAGE *h, *nh;
+	db_pgno_t pgno;
+	DB_LSN lsn;
+
+	int ret, t_ret;
+	size_t notch;
+
+	dbp = dbc->dbp;
+	dbenv = dbp->dbenv;
+	dbmfp = dbp->mpf;
+
+	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
+	for (notch = npages, pgno = meta->last_pgno; notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID; --notch, --pgno) ;
+
+	/* walk the file backwards from [notch] */
+	for (pgno = pglist[notch] - 1; pgno > pglist[0]; --pgno) {
+		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+			__db_pgerr(dbp, pgno, ret);
+			goto out;
+		}
+
+		if (TYPE(h) == P_INVALID)
+			goto next;
+
+		/* put back this page. we'll fetch it again in __db_swap(). */
+		if ((ret = __memp_put(dbmfp, h, 0)) != 0)
+			goto out;
+
+		__db_swap(dbc, txn, pgno, pglist[0]);
+
+		if ((ret = __memp_fget(dbmfp, &pglist[0], 0, &nh)) != 0) {
+			__db_pgerr(dbp, pglist[0], ret);
+			goto err;
+		}
+
+		if (!DBC_LOGGING(dbc)) {
+			LSN_NOT_LOGGED(lsn);
+		} else {
+			ret = __db_pg_swap_log(dbp, txn, &lsn, 0, PGNO(h), PGNO(nh), LSN(h), LSN(nh));
+			if (ret != 0)
+				goto err;
+			/* TODO FIXME handle new-snapisol pglogs??? */
+		}
+
+		memcpy(nh, h, dbp->pgsize);
+		/* restore my page number and lsn */
+		PGNO(nh) = pglist[0];
+		LSN(nh) = lsn;
+
+		
+		__db_free(dbc, h);
+next:
+err:
+		if ((t_ret = __memp_fput(dbmfp, h, 0)) != 0 && ret == 0)
+			ret = t_ret;
+		if (ret != 0)
+			break;
+	}
+
+out:
+	return (ret);
+}
 
 /* __db_shrink_redo --
  *  sort the freelist in page order and truncate the file
@@ -196,8 +367,10 @@ __db_shrink_redo(dbc, lsnp, meta, meta_lsnp, npages, pglist, pglsnlist, pmodifie
 	/* rebuild the freelist, in page order */
 	for (ii = 0; ii != notch; ++ii) {
 		pgno = pglist[ii];
-		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0)
+		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+			__db_pgerr(dbp, pgno, ret);
 			goto out;
+		}
 
 		if (ii == notch - 1) /* We're at the last free page. */
 			NEXT_PGNO(h) = PGNO_INVALID;
@@ -224,11 +397,12 @@ __db_shrink_redo(dbc, lsnp, meta, meta_lsnp, npages, pglist, pglsnlist, pmodifie
 	meta->last_pgno = pglist[notch] - 1;
 	*pmodified = 1;
 
-	__db_dump_freelist(dbp, meta->free);
+	__db_dump_freepages(dbp, stdout);
     
     /* TODO: can probably release meta page early and do truncation without holding it??? */
 
 resize:
+	/* TODO check if this page is still referenced by the oldest log file */
 	/* shrink the file */
 	if ((ret = __memp_resize(dbmfp, meta->last_pgno)) != 0)
 		goto out;
@@ -402,6 +576,8 @@ __db_shrink(dbp, txn)
 
     /* TODO FIXME this is where pages are exchanged !!!! */
 
+	__db_swap_pages(dbc, meta, pglist, npages);
+
     /* log the change */
 	if (!DBC_LOGGING(dbc)) {
 		LSN_NOT_LOGGED(LSN(meta));
@@ -420,8 +596,6 @@ __db_shrink(dbp, txn)
 
         prev_metalsn = LSN(meta);
 		ret = __db_truncate_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, &pgnos, &lsns);
-        printf("meta lsn before: %d:%d, after %d:%d\n", prev_metalsn.file, prev_metalsn.offset, LSN(meta).file, LSN(meta).offset);
-
 		if (ret != 0)
 			goto out;
 
@@ -488,4 +662,94 @@ __db_shrink_pp(dbp, txn)
 	return (ret);
 }
 
+static int
+__db_lock_tree(dbp, txn)
+	DB *dbp;
+	DB_TXN *txn;
+{
+}
 
+/*
+ * __db_swap_pages --
+ *
+ * PUBLIC: int __db_swap_pages __P((DB *, DB_TXN *));
+ */
+int
+__db_swap_pages(dbp, txn)
+	DB *dbp;
+	DB_TXN *txn;
+{
+	int ret, t_ret;
+
+    DB_ENV *dbenv;
+	DB_MPOOLFILE *dbmfp;
+	db_pgno_t pgno;
+	PAGE *p;
+	DB_LOCK pl;
+
+	p = NULL;
+
+    dbenv = dbp->dbenv;
+	dbmfp = dbp->mpf;
+
+    /* starting from the last page */
+	__memp_last_pgno(dbmfp, &pgno);
+	if (lastpgno == PGNO_INVALID)
+		return (-1);
+
+	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0)
+		return (ret);
+
+	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &pl)) != 0)
+		goto err;
+	if ((ret = __memp_fget(dbmpf, &pgno, 0, p)) != 0) {
+		ret = __db_pgerr(dbp, p->next_pgno, ret);
+		goto err;
+	}
+
+err:
+	if (p != NULL)
+		(void)__memp_fput(mpf, p, 0);
+	(void)__TLPUT(dbc, pl);
+
+	return (ret);
+}
+
+/*
+ * __db_swap_pages_pp --
+ *	DB->swap_pages pre/post processing.
+ *
+ * PUBLIC: int __db_swap_pages_pp __P((DB *, DB_TXN *));
+ */
+
+int
+__db_swap_pages_pp(dbp, txn)
+	DB *dbp;
+	DB_TXN *txn;
+{
+	DB_ENV *dbenv;
+	int handle_check, ret;
+
+	dbenv = dbp->dbenv;
+
+	PANIC_CHECK(dbenv);
+
+	if (!F_ISSET(dbp, DB_AM_OPEN_CALLED)) {
+		ret = __db_mi_open(dbenv, "DB->swap_pages", 0);
+		return (ret);
+	}
+
+	/* Check for consistent transaction usage. */
+	if ((ret = __db_check_txn(dbp, txn, DB_LOCK_INVALIDID, 0)) != 0)
+		return (ret);
+
+	handle_check = IS_REPLICATED(dbenv, dbp);
+	if (handle_check && (ret = __db_rep_enter(dbp, 1, 0)) != 0)
+		return (ret);
+
+	ret = __db_swap_pages(dbp, txn);
+
+	if (handle_check)
+		__db_rep_exit(dbenv);
+	return (ret);
+}

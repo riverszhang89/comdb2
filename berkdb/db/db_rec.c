@@ -1431,11 +1431,6 @@ __db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
 		}
 	}
 
-#if 0
-	if (!modified)
-		abort();
-#endif
-
 	if (check_page) {
 		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 0);
 		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 1);
@@ -1445,12 +1440,46 @@ __db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
 		goto out;
 	meta = NULL;
 
-done:
-	*lsnp = argp->prev_lsn;
+done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
 out:	
 	if (meta != NULL)
 		(void)__memp_fput(mpf, meta, 0);
+	REC_CLOSE;
+}
+
+/*
+ * __db_pg_swap_recover --
+ *	Recovery function for truncate_freelist.
+ *
+ * PUBLIC: int __db_pg_swap_recover
+ * PUBLIC:   __P((DB_ENV *, DBT *, DB_LSN *, db_recops, void *));
+ */
+int
+__db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
+	DB_ENV *dbenv;
+	DBT *dbtp;
+	DB_LSN *lsnp;
+	db_recops op;
+	void *info;
+{
+	__db_pg_swap_args *argp;
+	DB *file_dbp;
+	DBC *dbc;
+	DBMETA *meta;
+	DB_MPOOLFILE *mpf;
+	PAGE *pagep;
+
+	int cmp_n, cmp_p, modified, ret;
+	int check_page = gbl_check_page_in_recovery;
+
+
+	REC_PRINT(__db_pg_swap_print);
+	REC_INTRO(__db_pg_swap_read, 0);
+
+done:	*lsnp = argp->prev_lsn;
+	ret = 0;
+out:
 	REC_CLOSE;
 }

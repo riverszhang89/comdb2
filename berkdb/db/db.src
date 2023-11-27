@@ -262,8 +262,7 @@ ARG	ptype		u_int32_t	lu
 END
 
 /*
- * sort_freelist: used to sort freelist.
- *
+ * truncate_freelist
  */
 BEGIN truncate_freelist	70
 DB	fileid		int32_t		ld
@@ -272,4 +271,15 @@ ARG	meta_pgno	db_pgno_t	lu
 ARG	last_pgno	db_pgno_t	lu
 DBT     fl        DBT         s
 DBT     fllsn     DBT         s
+END
+
+/*
+ * pg_swap
+ */
+BEGIN pg_swap	71
+DB	fileid		int32_t		ld
+ARG	pgno		db_pgno_t	lu
+ARG	npgno		db_pgno_t	lu
+POINTER	lsn		DB_LSN *	lu
+POINTER	nlsn	DB_LSN *	lu
 END

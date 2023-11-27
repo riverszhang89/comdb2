@@ -1488,3 +1488,48 @@ error_out:
 
 	return (ret);
 }
+
+
+/*
+ * __bam_find_leaf_key --
+ *  Given a pgno, return the leftmost key from the subtree, which can be used to search down the btree
+ *
+ * PUBLIC: int __bam_find_leaf_key __P((DBC *, db_pgno, DBT *));
+ */
+int
+__bam_find_leaf_key(dbc, pgno, key)
+	DBC *dbc;
+	db_pgno_t pgno;
+	DBT *keyp;
+{
+	DB *dbp;
+	DB_MPOOLFILE *dbmfp;
+	PAGE *h;
+	DB_LOCK hl;
+	BTREE_CURSOR *cp;
+	int ret;
+
+	dbp = dbc->dbp;
+	dbmfp = dbp->mpf;
+	cp = (BTREE_CURSOR *)dbc->internal;
+
+	h = NULL;
+	memset(keyp, sizeof(DBT), 0);
+
+	while (1) {
+		ACQUIRE_CUR_COUPLE(dbc, DB_LOCK_READ, pgno, ret);
+		if (ret != 0)
+			break;
+
+		/* If we find a leaf page, we're done. */
+		if (ISLEAF(cp->page))
+			break;
+
+		pgno = GET_BINTERNAL(dbc->dbp, cp->page, 0)->pgno;
+	}
+
+	if (ret == 0) {
+		ret = __db_ret(dbp, h, 0, keyp, &keyp->data, &keyp->ulen);
+	}
+	return (ret);
+}
