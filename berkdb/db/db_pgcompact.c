@@ -231,7 +231,7 @@ pgno_cmp(const void *x, const void *y)
 
 int __db_dump_freepages(DB *dbp, FILE *out);
 
-static int __db_swap_pages(dbc, txn, meta, pglist, npages)
+static int __db_swap_pages(dbc, txn, meta, pglist, npages) bad
 	DBC *dbc;
 	DB_TXN *txn;
 	DBMETA *meta;
@@ -576,7 +576,7 @@ __db_shrink(dbp, txn)
 
     /* TODO FIXME this is where pages are exchanged !!!! */
 
-	__db_swap_pages(dbc, meta, pglist, npages);
+	__db_swap_pages(dbc, meta, pglist, npages); bad
 
     /* log the change */
 	if (!DBC_LOGGING(dbc)) {
@@ -662,13 +662,6 @@ __db_shrink_pp(dbp, txn)
 	return (ret);
 }
 
-static int
-__db_lock_tree(dbp, txn)
-	DB *dbp;
-	DB_TXN *txn;
-{
-}
-
 /*
  * __db_swap_pages --
  *
@@ -684,33 +677,49 @@ __db_swap_pages(dbp, txn)
     DB_ENV *dbenv;
 	DB_MPOOLFILE *dbmfp;
 	db_pgno_t pgno;
-	PAGE *p;
-	DB_LOCK pl;
+	PAGE *h;
+	BTREE_CURSOR *cp;
+	DB_LOCK hl;
 
-	p = NULL;
-
+	h = NULL;
     dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
 
     /* starting from the last page */
 	__memp_last_pgno(dbmfp, &pgno);
-	if (lastpgno == PGNO_INVALID)
+	if (pgno == PGNO_INVALID)
 		return (-1);
 
-	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0)
+	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0) {
+		__db_err(dbenv, "__db_cursor failed rc %d", ret);
 		return (ret);
+	}
 
-	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &pl)) != 0)
-		goto err;
-	if ((ret = __memp_fget(dbmpf, &pgno, 0, p)) != 0) {
-		ret = __db_pgerr(dbp, p->next_pgno, ret);
+	if (dbc->dbtype != DB_BTREE) {
+		__db_err(dbenv, "%s %s", __func__, "Wrong access method");
+		ret = EINVAL;
 		goto err;
 	}
 
+	__memp_last_pgno(dbmfp, &pgno);
+	cp = (BTREE_CURSOR *)dbc->internal;
+
+	for (; pgno > cp->root; --pgno) {
+        if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0)
+            goto err;
+
+        /* HERE */
+	}
+	if ((ret = __bam_locate_page(dbc, pgno)) != 0)
+
 err:
-	if (p != NULL)
+	if (h != NULL) {
 		(void)__memp_fput(mpf, p, 0);
-	(void)__TLPUT(dbc, pl);
+        (void)__TLPUT(dbc, hl);
+    }
+
+	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
+		ret = t_ret;
 
 	return (ret);
 }
