@@ -690,13 +690,10 @@ __db_swap_pages(dbp, txn)
 	if (pgno == PGNO_INVALID)
 		return (-1);
 
-	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0) {
-		__db_err(dbenv, "__db_cursor failed rc %d", ret);
+	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0)
 		return (ret);
-	}
 
 	if (dbc->dbtype != DB_BTREE) {
-		__db_err(dbenv, "%s %s", __func__, "Wrong access method");
 		ret = EINVAL;
 		goto err;
 	}
@@ -708,14 +705,26 @@ __db_swap_pages(dbp, txn)
         if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0)
             goto err;
 
-        /* HERE */
+        if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+            __db_pgerr(dbp, pgno, ret);
+            goto err;
+        }
+
+        if (TYPE(h) == P_INVALID) {
+        }
+
+		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_DISCARD)) != 0)
+			goto out;
+	}
 	}
 	if ((ret = __bam_locate_page(dbc, pgno)) != 0)
 
 err:
 	if (h != NULL) {
-		(void)__memp_fput(mpf, p, 0);
-        (void)__TLPUT(dbc, hl);
+		if ((t_ret = __memp_fput(mpf, p, 0)) != 0 && ret == 0)
+            ret = t_ret;
+        if ((t_ret = __TLPUT(dbc, hl)) != 0 && ret == 0)
+            ret = t_ret;
     }
 
 	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
