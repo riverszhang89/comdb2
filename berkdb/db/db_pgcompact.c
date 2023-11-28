@@ -672,18 +672,28 @@ __db_swap_pages(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
 {
-	int ret, t_ret;
+	int ret, t_ret, do_swap;
+	u_int8_t page_type;
 
     DB_ENV *dbenv;
 	DB_MPOOLFILE *dbmfp;
-	db_pgno_t pgno;
-	PAGE *h;
+	db_pgno_t pgno, newpgno;
+	/* current page, and it's previous and next page */
+	PAGE *h, *ph, *nh;
+	DB_LOCK hl, pl, nl;
+	/* parent page and new page */
+	PAGE *pp, *np;
 	BTREE_CURSOR *cp;
-	DB_LOCK hl;
+	EPG *epg;
+	DB_LSN ret_lsn;
 
-	h = NULL;
+	h = ph = nh = pp = np = NULL;
     dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
+
+	LOCK_INIT(hl);
+	LOCK_INIT(pl);
+	LOCK_INIT(nl);
 
     /* starting from the last page */
 	__memp_last_pgno(dbmfp, &pgno);
@@ -698,6 +708,7 @@ __db_swap_pages(dbp, txn)
 		goto err;
 	}
 
+	/* Start from the last page */
 	__memp_last_pgno(dbmfp, &pgno);
 	cp = (BTREE_CURSOR *)dbc->internal;
 
@@ -707,25 +718,111 @@ __db_swap_pages(dbp, txn)
 
         if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
             __db_pgerr(dbp, pgno, ret);
-            goto err;
+            goto err_zero_h;
         }
 
-        if (TYPE(h) == P_INVALID) {
-        }
+		page_type = TYPE(h);
 
-		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_DISCARD)) != 0)
-			goto out;
-	}
-	}
-	if ((ret = __bam_locate_page(dbc, pgno)) != 0)
+		/* Release the page first. We'll lock the page and its parent again. */
+		if ((ret = __memp_fput(dbmfp, h, 0)) != 0)
+			goto err_zero_h;
+		if ((ret = __LPUT(dbc, hl)) != 0)
+			goto err;
 
-err:
-	if (h != NULL) {
-		if ((t_ret = __memp_fput(mpf, p, 0)) != 0 && ret == 0)
-            ret = t_ret;
-        if ((t_ret = __TLPUT(dbc, hl)) != 0 && ret == 0)
+		/* Handle only internal and leaf nodes */
+		if (page_type != P_LBTREE && page_type != P_IBTREE)
+			continue;
+
+		/* Allocate a page from the freelist */
+		if ((ret = __db_new_ex(dbc, page_type, &np, 1)) != 0)
+			goto err;
+
+		if (np == NULL) {
+			logmsg(LOGMSG_USER, "%s: no free page available at this moment", __func__);
+			goto done;
+		}
+
+		if (PGNO(np) > pgno) {
+			/* The new page unfortunately has a higher page number than our page */
+			if ((ret = __db_free(dbc, np)) != 0)
+				goto err;
+		}
+
+		/* lock the page and its parent */
+		if ((ret = __bam_locate_page(dbc, pgno)) != 0)
+			goto err;
+
+		h = cp->csp->page;
+		epg = &cp->csp[-1];
+		pp = epg->page;
+
+		/* Now grab prev and next */
+		if (h->prev_pgno != PGNO_INVALID) {
+			if ((ret = __db_lget(dbc, 0, h->prev_pgno, DB_LOCK_WRITE, 0, &pl)) != 0)
+				goto err;
+			if ((ret = __memp_fget(mpf, &h->prev_pgno, 0, &ph)) != 0) {
+				ret = __db_pgerr(dbp, p->prev_pgno, ret);
+				ph = NULL;
+				goto err;
+			}
+		}
+
+		if (p->next_pgno != PGNO_INVALID) {
+			if (ret = __db_lget(dbc, 0, p->next_pgno, DB_LOCK_WRITE, 0, &nl) != 0)
+				goto err;
+			if ((ret = __memp_fget(mpf, &p->next_pgno, 0, &nh)) != 0) {
+				nh = NULL;
+				ret = __db_pgerr(dbp, p->next_pgno, ret);
+				goto err;
+			}
+		}
+
+		/* write a log record first */
+		if (DBC_LOGGING(dbc)) {
+			ret = __db_pg_swap_log(dbp, txn, &ret_lsn, 0,
+					PGNO( h), &LSN( h), /* current page */
+					PGNO(nh), &LSN(nh), /* sibling page, if any */
+					PGNO(ph), &LSN(ph), /* sibling page, if any */
+					PGNO(pp), &LSN(pp), /* parent page */
+					PGNO(np) /* new page to swap with */);
+			/* TODO FIXME XXX handle newsnapisol pglog??? */
+		} else {
+			LSN_NOT_LOGGED(ret_lsn);
+		}
+
+		LSN(h) = ret_lsn;
+		LSN(np) = ret_lsn;
+		if (nh != NULL)
+			LSN(nh) = ret_lsn;
+		if (ph != NULL)
+			LSN(ph) = ret_lsn;
+		if (pp != NULL)
+			LSN(pp) = ret_lsn;
+
+		/* copy content to new page and fix pgno */
+		newpgno = PGNO(np);
+		memcpy(np, h, dbp->pgsize);
+		PGNO(np) = newpgno;
+
+		/* empty old page */
+		HOFFSET(h) = dbp->pgsize;
+		NUM_ENT(h) = 0;
+
+		/* relink */
+		if (nh != NULL) {
+			nh->prev_pgno = PGNO(np);
+		}
+	}
+
+err: if (0) {
+err_zero_h: h = NULL;
+	}
+done: if (h != NULL) {
+		if ((t_ret = __memp_fput(dbmfp, h, 0)) != 0 && ret == 0)
             ret = t_ret;
     }
+	if ((t_ret = __TLPUT(dbc, hl)) != 0 && ret == 0)
+		ret = t_ret;
 
 	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
 		ret = t_ret;

@@ -315,16 +315,17 @@ int __os_physwrite(DB_ENV *dbenv, DB_FH * fhp, void *addr, size_t len,
 int __db_new_original(DBC *dbc, u_int32_t type, PAGE **pagepp);
 
 /*
- * __db_new --
+ * __db_new_ex --
  *	Get a new page, preferably from the freelist.
  *
- * PUBLIC: int __db_new __P((DBC *, u_int32_t, PAGE **));
+ * PUBLIC: int __db_new_ex __P((DBC *, u_int32_t, PAGE **, int));
  */
 int
-__db_new(dbc, type, pagepp)
+__db_new_ex(dbc, type, pagepp, noextend)
 	DBC *dbc;
 	u_int32_t type;
 	PAGE **pagepp;
+	int noextend;
 {
 	DB *dbp;
 	DB_LSN lsn;
@@ -363,6 +364,8 @@ __db_new(dbc, type, pagepp)
 		goto err;
 
 	extend = (meta->free == PGNO_INVALID);
+	if (extend && noextend)
+		goto err;
 	meta_flags = DB_MPOOL_DIRTY;
 
 
@@ -1054,4 +1057,19 @@ done:
 	if (buf)
 		free(buf);
 	return npages;
+}
+
+/*
+ * __db_new --
+ *	Get a new page, preferably from the freelist.
+ *
+ * PUBLIC: int __db_new __P((DBC *, u_int32_t, PAGE **, int));
+ */
+
+__db_new(dbc, type, pagepp)
+	DBC *dbc;
+	u_int32_t type;
+	PAGE **pagepp;
+{
+	return __db_new_ex(dbc, type, pagepp, 0);
 }
