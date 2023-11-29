@@ -1489,6 +1489,11 @@ error_out:
 	return (ret);
 }
 
+/*
+ * __bam_locate_page --
+ *
+ * PUBLIC: int __bam_locate_page __P((DBC *, db_pgno_t));
+ */
 int
 __bam_locate_page(dbc, pgno)
 	DBC *dbc;
@@ -1497,27 +1502,58 @@ __bam_locate_page(dbc, pgno)
 	int ret, pglvl, unused;
 	DBT key;
 	DB *dbp;
+	DB_MPOOLFILE *dbmfp;
+    DB_ENV *dbenv;
 	PAGE *h;
 	DB_LOCK hl;
 	BTREE_CURSOR *cp;
 
 	dbp = dbc->dbp;
+    dbenv = dbp->dbenv;
+	dbmfp = dbp->mpf;
 	cp = (BTREE_CURSOR *)dbc->internal;
 	h = cp->page;
 
 	h = NULL;
-	memset(keyp, sizeof(DBT), 0);
+	memset(&key, 0, sizeof(DBT));
 
-	ACQUIRE_CUR_COUPLE(dbc, DB_LOCK_READ, pgno, ret);
-	if (ret != 0)
-		return (ret);
+    if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
+        __db_err(dbenv, "__db_lget(%d): rc %d", pgno, ret);
+        return (ret);
+    }
+
+    if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+        __db_pgerr(dbp, pgno, ret);
+        (void)__LPUT(dbc, hl);
+        return (ret);
+    }
 
 	/* remember our page level */
 	pglvl = LEVEL(h);
+
 	/* descend from pgno till we hit a non-internal page */
 	while (ret == 0 && ISINTERNAL(h)) {
-		pgno = GET_BINTERNAL(dbc->dbp, cp->page, 0)->pgno;
-		ACQUIRE_CUR_COUPLE(dbc, DB_LOCK_READ, pgno, ret);
+		pgno = GET_BINTERNAL(dbc->dbp, h, 0)->pgno;
+        if ((ret = __memp_fput(dbmfp, h, 0)) != 0) {
+            __db_err(dbenv, "__memp_fput(%d): rc %d", pgno, ret);
+            (void)__LPUT(dbc, hl);
+            break;
+        }
+        if ((ret = __LPUT(dbc, hl)) != 0) {
+            __db_err(dbenv, "__memp_fput(%d): rc %d", pgno, ret);
+            break;
+        }
+
+        if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
+            __db_err(dbenv, "__db_lget(%d): rc %d", pgno, ret);
+            return (ret);
+        }
+
+        if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+            __db_pgerr(dbp, pgno, ret);
+            (void)__LPUT(dbc, hl);
+            return (ret);
+        }
 	}
 
 	if (ret == 0) {

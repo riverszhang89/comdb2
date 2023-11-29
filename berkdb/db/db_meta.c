@@ -1063,9 +1063,10 @@ done:
  * __db_new --
  *	Get a new page, preferably from the freelist.
  *
- * PUBLIC: int __db_new __P((DBC *, u_int32_t, PAGE **, int));
+ * PUBLIC: int __db_new __P((DBC *, u_int32_t, PAGE **));
  */
 
+int
 __db_new(dbc, type, pagepp)
 	DBC *dbc;
 	u_int32_t type;

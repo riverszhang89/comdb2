@@ -277,9 +277,17 @@ END
  * pg_swap
  */
 BEGIN pg_swap	71
-DB	fileid		int32_t		ld
-ARG	pgno		db_pgno_t	lu
-ARG	npgno		db_pgno_t	lu
-POINTER	lsn		DB_LSN *	lu
-POINTER	nlsn	DB_LSN *	lu
+DB	fileid		    int32_t		ld
+ARG	pgno		    db_pgno_t	lu
+POINTER	lsn		    DB_LSN *	lu
+ARG	next_pgno       db_pgno_t	lu
+POINTER	next_pglsn    DB_LSN *	lu
+ARG	prev_pgno       db_pgno_t	lu
+POINTER	prev_pglsn    DB_LSN *	lu
+ARG	parent_pgno     db_pgno_t	lu
+POINTER	parent_pglsn  DB_LSN *	lu
+ARG	pref_pgno       db_pgno_t	lu
+ARG	pref_indx       db_indx_t	lu
+ARG	new_pgno        db_pgno_t	lu
+POINTER	new_pglsn     DB_LSN *	lu
 END
