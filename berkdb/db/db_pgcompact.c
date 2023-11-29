@@ -677,55 +677,73 @@ __db_swap_pages(dbp, txn)
 
     DB_ENV *dbenv;
 	DB_MPOOLFILE *dbmfp;
-	db_pgno_t pgno, newpgno;
-	/* current page, and it's previous and next page */
-	PAGE *h, *ph, *nh;
-	DB_LOCK hl, pl, nl;
-	/* parent page and new page */
-	PAGE *pp, *np;
+	db_pgno_t pgno,
+			  newpgno,	/* page number of the new page */
+			  ppgno,	/* parent page number */
+			  prefpgno;	/* the page number referenced in the parent page */
+	db_indx_t pindx; /* position of `prefpgno' in the parent page */
+	PAGE *h,	/* current page */
+		 *ph,	/* its previous page */
+		 *nh,	/* its next page */
+		 *pp,	/* its parent page */
+		 *np;	/* new page */
+	DB_LOCK hl,		/* page lock for current page */
+			pl,		/* page lock for prev */
+			nl;		/* page lock for next */
+			newl;	/* page lock for new page */
+
+	DB_LSN ret_lsn, /* new lsn */
+		   *nhlsn,	/* lsn of next */
+		   *phlsn,	/* lsn of prev */
+		   *pplsn;	/* lsn of parent */
+
 	BTREE_CURSOR *cp;
 	EPG *epg;
-	DB_LSN ret_lsn;
 
 	h = ph = nh = pp = np = NULL;
+	nhlsn = phlsn = pplsn = NULL;
+	ppgno = prefpgno = PGNO_INVALID;
+	pindx = 0;
+
     dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
 
 	LOCK_INIT(hl);
 	LOCK_INIT(pl);
 	LOCK_INIT(nl);
+	LOCK_INIT(newl);
+
+	if (dbp->dbtype != DB_BTREE) {
+		ret = EINVAL;
+		goto err;
+	}
 
     /* starting from the last page */
 	__memp_last_pgno(dbmfp, &pgno);
 	if (pgno == PGNO_INVALID)
 		return (-1);
 
-	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0)
-		return (ret);
-
-	if (dbc->dbtype != DB_BTREE) {
-		ret = EINVAL;
-		goto err;
-	}
-
-	/* Start from the last page */
-	__memp_last_pgno(dbmfp, &pgno);
-	cp = (BTREE_CURSOR *)dbc->internal;
-
 	for (; pgno > cp->root; --pgno) {
+		if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0)
+			return (ret);
+
+		cp = (BTREE_CURSOR *)dbc->internal;
+
         if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0)
             goto err;
 
         if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
             __db_pgerr(dbp, pgno, ret);
-            goto err_zero_h;
+			h = NULL;
+            goto err;
         }
 
 		page_type = TYPE(h);
 
 		/* Release the page first. We'll lock the page and its parent again. */
 		if ((ret = __memp_fput(dbmfp, h, 0)) != 0)
-			goto err_zero_h;
+			h = NULL;
+			goto err;
 		if ((ret = __LPUT(dbc, hl)) != 0)
 			goto err;
 
@@ -735,6 +753,10 @@ __db_swap_pages(dbp, txn)
 
 		/* Allocate a page from the freelist */
 		if ((ret = __db_new_ex(dbc, page_type, &np, 1)) != 0)
+			goto err;
+
+		/* also grab a wlock on the new page */
+		if ((ret = __db_lget(dbc, 0, PGNO(np), DB_LOCK_WRITE, 0, &newl)) != 0)
 			goto err;
 
 		if (np == NULL) {
@@ -753,8 +775,15 @@ __db_swap_pages(dbp, txn)
 			goto err;
 
 		h = cp->csp->page;
-		epg = &cp->csp[-1];
-		pp = epg->page;
+
+		if (cp->sp != cp->csp) { /* Have a parent page */
+			epg = &cp->csp[-1];
+			pp = epg->page;
+			ppgno = PGNO(pp);
+			pplsn = &LSN(pp);
+			prefindx = epg->indx;
+			prefpgno = GET_BINTERNAL(dbc->dbp, pp, prefindx)->pgno;
+		}
 
 		/* Now grab prev and next */
 		if (h->prev_pgno != PGNO_INVALID) {
@@ -765,6 +794,7 @@ __db_swap_pages(dbp, txn)
 				ph = NULL;
 				goto err;
 			}
+			phlsn = &LSN(ph);
 		}
 
 		if (p->next_pgno != PGNO_INVALID) {
@@ -775,15 +805,16 @@ __db_swap_pages(dbp, txn)
 				ret = __db_pgerr(dbp, p->next_pgno, ret);
 				goto err;
 			}
+			nhlsn -> &LSN(nh);
 		}
 
-		/* write a log record first */
 		if (DBC_LOGGING(dbc)) {
 			ret = __db_pg_swap_log(dbp, txn, &ret_lsn, 0,
-					PGNO( h), &LSN( h), /* current page */
-					PGNO(nh), &LSN(nh), /* sibling page, if any */
-					PGNO(ph), &LSN(ph), /* sibling page, if any */
-					PGNO(pp), &LSN(pp), /* parent page */
+					PGNO(h), &LSN(h), /* current page */
+					p->next_pgno, nhlsn, /* sibling page, if any */
+					p->prev_pgno, phlsn, /* sibling page, if any */
+					ppgno, pplsn, /* parent page */
+					prefpgno, prefindx, /* old page number and its position in parent page */
 					PGNO(np) /* new page to swap with */);
 			/* TODO FIXME XXX handle newsnapisol pglog??? */
 		} else {
@@ -804,26 +835,67 @@ __db_swap_pages(dbp, txn)
 		memcpy(np, h, dbp->pgsize);
 		PGNO(np) = newpgno;
 
-		/* empty old page */
+		/* empty old page, this ensures that we call into the right version of db_free */
 		HOFFSET(h) = dbp->pgsize;
 		NUM_ENT(h) = 0;
 
-		/* relink */
+		/* free old page */
+		if ((ret = __db_free(dbc, h)) != 0)
+			goto err;
+
+		/* relink next */
 		if (nh != NULL) {
-			nh->prev_pgno = PGNO(np);
+			nh->prev_pgno = newpgno;
+			if ((ret = memp_fput(dbmfp, nh, DB_MPOOL_DIRTY)) != 0) {
+				nh = NULL;
+				goto err;
+			}
+			if ((ret = __TLPUT(dbc, nl)) != 0) {
+				goto err;
+			}
 		}
+
+		/* relink prev */
+		if (ph != NULL) {
+			ph->next_pgno = newpgno;
+			if ((ret = memp_fput(dbmfp, ph, DB_MPOOL_DIRTY)) != 0) {
+				nh = NULL;
+				goto err;
+			}
+			if ((ret = __TLPUT(dbc, pl)) != 0) {
+				goto err;
+			}
+		}
+
+		/* update parent */
+		if (cp->sp != cp->csp)
+			GET_BINTERNAL(dbc->dbp, pp, prefindx)->pgno = newpgno;
+
+		/*
+		 * Swap in the new page so that __bam_stkrel will put it back.
+		 * We still retain the page lock of the old page in the cursor
+		 * stack, and __bam_stkrel will take care of that lock too.
+		 * We put the page lock of the new page here.
+		 */
+		cp->csp->page = np;
+		if ((ret = __TLPUT(dbc, newl)) != 0)
+			goto err;
+		if ((ret = __bam_stkrel(dbc, STK_NOLOCK)) != 0)
+			goto err;
+		if ((ret = __db_c_close(dbc)) != 0)
+			goto err;
 	}
 
-err: if (0) {
-err_zero_h: h = NULL;
-	}
-done: if (h != NULL) {
+err: if (h != NULL) {
 		if ((t_ret = __memp_fput(dbmfp, h, 0)) != 0 && ret == 0)
             ret = t_ret;
     }
 	if ((t_ret = __TLPUT(dbc, hl)) != 0 && ret == 0)
 		ret = t_ret;
-
+	if ((t_ret = __TLPUT(dbc, nl)) != 0 && ret == 0)
+		ret = t_ret;
+	if ((t_ret = __TLPUT(dbc, pl)) != 0 && ret == 0)
+		ret = t_ret;
 	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
 		ret = t_ret;
 
