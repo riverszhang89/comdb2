@@ -129,6 +129,12 @@ limitations under the License. -->
             </goals>
             <configuration>
               <shadedArtifactAttached>true</shadedArtifactAttached>
+              <relocations>
+                  <relocation>
+                      <pattern>com.google.protobuf</pattern>
+                      <shadedPattern>shaded.com.google.protobuf</shadedPattern>
+                  </relocation>
+              </relocations>
             </configuration>
           </execution>
         </executions>
