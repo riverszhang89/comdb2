@@ -531,6 +531,9 @@ __db_swap_pages(dbp, txn)
     dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
 
+    h = ph = nh = pp = np = NULL;
+    got_hl = got_pl = got_nl = got_newl = 0;
+
 	if (dbp->type != DB_BTREE) {
 		ret = EINVAL;
 		goto err;
