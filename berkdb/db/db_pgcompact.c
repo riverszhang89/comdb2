@@ -292,12 +292,12 @@ __db_shrink_undo(dbc, lsnp, meta, meta_lsnp, last_pgno, npages, pglist, pglsnlis
 		}
 	}
 
-    /* Undo meta; If meta page is behind, just do the truncation */
+    /* Undo meta if it's ahead */
     if (log_compare(meta_lsnp, lsnp) > 0) {
         meta->free = pglist[0];
     }
 
-    /* Make sure we always have the correct last page - */
+    /* Make sure we always have the correct last page */
 	__memp_last_pgno(dbmfp, &mp_lastpg);
 	if (mp_lastpg > meta->last_pgno)
 		meta->last_pgno = mp_lastpg;
@@ -432,7 +432,7 @@ __db_shrink(dbp, txn)
 		}
 	}
 
-    /* not recovery, but same routine */
+    /* not in recovery, just reusing the same function */
 	ret = __db_shrink_redo(dbc, &LSN(meta), meta, &prev_metalsn, npages, pglist, pglsnlist, &modified);
 
 out:
@@ -528,6 +528,8 @@ __db_swap_pages(dbp, txn)
 	BTREE_CURSOR *cp;
 	EPG *epg;
 
+    DBT hdr, dta;
+
     dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
 
@@ -589,7 +591,8 @@ __db_swap_pages(dbp, txn)
 			goto err;
 		}
 
-		/* Handle only internal and leaf nodes */
+		/* Handle only internal and leaf nodes 
+         * TODO XXX FIXME overflow pages? */
 		if (page_type != P_LBTREE && page_type != P_IBTREE)
 			continue;
 
@@ -600,15 +603,15 @@ __db_swap_pages(dbp, txn)
 		}
 
 		if (np == NULL) {
-			logmsg(LOGMSG_INFO, "%s: no free page available at this moment", __func__);
+			logmsg(LOGMSG_INFO, "%s: no free page available", __func__);
 			goto err;
 		}
 
 		if (PGNO(np) > pgno) {
 			/*
 			 * The new page unfortunately has a higher page number than our page,
-			 * Since we're scanning from the back of the file, the next page we would look
-			 * is even lower-numbered. Just exit.
+			 * Since we're scanning backwards from the back of the file, the next
+             * page will be even lower-numbered. It makes no sense to continue.
 			 */
 			if ((ret = __db_free(dbc, np)) != 0)
 				goto err;
@@ -633,7 +636,6 @@ __db_swap_pages(dbp, txn)
 			ppgno = PGNO(pp);
 			pplsn = &LSN(pp);
 			prefindx = epg->indx;
-			prefpgno = GET_BINTERNAL(dbc->dbp, pp, prefindx)->pgno;
 		}
 
 		h = cp->csp->page;
@@ -662,19 +664,28 @@ __db_swap_pages(dbp, txn)
 			nhlsn = &LSN(nh);
 		}
 
+        /* Get old page header and data. */
+		memset(&hdr, 0, sizeof(DBT));
+		memset(&dta, 0, sizeof(DBT));
+
+		hdr.data = h;
+		hdr.size = LOFFSET(dbp, h);
+		dta.data = (u_int8_t *)h + HOFFSET(h);
+		dta.size = dbp->pgsize - HOFFSET(h);
+
 		if (DBC_LOGGING(dbc)) {
 			ret = __db_pg_swap_log(dbp, txn, &ret_lsn, 0,
-					PGNO(h), &LSN(h), /* current page */
+					PGNO(h), &LSN(h), &hdr, &dta, /* old page */
 					h->next_pgno, nhlsn, /* sibling page, if any */
 					h->prev_pgno, phlsn, /* sibling page, if any */
-					ppgno, pplsn, /* parent page */
-					prefpgno, prefindx, /* old page number and its position in parent page */
+					ppgno, pplsn, prefindx, /* parent page, if any */
 					PGNO(np), &LSN(np) /* new page to swap with */);
 			/* TODO FIXME XXX handle newsnapisol pglog??? */
 		} else {
 			LSN_NOT_LOGGED(ret_lsn);
 		}
 
+        /* update LSN */
 		LSN(h) = ret_lsn;
 		LSN(np) = ret_lsn;
 		if (nh != NULL)
@@ -742,10 +753,10 @@ __db_swap_pages(dbp, txn)
 		}
 
 		/*
-		 * Swap in the new page so that __bam_stkrel will put it back.
-		 * We still retain the page lock of the old page in the cursor
-		 * stack, and __bam_stkrel will take care of that lock too.
-		 * We put the page lock of the new page here.
+		 * Swap in the new page so that __bam_stkrel will put it back
+         * to bufferpool. We still retain the the old page's lock
+         * in the cursor stack, and __bam_stkrel will take care of
+         * that lock too. We release the new page's lock here.
 		 */
 		cp->csp->page = np;
 		got_newl = 0;
@@ -753,7 +764,7 @@ __db_swap_pages(dbp, txn)
 			__db_err(dbenv, "__TLPUT(%d): rc %d", newpgno, ret);
 			goto err;
 		}
-		if ((ret = __bam_stkrel(dbc, STK_NOLOCK)) != 0) {
+		if ((ret = __bam_stkrel(dbc, 0)) != 0) {
 			__db_err(dbenv, "__bam_stkrel(): rc %d", ret);
 			goto err;
 		}

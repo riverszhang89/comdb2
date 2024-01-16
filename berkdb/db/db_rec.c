@@ -1412,7 +1412,7 @@ __db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	pglist = argp->fl.data;
 	pglsnlist = argp->fllsn.data;
 
-	/* host order */
+	/* convert page lsn to host order */
 	for (ii = 0; ii != npages; ++ii) {
 		pglist[ii] = ntohl(pglist[ii]);
 		pglsnlist[ii].file = ntohl(pglsnlist[ii].file);
@@ -1451,7 +1451,7 @@ out:
 
 /*
  * __db_pg_swap_recover --
- *	Recovery function for truncate_freelist.
+ *	Recovery function for pg_swap.
  *
  * PUBLIC: int __db_pg_swap_recover
  * PUBLIC:   __P((DB_ENV *, DBT *, DB_LSN *, db_recops, void *));
@@ -1469,17 +1469,196 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 	DBC *dbc;
 	DBMETA *meta;
 	DB_MPOOLFILE *mpf;
-	PAGE *pagep;
+	PAGE *pagep,	/* old page */
+		 *pp,		/* parent page */
+		 *newp,		/* new page */	
+		 *nextp,	/* next page */
+		 *prevp;	/* previous page */
 
 	int cmp_n, cmp_p, modified, ret;
 	int check_page = gbl_check_page_in_recovery;
 
-
 	REC_PRINT(__db_pg_swap_print);
 	REC_INTRO(__db_pg_swap_read, 0);
 
+	pagep = pp = newp = nextp = prevp = NULL;
+
+	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
+		ret = __db_pgerr(file_dbp, argp->pgno, ret);
+		pagep = NULL;
+		goto out;
+	}
+
+	if (check_page) {
+		__dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 0);
+		__dir_pg( mpf, argp->pgno, (u_int8_t *)pagep, 1);
+    }
+
+	modified = 0;
+	cmp_n = log_compare(lsnp, &LSN(pagep));
+	cmp_p = log_compare(&LSN(pagep), &argp->lsn);
+	CHECK_LSN(op, cmp_p, &LSN(pagep), &argp->lsn, lsnp, argp->fileid, argp->pgno);
+
+	if (cmp_p == 0 && DB_REDO(op)) {
+		if ((ret = __memp_fget(mpf, &argp->new_pgno, 0, &newp)) != 0) {
+			ret = __db_pgerr(file_dbp, argp->new_pgno, ret);
+			newp = NULL;
+			goto out;
+		}
+
+		/*
+		 * redo in the following order:
+		 *	- copy content to new page
+		 *	- zap old page
+		 *	- relink sibling
+		 *	- update reference in parent page
+		 */
+
+		/* redo new page */
+		memcpy(newp, argp->hdr.data, argp->hdr.size);
+		memcpy((u_int8_t *)newp + HOFFSET(newp), argp->data.data, argp->data.size);
+
+		/* redo old page */
+		HOFFSET(pagep) = file_dbp->pgsize;
+		NUM_ENT(pagep) = 0;
+
+		/* redo next page */
+		if (argp->next_pgno != PGNO_INVALID) {
+			if ((ret = __memp_fget(mpf, &argp->next_pgno, 0, &nextp)) != 0) {
+				ret = __db_pgerr(file_dbp, argp->next_pgno, ret);
+				nextp = NULL;
+				goto out;
+			}
+			cmp_p = log_compare(&LSN(nextp), &argp->next_pglsn);
+			CHECK_LSN(op, cmp_p, &LSN(nextp), &argp->next_pglsn, lsnp, argp->fileid, argp->next_pgno);
+			nextp->prev_pgno = argp->new_pgno;
+			nextp->lsn = *lsnp;
+		}
+
+		/* redo previous page */
+		if (argp->prev_pgno != PGNO_INVALID) {
+			if ((ret = __memp_fget(mpf, &argp->prev_pgno, 0, &prevp)) != 0) {
+				ret = __db_pgerr(file_dbp, argp->prev_pgno, ret);
+				prevp = NULL;
+				goto out;
+			}
+			cmp_p = log_compare(&LSN(prevp), &argp->prev_pglsn);
+			CHECK_LSN(op, cmp_p, &LSN(prevp), &argp->prev_pglsn, lsnp, argp->fileid, argp->prev_pgno);
+			prevp->next_pgno = argp->new_pgno;
+			prevp->lsn = *lsnp;
+		}
+
+		/* redo parent page */
+		if (argp->parent_pgno != PGNO_INVALID) {
+			if ((ret = __memp_fget(mpf, &argp->parent_pgno, 0, &pp)) != 0) {
+				ret = __db_pgerr(file_dbp, argp->parent_pgno, ret);
+				pp = NULL;
+				goto out;
+			}
+			cmp_p = log_compare(&LSN(pp), &argp->parent_pglsn);
+			CHECK_LSN(op, cmp_p, &LSN(pp), &argp->parent_pglsn, lsnp, argp->fileid, argp->parent_pgno);
+			GET_BINTERNAL(dbc->dbp, pp, argp->pref_indx)->pgno = argp->new_pgno;
+			pp->lsn = *lsnp;
+		}
+
+		/* put them all back to bufferpool */
+		if ((ret = __memp_fput(mpf, newp, DB_MPOOL_DIRTY)) != 0)
+			goto out;
+		newp = NULL;
+
+		if (prevp != NULL && (ret = __memp_fput(mpf, prevp, DB_MPOOL_DIRTY)) != 0)
+			goto out;
+		prevp = NULL;
+
+		if (nextp != NULL && (ret = __memp_fput(mpf, nextp, DB_MPOOL_DIRTY)) != 0)
+			goto out;
+		nextp = NULL;
+
+		if (pp != NULL && (ret = __memp_fput(mpf, pp, DB_MPOOL_DIRTY)) != 0)
+			goto out;
+		pp = NULL;
+
+		modified = 1;
+	} else if (cmp_n == 0 && DB_UNDO(op)) {
+
+		/*
+		 * undo in the following order:
+		 *	- undo reference in parent page
+		 *	- relink sibling to old page
+		 *	- copy content back to old page
+		 */
+
+		/* undo parent */
+		if (argp->parent_pgno != PGNO_INVALID) {
+			if ((ret = __memp_fget(mpf, &argp->parent_pgno, 0, &pp)) != 0) {
+				ret = __db_pgerr(file_dbp, argp->parent_pgno, ret);
+				pp = NULL;
+				goto out;
+			}
+			GET_BINTERNAL(dbc->dbp, pp, argp->pref_indx)->pgno = argp->pgno;
+			pp->lsn = argp->parent_pglsn;
+		}
+
+		/* undo previous */
+		if (argp->prev_pgno != PGNO_INVALID) {
+			if ((ret = __memp_fget(mpf, &argp->prev_pgno, 0, &prevp)) != 0) {
+				ret = __db_pgerr(file_dbp, argp->prev_pgno, ret);
+				prevp = NULL;
+				goto out;
+			}
+			prevp->next_pgno = argp->pgno;
+			prevp->lsn = argp->prev_pglsn;
+		}
+
+		/* undo next */
+		if (argp->next_pgno != PGNO_INVALID) {
+			if ((ret = __memp_fget(mpf, &argp->next_pgno, 0, &nextp)) != 0) {
+				ret = __db_pgerr(file_dbp, argp->next_pgno, ret);
+				nextp = NULL;
+				goto out;
+			}
+			nextp->prev_pgno = argp->pgno;
+			nextp->lsn = argp->next_pglsn;
+		}
+
+		/* undo old */
+		memcpy(pagep, argp->hdr.data, argp->hdr.size);
+		memcpy((u_int8_t *)pagep + HOFFSET(pagep), argp->data.data, argp->data.size);
+
+		/* notify bufferpool */
+		if (prevp != NULL && (ret = __memp_fput(mpf, prevp, DB_MPOOL_DIRTY)) != 0)
+			goto out;
+		prevp = NULL;
+
+		if (nextp != NULL && (ret = __memp_fput(mpf, nextp, DB_MPOOL_DIRTY)) != 0)
+			goto out;
+		nextp = NULL;
+
+		if (pp != NULL && (ret = __memp_fput(mpf, pp, DB_MPOOL_DIRTY)) != 0)
+			goto out;
+		pp = NULL;
+
+		modified = 1;
+	}
+
+	if (check_page) {
+		__dir_pg(mpf, argp->pgno, (u_int8_t *)pagep, 0);
+		__dir_pg(mpf, argp->pgno, (u_int8_t *)pagep, 1);
+	}
+
+	if ((ret = __memp_fput(mpf, pagep, modified ? DB_MPOOL_DIRTY : 0)) != 0)
+		goto out;
+	pagep = NULL;
+
 done:	*lsnp = argp->prev_lsn;
 	ret = 0;
-out:
+out: if (pagep != 0)
+		(void)__memp_fput(mpf, pagep, 0);
+	if (nextp != 0)
+		(void)__memp_fput(mpf, nextp, 0);
+	if (prevp != 0)
+		(void)__memp_fput(mpf, prevp, 0);
+	if (pp != 0)
+		(void)__memp_fput(mpf, pp, 0);
 	REC_CLOSE;
 }
