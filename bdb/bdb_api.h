@@ -2364,4 +2364,5 @@ void fill_ssl_info(struct _CDB2DBINFORESPONSE *);
 
 void thedb_set_master(char *);
 int bdb_shrink(bdb_state_type *bdb_state);
+int bdb_pgswap(bdb_state_type *bdb_state);
 #endif

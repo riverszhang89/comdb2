@@ -8904,3 +8904,40 @@ out:
     BDB_RELLOCK();
     return rc;
 }
+
+int bdb_pgswap(bdb_state_type *bdb_state)
+{
+    int rc = 0, dta, stripe;
+    DB_ENV *dbenv;
+    DB_TXN *txn;
+    DB *dbp;
+
+    BDB_READLOCK("bdb_shrink");
+
+    if (bdb_state->repinfo->master_host != bdb_state->repinfo->myhost)
+        goto out;
+
+    dbenv = bdb_state->dbenv;
+    rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+    if (rc != 0)
+        goto out;
+
+    for (dta = 0; dta < MAXDTAFILES; ++dta) {
+        for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
+            if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
+                rc = dbp->swap_pages(dbp, txn);
+                if (rc != 0)
+                    break;
+            }
+        }
+    }
+
+    if (rc == 0)
+        rc = txn->commit(txn, 0);
+    else
+        txn->abort(txn);
+
+out:
+    BDB_RELLOCK();
+    return rc;
+}

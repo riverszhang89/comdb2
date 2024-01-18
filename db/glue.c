@@ -6225,3 +6225,24 @@ int shrink_table(const char *name)
 	unlock_schema_lk();
 	return ret;
 }
+
+int pgswap(const char *name)
+{
+	int ret;
+	dbtable *db;
+
+	if (name == NULL) {
+		return -1;
+	}
+
+	rdlock_schema_lk();
+	db = get_dbtable_by_name(name);
+	if (db == NULL) {
+		logmsg(LOGMSG_USER, "table \"%s\" not found", name);
+		ret = -1;
+	} else {
+		ret = bdb_pgswap(get_bdb_handle(db, AUXDB_NONE));
+	}
+	unlock_schema_lk();
+	return ret;
+}

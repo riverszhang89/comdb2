@@ -497,7 +497,8 @@ __db_swap_pages(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
 {
-	int ret, t_ret, do_swap;
+	int ret, t_ret;
+	int pglvl, unused;
 	u_int8_t page_type;
 
 	DBC *dbc;
@@ -528,10 +529,11 @@ __db_swap_pages(dbp, txn)
 	BTREE_CURSOR *cp;
 	EPG *epg;
 
-    DBT hdr, dta;
+    DBT hdr, dta, firstkey;
 
     dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
+	dbc = NULL;
 
     h = ph = nh = pp = np = NULL;
     got_hl = got_pl = got_nl = got_newl = 0;
@@ -541,9 +543,16 @@ __db_swap_pages(dbp, txn)
 		goto err;
 	}
 
+	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0) {
+		__db_err(dbenv, "__db_cursor: rc %d", ret);
+		goto err;
+	}
+	cp = (BTREE_CURSOR *)dbc->internal;
+
 	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 1; --pgno) {
 
-		dbc = NULL;
+		logmsg(LOGMSG_USER, "checking pgno %u\n", pgno);
+
 		h = ph = nh = pp = np = NULL;
 		nhlsn = phlsn = pplsn = NULL;
 		ppgno = prefpgno = PGNO_INVALID;
@@ -555,13 +564,6 @@ __db_swap_pages(dbp, txn)
 		LOCK_INIT(newl);
 
 		got_hl = got_pl = got_nl = got_newl = 0;
-
-		if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0) {
-			__db_err(dbenv, "__db_cursor: rc %d", ret);
-			goto err;
-		}
-
-		cp = (BTREE_CURSOR *)dbc->internal;
 
         if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
 			__db_err(dbenv, "__db_lget(%d): rc %d", pgno, ret);
@@ -577,19 +579,6 @@ __db_swap_pages(dbp, txn)
         }
 
 		page_type = TYPE(h);
-
-		/* Release the page first. We'll lock the page and its parent again. */
-		if ((ret = __memp_fput(dbmfp, h, 0)) != 0) {
-			__db_err(dbenv, "__memp_fput(%d): rc %d", pgno, ret);
-			h = NULL;
-			goto err;
-		}
-
-		got_hl = 0;
-		if ((ret = __LPUT(dbc, hl)) != 0) {
-			__db_err(dbenv, "__LPUT(%d): rc %d", pgno, ret);
-			goto err;
-		}
 
 		/* Handle only internal and leaf nodes 
          * TODO XXX FIXME overflow pages? */
@@ -607,14 +596,17 @@ __db_swap_pages(dbp, txn)
 			goto err;
 		}
 
+		logmsg(LOGMSG_USER, "using new pgno %u\n", PGNO(np));
+
 		if (PGNO(np) > pgno) {
 			/*
 			 * The new page unfortunately has a higher page number than our page,
 			 * Since we're scanning backwards from the back of the file, the next
              * page will be even lower-numbered. It makes no sense to continue.
 			 */
-			if ((ret = __db_free(dbc, np)) != 0)
-				goto err;
+			ret = __db_free(dbc, np);
+			np = NULL;
+			goto err;
 		}
 
 		/* Grab a wlock on the new page */
@@ -624,9 +616,58 @@ __db_swap_pages(dbp, txn)
 		}
 		got_newl = 1;
 
-		/* lock the page and its parent */
-		if ((ret = __bam_locate_page(dbc, pgno)) != 0) {
-			__db_err(dbenv, "__bam_locate_page(%d): rc %d", pgno, ret);
+		memset(&firstkey, 0, sizeof(DBT));
+		pglvl = LEVEL(h);
+
+		/* descend from pgno till we hit a non-internal page */
+		while (ret == 0 && ISINTERNAL(h)) {
+			pgno = GET_BINTERNAL(dbc->dbp, h, 0)->pgno;
+			ret = __memp_fput(dbmfp, h, 0);
+			h = NULL;
+			if (ret != 0) {
+				__db_err(dbenv, "__memp_fput(%d): rc %d", pgno, ret);
+				goto err;
+			}
+
+			got_hl = 0;
+			if ((ret = __LPUT(dbc, hl)) != 0) {
+				__db_err(dbenv, "__LPUT(%d): rc %d", pgno, ret);
+				goto err;
+			}
+
+			if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
+				__db_err(dbenv, "__db_lget(%d): rc %d", pgno, ret);
+				goto err;
+			}
+			got_hl = 1;
+
+			if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+				__db_pgerr(dbp, pgno, ret);
+				h = NULL;
+				goto err;
+			}
+		}
+
+		if (ret != 0)
+			goto err;
+		if (!ISLEAF(h))
+			goto err;
+		if ((ret = __db_ret(dbp, h, 0, &firstkey, &firstkey.data, &firstkey.ulen)) != 0)
+			goto err;
+        if ((ret = __bam_search(dbc, PGNO_INVALID, &firstkey, S_WRITE | S_PARENT, pglvl, NULL, &unused)) != 0)
+			goto err;
+
+		pgno = PGNO(h);
+		ret = __memp_fput(dbmfp, h, 0);
+		h = NULL;
+		if (ret != 0) {
+			__db_err(dbenv, "__memp_fput(%d): rc %d", pgno, ret);
+			goto err;
+		}
+
+		got_hl = 0;
+		if ((ret = __LPUT(dbc, hl)) != 0) {
+			__db_err(dbenv, "__LPUT(%d): rc %d", pgno, ret);
 			goto err;
 		}
 
@@ -695,6 +736,8 @@ __db_swap_pages(dbp, txn)
 		if (pp != NULL)
 			LSN(pp) = ret_lsn;
 
+		logmsg(LOGMSG_USER, "swapping pgno %u with %u\n", PGNO(h), PGNO(np));
+
 		/* copy content to new page and fix pgno */
 		newpgno = PGNO(np);
 		memcpy(np, h, dbp->pgsize);
@@ -708,13 +751,14 @@ __db_swap_pages(dbp, txn)
 		/* empty old page, this ensures that we call into the right version of db_free */
 		HOFFSET(h) = dbp->pgsize;
 		NUM_ENT(h) = 0;
-
-		/* free old page */
-		if ((ret = __db_free(dbc, h)) != 0)
+		ret = __db_free(dbc, h);
+		h = NULL; /* __db_free decrements out reference to the page */
+		if (ret != 0)
 			goto err;
 
 		/* relink next */
 		if (nh != NULL) {
+			logmsg(LOGMSG_USER, "relinking pgno %u to %u\n", PGNO(nh), newpgno);
 			nh->prev_pgno = newpgno;
 			if ((ret = __memp_fput(dbmfp, nh, DB_MPOOL_DIRTY)) != 0) {
 				__db_err(dbenv, "__memp_fput(%d): rc %d", PGNO(nh), ret);
@@ -730,6 +774,7 @@ __db_swap_pages(dbp, txn)
 
 		/* relink prev */
 		if (ph != NULL) {
+			logmsg(LOGMSG_USER, "relinking pgno %u to %u\n", PGNO(ph), newpgno);
 			ph->next_pgno = newpgno;
 			if ((ret = __memp_fput(dbmfp, ph, DB_MPOOL_DIRTY)) != 0) {
 				__db_err(dbenv, "__memp_fput(%d): rc %d", PGNO(ph), ret);
@@ -744,37 +789,34 @@ __db_swap_pages(dbp, txn)
 		}
 
 		/* update parent */
-		if (cp->sp != cp->csp)
+		if (cp->sp != cp->csp) {
+			logmsg(LOGMSG_USER, "update parent %u reference to %u\n", PGNO(pp), newpgno);
 			GET_BINTERNAL(dbc->dbp, pp, prefindx)->pgno = newpgno;
 
-		if ((ret = __memp_fset(dbmfp, pp, DB_MPOOL_DIRTY)) != 0) {
-			__db_err(dbenv, "__memp_fset(%d): rc %d", PGNO(pp), ret);
-			goto err;
-		}
+            if ((ret = __memp_fset(dbmfp, pp, DB_MPOOL_DIRTY)) != 0) {
+                __db_err(dbenv, "__memp_fset(%d): rc %d", PGNO(pp), ret);
+                goto err;
+            }
+        }
 
 		/*
-		 * Swap in the new page so that __bam_stkrel will put it back
-         * to bufferpool. We still retain the the old page's lock
+		 * Old page is already freed, swap in the new page.
+         * We still retain the the old page's lock
          * in the cursor stack, and __bam_stkrel will take care of
-         * that lock too. We release the new page's lock here.
+         * that lock. We release the new page's lock here.
 		 */
 		cp->csp->page = np;
+		np = NULL;
 		got_newl = 0;
 		if ((ret = __TLPUT(dbc, newl)) != 0) {
 			__db_err(dbenv, "__TLPUT(%d): rc %d", newpgno, ret);
 			goto err;
 		}
-		if ((ret = __bam_stkrel(dbc, 0)) != 0) {
+		if ((ret = __bam_stkrel(dbc, STK_CLRDBC)) != 0) {
 			__db_err(dbenv, "__bam_stkrel(): rc %d", ret);
 			goto err;
 		}
-		if ((ret = __db_c_close(dbc)) != 0) {
-			__db_err(dbenv, "__db_c_close(): rc %d", ret);
-			dbc = NULL;
-			goto err;
-		}
 	}
-
 err:
 	if (h != NULL && (t_ret = __memp_fput(dbmfp, h, 0)) != 0 && ret == 0)
 		ret = t_ret;

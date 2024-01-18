@@ -3634,5 +3634,6 @@ void csc2_disallow_bools(void);
 int csc2_used_bools(void);
 
 int shrink_table(const char *);
+int pgswap(const char *);
 
 #endif /* !INCLUDED_COMDB2_H */

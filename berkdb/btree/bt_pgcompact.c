@@ -1506,15 +1506,12 @@ __bam_locate_page(dbc, pgno)
     DB_ENV *dbenv;
 	PAGE *h;
 	DB_LOCK hl;
-	BTREE_CURSOR *cp;
 
 	dbp = dbc->dbp;
     dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
-	cp = (BTREE_CURSOR *)dbc->internal;
-	h = cp->page;
 
-	h = NULL;
+    h = NULL;
 	memset(&key, 0, sizeof(DBT));
 
     if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
@@ -1559,13 +1556,17 @@ __bam_locate_page(dbc, pgno)
 	if (ret == 0) {
 		/* If we have a leaf page, get its 1st key; if we hit a page we don't know
 		 * how to process, mask out the rcode */
-		if (ISLEAF(cp->page))
+		if (ISLEAF(h))
 			ret = __db_ret(dbp, h, 0, &key, &key.data, &key.ulen);
 		else
 			ret = -1;
 	}
-	if (ret != 0)
-		return (ret);
 
-	return __bam_search(dbc, PGNO_INVALID, &key, S_WRITE | S_PARENT, pglvl, NULL, &unused);
+	if (ret == 0)
+        ret = __bam_search(dbc, PGNO_INVALID, &key, S_WRITE | S_PARENT, pglvl, NULL, &unused);
+
+    __memp_fput(dbmfp, h, 0);
+    __LPUT(dbc, hl);
+
+    return (ret);
 }
