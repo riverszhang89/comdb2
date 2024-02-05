@@ -672,7 +672,7 @@ __db_swap_pages(dbp, txn)
 
 		/* descend from pgno till we hit a non-internal page */
 		while (ret == 0 && ISINTERNAL(h)) {
-			cpgno = GET_BINTERNAL(dbc->dbp, h, 0)->pgno;
+			cpgno = GET_BINTERNAL(dbp, h, 0)->pgno;
 			ret = __memp_fput(dbmfp, h, 0);
 			h = NULL;
 			if (ret != 0) {
@@ -846,7 +846,7 @@ __db_swap_pages(dbp, txn)
 		/* update parent */
 		if (cp->sp != cp->csp) {
 			logmsg(LOGMSG_USER, "update parent %u reference to %u\n", PGNO(pp), newpgno);
-			GET_BINTERNAL(dbc->dbp, pp, prefindx)->pgno = newpgno;
+			GET_BINTERNAL(dbp, pp, prefindx)->pgno = newpgno;
 
             if ((ret = __memp_fset(dbmfp, pp, DB_MPOOL_DIRTY)) != 0) {
                 __db_err(dbenv, "__memp_fset(%u): rc %d", PGNO(pp), ret);
@@ -873,13 +873,17 @@ __db_swap_pages(dbp, txn)
 		}
 	}
 
+	extern void flush_db(void);
+	flush_db();
 	/*
 	 * The list is most likely sorted in a descending order of pgno,
-	 * for we scan the file backwards. Free pages from the head of
+	 * for we scanned the file backwards. Free pages from the head of
 	 * the list (ie from the largest pgno), so that smaller pages
 	 * are placed on the front of the freelist.
 	 */
+	logmsg(LOGMSG_USER, "num_pages_swapped %u\n", num_pages_swapped);
 	for (ii = 0; ii != num_pages_swapped; ++ii) {
+		abort();
 		if ((ret = __db_free(dbc, lfp[ii])) != 0) {
 			logmsg(LOGMSG_USER, "__db_free %u\n", PGNO(lfp[ii]));
 			__db_err(dbenv, "__db_free(%u): rc %d", PGNO(lfp[ii]), ret);

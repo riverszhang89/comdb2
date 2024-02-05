@@ -217,6 +217,7 @@ __db_next_freepage(DB *dbp, db_pgno_t * pg)
 		fprintf(stderr,
 		    "encountered non-invalid page %u (type %d) while reading free list\n",
 		    *pg, TYPE(h));
+        __memp_fput(mpf, h, 0);
 		return EINVAL;
 	}
 

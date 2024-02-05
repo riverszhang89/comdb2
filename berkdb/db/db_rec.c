@@ -1499,12 +1499,13 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 	cmp_p = log_compare(&LSN(pagep), &argp->lsn);
 	CHECK_LSN(op, cmp_p, &LSN(pagep), &argp->lsn, lsnp, argp->fileid, argp->pgno);
 
+	printf("replacing pgno %u with newp %u before lsn %d:%d, page lsn %d:%d, after lsn %d:%d\n",
+			argp->pgno, argp->new_pgno, argp->lsn.file, argp->lsn.offset,
+			LSN(pagep).file, LSN(pagep).offset, lsnp->file, lsnp->offset);
+
 	if (cmp_p == 0 && DB_REDO(op)) {
-		if ((ret = __memp_fget(mpf, &argp->new_pgno, 0, &newp)) != 0) {
-			ret = __db_pgerr(file_dbp, argp->new_pgno, ret);
-			newp = NULL;
-			goto out;
-		}
+
+		puts("redo");
 
 		/*
 		 * redo in the following order:
@@ -1514,13 +1515,23 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 		 *	- update reference in parent page
 		 */
 
+		if ((ret = __memp_fget(mpf, &argp->new_pgno, 0, &newp)) != 0) {
+			ret = __db_pgerr(file_dbp, argp->new_pgno, ret);
+			newp = NULL;
+			goto out;
+		}
+		cmp_p = log_compare(&LSN(newp), &argp->new_pglsn);
+		CHECK_LSN(op, cmp_p, &LSN(newp), &argp->new_pglsn, lsnp, argp->fileid, argp->new_pgno);
+
 		/* redo new page */
 		memcpy(newp, argp->hdr.data, argp->hdr.size);
 		memcpy((u_int8_t *)newp + HOFFSET(newp), argp->data.data, argp->data.size);
+		LSN(newp) = *lsnp;
 
 		/* redo old page */
 		HOFFSET(pagep) = file_dbp->pgsize;
 		NUM_ENT(pagep) = 0;
+		LSN(pagep) = *lsnp;
 
 		/* redo next page */
 		if (argp->next_pgno != PGNO_INVALID) {
@@ -1532,7 +1543,7 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 			cmp_p = log_compare(&LSN(nextp), &argp->next_pglsn);
 			CHECK_LSN(op, cmp_p, &LSN(nextp), &argp->next_pglsn, lsnp, argp->fileid, argp->next_pgno);
 			nextp->prev_pgno = argp->new_pgno;
-			nextp->lsn = *lsnp;
+			LSN(nextp) = *lsnp;
 		}
 
 		/* redo previous page */
@@ -1545,7 +1556,7 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 			cmp_p = log_compare(&LSN(prevp), &argp->prev_pglsn);
 			CHECK_LSN(op, cmp_p, &LSN(prevp), &argp->prev_pglsn, lsnp, argp->fileid, argp->prev_pgno);
 			prevp->next_pgno = argp->new_pgno;
-			prevp->lsn = *lsnp;
+			LSN(prevp) = *lsnp;
 		}
 
 		/* redo parent page */
@@ -1558,7 +1569,7 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 			cmp_p = log_compare(&LSN(pp), &argp->parent_pglsn);
 			CHECK_LSN(op, cmp_p, &LSN(pp), &argp->parent_pglsn, lsnp, argp->fileid, argp->parent_pgno);
 			GET_BINTERNAL(dbc->dbp, pp, argp->pref_indx)->pgno = argp->new_pgno;
-			pp->lsn = *lsnp;
+			LSN(pp) = *lsnp;
 		}
 
 		/* put them all back to bufferpool */
@@ -1581,6 +1592,7 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 		modified = 1;
 	} else if (cmp_n == 0 && DB_UNDO(op)) {
 
+		puts("undo");
 		/*
 		 * undo in the following order:
 		 *	- undo reference in parent page
@@ -1596,7 +1608,7 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 				goto out;
 			}
 			GET_BINTERNAL(dbc->dbp, pp, argp->pref_indx)->pgno = argp->pgno;
-			pp->lsn = argp->parent_pglsn;
+			LSN(pp) = argp->parent_pglsn;
 		}
 
 		/* undo previous */
@@ -1607,7 +1619,7 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 				goto out;
 			}
 			prevp->next_pgno = argp->pgno;
-			prevp->lsn = argp->prev_pglsn;
+			LSN(prevp) = argp->prev_pglsn;
 		}
 
 		/* undo next */
@@ -1618,12 +1630,28 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 				goto out;
 			}
 			nextp->prev_pgno = argp->pgno;
-			nextp->lsn = argp->next_pglsn;
+			LSN(nextp) = argp->next_pglsn;
 		}
 
 		/* undo old */
 		memcpy(pagep, argp->hdr.data, argp->hdr.size);
 		memcpy((u_int8_t *)pagep + HOFFSET(pagep), argp->data.data, argp->data.size);
+		LSN(pagep) = argp->lsn;
+
+		if ((ret = __memp_fget(mpf, &argp->new_pgno, 0, &newp)) != 0) {
+			ret = __db_pgerr(file_dbp, argp->new_pgno, ret);
+			newp = NULL;
+			goto out;
+		}
+
+		/* undo new page */
+		HOFFSET(newp) = file_dbp->pgsize;
+		NUM_ENT(newp) = 0;
+		LSN(newp) = argp->new_pglsn;
+
+		if ((ret = __memp_fput(mpf, newp, DB_MPOOL_DIRTY)) != 0)
+			goto out;
+		newp = NULL;
 
 		/* notify bufferpool */
 		if (prevp != NULL && (ret = __memp_fput(mpf, prevp, DB_MPOOL_DIRTY)) != 0)
