@@ -136,14 +136,15 @@ int __db_dump_freepages(DB *dbp, FILE *out);
 /* __db_shrink_redo --
  *  sort the freelist in page order and truncate the file
  *
- * PUBLIC: int __db_shrink_redo __P((DBC *, DB_LSN *, DBMETA *, DB_LSN *, size_t, db_pgno_t *, DB_LSN *, int *));
+ * PUBLIC: int __db_shrink_redo __P((DBC *, DB_LSN *, DBMETA *, DB_LSN *, db_pgno_t, size_t, db_pgno_t *, DB_LSN *, int *));
  */
 int
-__db_shrink_redo(dbc, lsnp, meta, meta_lsnp, npages, pglist, pglsnlist, pmodified)
+__db_shrink_redo(dbc, lsnp, meta, meta_lsnp, endpgno, npages, pglist, pglsnlist, pmodified)
 	DBC *dbc;
 	DB_LSN *lsnp;
 	DBMETA *meta;
 	DB_LSN *meta_lsnp;
+	db_pgno_t endpgno;
 	size_t npages;
 	db_pgno_t *pglist;
 	DB_LSN *pglsnlist;
@@ -165,7 +166,9 @@ __db_shrink_redo(dbc, lsnp, meta, meta_lsnp, npages, pglist, pglsnlist, pmodifie
 
 	*pmodified = 0;
 
-	/* If meta page is ahead, just do the truncation. We won't need the truncated pages anymore. */
+	/* If meta page is ahead, just do the truncation. No need to restore freelist.
+     * If there's any pg_alloc between this LSN and meta page's LSN, pg_alloc_recover
+     * will extend the file */
 	if (log_compare(meta_lsnp, lsnp) >= 0)
 		goto resize;
 
@@ -191,7 +194,7 @@ __db_shrink_redo(dbc, lsnp, meta, meta_lsnp, npages, pglist, pglsnlist, pmodifie
 		logmsg(LOGMSG_USER, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], meta->last_pgno);
 	}
 
-	logmsg(LOGMSG_USER, "last pgno %u truncation point (array index) %zu\n", meta->last_pgno, notch);
+	logmsg(LOGMSG_USER, "last pgno %u truncation point (array index) %zu pgno %u\n", meta->last_pgno, notch, pglist[notch]);
 
 	/* rebuild the freelist, in page order */
 	for (ii = 0; ii != notch; ++ii) {
@@ -216,12 +219,15 @@ __db_shrink_redo(dbc, lsnp, meta, meta_lsnp, npages, pglist, pglsnlist, pmodifie
 		pgno = pglist[ii];
 		if ((ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h)) != 0)
 			continue;
-		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_DISCARD)) != 0)
+        /* mark clean & discard. we don't want memp_sync to write the page after we truncate */
+		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_CLEAN | DB_MPOOL_DISCARD)) != 0)
 			goto out;
 	}
 
-	/* re-point the freelist to the smallest free page */
-	meta->free = pglist[0];
+	/* Re-point the freelist to the smallest free page passed to us.
+     * However if we successfully truncate all pages in this range (yay!),
+     * point the freelist to the first page after this range */
+    meta->free = notch > 0 ? pglist[0] : endpgno;
     
 	*pmodified = 1;
 	if (notch < npages) {
@@ -422,7 +428,7 @@ __db_shrink(dbp, txn)
 		lsns.data = pglsnlist;
 
         prev_metalsn = LSN(meta);
-		ret = __db_truncate_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, &pgnos, &lsns);
+		ret = __db_truncate_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, pgno, &pgnos, &lsns);
 		if (ret != 0)
 			goto out;
 
@@ -435,7 +441,7 @@ __db_shrink(dbp, txn)
 	}
 
     /* not in recovery, just reusing the same function */
-	ret = __db_shrink_redo(dbc, &LSN(meta), meta, &prev_metalsn, npages, pglist, pglsnlist, &modified);
+	ret = __db_shrink_redo(dbc, &LSN(meta), meta, &prev_metalsn, pgno, npages, pglist, pglsnlist, &modified);
 
 out:
 	__os_free(dbenv, pglist);
@@ -633,10 +639,20 @@ __db_swap_pages(dbp, txn)
 		if (page_type != P_LBTREE && page_type != P_IBTREE) {
 			if (page_type != P_INVALID)
 				logmsg(LOGMSG_USER, "unsupported page type %d\n", page_type);
+			else
+				logmsg(LOGMSG_USER, "page already empty\n");
 			continue;
 		}
 
-		/* Allocate a page from the freelist */
+		/*
+		 * Try allocating a page from the freelist, without extending the file.
+		 *
+		 * We're holding onto pages to be freed, so the last pgno on the meta page,
+		 * as well as the one from the bufferpool do not change. If we run out of
+		 * free pages here, a normal __db_new() call would then extend the file
+		 * by one more page, leaving a hole in the file after those pages are freed.
+		 * Hence it's very important that we do not extend the file here.
+		 */
 		if ((ret = __db_new_ex(dbc, page_type, &np, 1)) != 0) {
 			__db_err(dbenv, "__db_new: rc %d", ret);
 			goto err;
@@ -650,6 +666,7 @@ __db_swap_pages(dbp, txn)
 		logmsg(LOGMSG_USER, "using new pgno %u\n", PGNO(np));
 
 		if (PGNO(np) > pgno) {
+			logmsg(LOGMSG_USER, "greater free page number!\n");
 			/*
 			 * The new page unfortunately has a higher page number than our page,
 			 * Since we're scanning backwards from the back of the file, the next
@@ -804,8 +821,10 @@ __db_swap_pages(dbp, txn)
 		HOFFSET(h) = dbp->pgsize;
 		NUM_ENT(h) = 0;
 
+        /* Place the page on the to-be-freed list, that gets freed after the while loop.
+         * It ensures higher page numbers won't be placed on the front of the list. */
 		lfp[num_pages_swapped] = h;
-		h = NULL; /* it's going to be freed after this while loop */
+		h = NULL;
 
 		lpgnofromfl[num_pages_swapped] = newpgno;
 		qsort(lpgnofromfl, num_pages_swapped + 1, sizeof(db_pgno_t), pgno_cmp);
@@ -873,8 +892,7 @@ __db_swap_pages(dbp, txn)
 		}
 	}
 
-	extern void flush_db(void);
-	flush_db();
+err:
 	/*
 	 * The list is most likely sorted in a descending order of pgno,
 	 * for we scanned the file backwards. Free pages from the head of
@@ -883,7 +901,6 @@ __db_swap_pages(dbp, txn)
 	 */
 	logmsg(LOGMSG_USER, "num_pages_swapped %u\n", num_pages_swapped);
 	for (ii = 0; ii != num_pages_swapped; ++ii) {
-		abort();
 		if ((ret = __db_free(dbc, lfp[ii])) != 0) {
 			logmsg(LOGMSG_USER, "__db_free %u\n", PGNO(lfp[ii]));
 			__db_err(dbenv, "__db_free(%u): rc %d", PGNO(lfp[ii]), ret);
@@ -891,7 +908,6 @@ __db_swap_pages(dbp, txn)
 		}
 	}
 
-err:
 	if (h != NULL && (t_ret = __memp_fput(dbmfp, h, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if (got_hl && (t_ret = __TLPUT(dbc, hl)) != 0 && ret == 0)

@@ -544,5 +544,5 @@ __memp_resize(dbmfp, pgno)
 		mfp->last_pgno = pgno;
 	R_UNLOCK(dbenv, dbmp->reginfo);
 
-	return 0;
+	return ret;
 }

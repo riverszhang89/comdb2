@@ -269,6 +269,7 @@ DB	fileid		int32_t		ld
 POINTER	meta_lsn	DB_LSN *	lu
 ARG	meta_pgno	db_pgno_t	lu
 ARG	last_pgno	db_pgno_t	lu
+ARG	end_pgno	db_pgno_t	lu
 DBT     fl        DBT         s
 DBT     fllsn     DBT         s
 END

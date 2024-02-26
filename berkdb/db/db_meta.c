@@ -313,7 +313,7 @@ int __os_physwrite(DB_ENV *dbenv, DB_FH * fhp, void *addr, size_t len,
 
 #include <arpa/inet.h>
 
-int __db_new_original(DBC *dbc, u_int32_t type, PAGE **pagepp);
+int __db_new_original(DBC *dbc, u_int32_t type, PAGE **pagepp, int noextend);
 
 /*
  * __db_new_ex --
@@ -353,7 +353,7 @@ __db_new_ex(dbc, type, pagepp, noextend)
 	page_extent_size = dbc->dbp->dbenv->page_extent_size;
 	if (page_extent_size == 0 ||
 	    dbc->dbp == ((DB_REP *)dbc->dbp->dbenv->rep_handle)->rep_db)
-		return __db_new_original(dbc, type, pagepp);
+		return __db_new_original(dbc, type, pagepp, noextend);
 
 	*pagepp = NULL;
 
@@ -548,10 +548,11 @@ err:
 }
 
 int
-__db_new_original(dbc, type, pagepp)
+__db_new_original(dbc, type, pagepp, noextend)
 	DBC *dbc;
 	u_int32_t type;
 	PAGE **pagepp;
+    int noextend;
 {
 	DBMETA *meta;
 	DB *dbp;
@@ -601,6 +602,8 @@ __db_new_original(dbc, type, pagepp)
 		extend = 0;
 	}
 
+	if (extend && noextend)
+		goto err;
 
 	/* If this is a temp file, don't make this call */
 	if (gbl_check_sparse_files && mpf->fhp) {
