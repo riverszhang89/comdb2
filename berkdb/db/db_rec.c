@@ -1356,21 +1356,21 @@ out:	REC_CLOSE;
 }
 
 /*
- * __db_truncate_freelist_recover --
+ * __db_rebuild_freelist_recover --
  *	Recovery function for truncate_freelist.
  *
- * PUBLIC: int __db_truncate_freelist_recover
+ * PUBLIC: int __db_rebuild_freelist_recover
  * PUBLIC:   __P((DB_ENV *, DBT *, DB_LSN *, db_recops, void *));
  */
 int
-__db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
+__db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	DB_ENV *dbenv;
 	DBT *dbtp;
 	DB_LSN *lsnp;
 	db_recops op;
 	void *info;
 {
-	__db_truncate_freelist_args *argp;
+	__db_rebuild_freelist_args *argp;
 	DB *file_dbp;
 	DBC *dbc;
 	DBMETA *meta;
@@ -1384,8 +1384,8 @@ __db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
 
 	meta = NULL;
 
-	REC_PRINT(__db_truncate_freelist_print);
-	REC_INTRO(__db_truncate_freelist_read, 0);
+	REC_PRINT(__db_rebuild_freelist_print);
+	REC_INTRO(__db_rebuild_freelist_read, 0);
 
 	if ((ret = __memp_fget(mpf, &argp->meta_pgno, 0, &meta)) != 0) {
 		/* The metadata page must always exist on redo. */
@@ -1420,12 +1420,12 @@ __db_truncate_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	}
 
 	if (DB_REDO(op)) {
-		ret = __db_shrink_redo(dbc, lsnp, meta, &LSN(meta), argp->end_pgno, npages, pglist, pglsnlist, &modified);
+		ret = __db_rebuild_freelist_redo(dbc, lsnp, meta, &LSN(meta), argp->end_pgno, npages, pglist, pglsnlist, &modified);
 		if (cmp_p == 0) {
 			LSN(meta) = *lsnp;
 		}
 	} else if (DB_UNDO(op)) {
-		ret = __db_shrink_undo(dbc, lsnp, meta, &LSN(meta), argp->last_pgno, npages, pglist, pglsnlist, &modified);
+		ret = __db_rebuild_freelist_undo(dbc, lsnp, meta, &LSN(meta), argp->last_pgno, npages, pglist, pglsnlist, &modified);
 		if (cmp_n == 0) {
 			LSN(meta) = argp->meta_lsn;
 		}

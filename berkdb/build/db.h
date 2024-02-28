@@ -1665,7 +1665,6 @@ struct __db {
 	int  (*rename) __P((DB *,
 	    const char *, const char *, const char *, u_int32_t));
 	int  (*truncate) __P((DB *, DB_TXN *, u_int32_t *, u_int32_t));
-	int  (*shrink) __P((DB *, DB_TXN *));
 	int  (*swap_pages) __P((DB *, DB_TXN *));
 	int  (*set_append_recno) __P((DB *, int (*)(DB *, DBT *, db_recno_t)));
 	int  (*set_alloc) __P((DB *, void *(*)(size_t),
@@ -1731,6 +1730,9 @@ struct __db {
 	int  (*paired_cursor_from_lid) __P((DB *, u_int32_t, DBC **, u_int32_t));
 	int  (*cursor_nocount) __P((DB *, DB_TXN *, DBC **, u_int32_t));
 	int  (*get_numpages) __P((DB *, db_pgno_t *));
+
+	int  (*rebuild_freelist) __P((DB *, DB_TXN *));
+	int  (*pgswap) __P((DB *, DB_TXN *));
 
 	/*
 	 * Never called; these are a place to save function pointers

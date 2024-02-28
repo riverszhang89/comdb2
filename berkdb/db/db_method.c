@@ -245,8 +245,6 @@ __db_init(dbp, flags)
 	dbp->remove = __db_remove_pp;
 	dbp->rename = __db_rename_pp;
 	dbp->truncate = __db_truncate_pp;
-	dbp->shrink = __db_shrink_pp;
-	dbp->swap_pages = __db_swap_pages_pp;
 	dbp->set_alloc = __db_set_alloc;
 	dbp->set_append_recno = __db_set_append_recno;
 	dbp->get_cachesize = __db_get_cachesize;
@@ -276,6 +274,8 @@ __db_init(dbp, flags)
 	dbp->get_numpages = __db_get_numpages;
 	dbp->set_compression_flags = __db_set_compression_flags;
 	dbp->get_compression_flags = __db_get_compression_flags;
+	dbp->rebuild_freelist = __db_rebuild_freelist_pp;
+	dbp->pgswap = __db_pgswap_pp;
 
 	/* Access method specific. */
 	if ((ret = __bam_db_create(dbp)) != 0)

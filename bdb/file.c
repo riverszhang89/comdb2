@@ -8868,14 +8868,17 @@ int bdb_debug_log(bdb_state_type *bdb_state, tran_type *trans, int inop)
     return bdb_state->dbenv->debug_log(bdb_state->dbenv, tid, &op, NULL, NULL);
 }
 
-int bdb_shrink(bdb_state_type *bdb_state)
+typedef int (*pgmv_rtn)(DB *, DB_TXN *);
+static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const char *bdb_lock_str)
 {
-    int rc = 0, dta, stripe;
+    int rc = -1;
+
+    int dta, stripe;
     DB_ENV *dbenv;
     DB_TXN *txn;
     DB *dbp;
 
-    BDB_READLOCK("bdb_shrink");
+    BDB_READLOCK(bdb_lock_str);
 
     if (bdb_state->repinfo->master_host != bdb_state->repinfo->myhost)
         goto out;
@@ -8888,7 +8891,7 @@ int bdb_shrink(bdb_state_type *bdb_state)
     for (dta = 0; dta < MAXDTAFILES; ++dta) {
         for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
             if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
-                rc = dbp->shrink(dbp, txn);
+                rc = rtn(dbp, txn);
                 if (rc != 0)
                     break;
             }
@@ -8903,41 +8906,17 @@ int bdb_shrink(bdb_state_type *bdb_state)
 out:
     BDB_RELLOCK();
     return rc;
+
+}
+
+int bdb_rebuild_freelist(bdb_state_type *bdb_state)
+{
+    pgmv_rtn rtn = bdb_state->dbp_data[0][0]->rebuild_freelist;
+    return call_berkdb_pgmv_rtn(bdb_state, rtn, __func__);
 }
 
 int bdb_pgswap(bdb_state_type *bdb_state)
 {
-    int rc = 0, dta, stripe;
-    DB_ENV *dbenv;
-    DB_TXN *txn;
-    DB *dbp;
-
-    BDB_READLOCK("bdb_shrink");
-
-    if (bdb_state->repinfo->master_host != bdb_state->repinfo->myhost)
-        goto out;
-
-    dbenv = bdb_state->dbenv;
-    rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
-    if (rc != 0)
-        goto out;
-
-    for (dta = 0; dta < MAXDTAFILES; ++dta) {
-        for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
-            if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
-                rc = dbp->swap_pages(dbp, txn);
-                if (rc != 0)
-                    break;
-            }
-        }
-    }
-
-    if (rc == 0)
-        rc = txn->commit(txn, 0);
-    else
-        txn->abort(txn);
-
-out:
-    BDB_RELLOCK();
-    return rc;
+    pgmv_rtn rtn = bdb_state->dbp_data[0][0]->pgswap;
+    return call_berkdb_pgmv_rtn(bdb_state, rtn, __func__);
 }

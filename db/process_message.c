@@ -4958,7 +4958,7 @@ clipper_usage:
             thdpool_print_stats(stdout, gbl_verify_thdpool);
         else
             logmsg(LOGMSG_USER, "Verify threadpool is not active\n");
-    } else if (tokcmp(tok, ltok, "shrink") == 0) {
+    } else if (tokcmp(tok, ltok, "rebuild_freelist") == 0) {
 		char tbl[MAXTABLELEN];
         tok = segtok(line, lline, &st, &ltok);
 		if (ltok == 0) {
@@ -4966,7 +4966,7 @@ clipper_usage:
 			return -1;
 		}
         tokcpy0(tok, ltok, tbl, sizeof(tbl));
-		shrink_table(tbl);
+		rebuild_freelist(tbl);
     } else if (tokcmp(tok, ltok, "pgswap") == 0) {
 		char tbl[MAXTABLELEN];
         tok = segtok(line, lline, &st, &ltok);

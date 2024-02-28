@@ -6205,44 +6205,34 @@ static int syncmode_callback(bdb_state_type *bdb_state) {
     return sync_state_to_protobuf(thedb->rep_sync);
 }
 
-int shrink_table(const char *name)
+typedef int (*bdb_pgmv_rtn)(bdb_state_type *);
+
+static int call_bdb_pgmv_rtn(const char *table, bdb_pgmv_rtn rtn)
 {
-	int ret;
+    int ret;
 	dbtable *db;
 
-	if (name == NULL) {
+	if (table == NULL)
 		return -1;
-	}
 
 	rdlock_schema_lk();
-	db = get_dbtable_by_name(name);
+	db = get_dbtable_by_name(table);
 	if (db == NULL) {
-		logmsg(LOGMSG_USER, "table \"%s\" not found", name);
+		logmsg(LOGMSG_ERROR, "%s: table \"%s\" not found", __func__, table);
 		ret = -1;
 	} else {
-		ret = bdb_shrink(get_bdb_handle(db, AUXDB_NONE));
+		ret = rtn(get_bdb_handle(db, AUXDB_NONE));
 	}
 	unlock_schema_lk();
 	return ret;
 }
 
-int pgswap(const char *name)
+int rebuild_freelist(const char *table)
 {
-	int ret;
-	dbtable *db;
+    return call_bdb_pgmv_rtn(table, bdb_rebuild_freelist);
+}
 
-	if (name == NULL) {
-		return -1;
-	}
-
-	rdlock_schema_lk();
-	db = get_dbtable_by_name(name);
-	if (db == NULL) {
-		logmsg(LOGMSG_USER, "table \"%s\" not found", name);
-		ret = -1;
-	} else {
-		ret = bdb_pgswap(get_bdb_handle(db, AUXDB_NONE));
-	}
-	unlock_schema_lk();
-	return ret;
+int pgswap(const char *table)
+{
+    return call_bdb_pgmv_rtn(table, bdb_pgswap);
 }

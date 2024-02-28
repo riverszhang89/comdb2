@@ -262,9 +262,9 @@ ARG	ptype		u_int32_t	lu
 END
 
 /*
- * truncate_freelist
+ * rebuild_freelist
  */
-BEGIN truncate_freelist	70
+BEGIN rebuild_freelist	70
 DB	fileid		int32_t		ld
 POINTER	meta_lsn	DB_LSN *	lu
 ARG	meta_pgno	db_pgno_t	lu

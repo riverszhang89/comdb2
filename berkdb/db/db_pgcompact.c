@@ -133,13 +133,13 @@ pgno_cmp(const void *x, const void *y)
 
 int __db_dump_freepages(DB *dbp, FILE *out);
 
-/* __db_shrink_redo --
+/* __db_rebuild_freelist_redo --
  *  sort the freelist in page order and truncate the file
  *
- * PUBLIC: int __db_shrink_redo __P((DBC *, DB_LSN *, DBMETA *, DB_LSN *, db_pgno_t, size_t, db_pgno_t *, DB_LSN *, int *));
+ * PUBLIC: int __db_rebuild_freelist_redo __P((DBC *, DB_LSN *, DBMETA *, DB_LSN *, db_pgno_t, size_t, db_pgno_t *, DB_LSN *, int *));
  */
 int
-__db_shrink_redo(dbc, lsnp, meta, meta_lsnp, endpgno, npages, pglist, pglsnlist, pmodified)
+__db_rebuild_freelist_redo(dbc, lsnp, meta, meta_lsnp, endpgno, npages, pglist, pglsnlist, pmodified)
 	DBC *dbc;
 	DB_LSN *lsnp;
 	DBMETA *meta;
@@ -167,7 +167,7 @@ __db_shrink_redo(dbc, lsnp, meta, meta_lsnp, endpgno, npages, pglist, pglsnlist,
 	*pmodified = 0;
 
 	/* If meta page is ahead, just do the truncation. No need to restore freelist.
-     * If there's any pg_alloc between this LSN and meta page's LSN, pg_alloc_recover
+     * If there's any pg_alloc between this LSN and meta page's LSN, pg_alloc_recover()
      * will extend the file */
 	if (log_compare(meta_lsnp, lsnp) >= 0)
 		goto resize;
@@ -204,10 +204,7 @@ __db_shrink_redo(dbc, lsnp, meta, meta_lsnp, endpgno, npages, pglist, pglsnlist,
 			goto out;
 		}
 
-		if (ii == notch - 1) /* We're at the last free page. */
-			NEXT_PGNO(h) = PGNO_INVALID;
-		else
-			NEXT_PGNO(h) = pglist[ii + 1];
+		NEXT_PGNO(h) = (ii == notch - 1) ? endpgno : pglist[ii + 1];
 
 		LSN(h) = *lsnp;
 		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_DIRTY)) != 0)
@@ -230,31 +227,26 @@ __db_shrink_redo(dbc, lsnp, meta, meta_lsnp, endpgno, npages, pglist, pglsnlist,
     meta->free = notch > 0 ? pglist[0] : endpgno;
     
 	*pmodified = 1;
-	if (notch < npages) {
+	if (notch < npages && endpgno == PGNO_INVALID) {
 		/* pglist[notch] is where we will truncate. so point last_pgno to the page before this one. */
 		meta->last_pgno = pglist[notch] - 1;
-
-		/* TODO: can probably release meta page early and do truncation without holding it??? */
 resize:
 		/* TODO check if this page is still referenced by the oldest log file */
-
-		/* shrink the file */
 		if ((ret = __memp_resize(dbmfp, meta->last_pgno)) != 0)
 			goto out;
 	}
 
 out:
-	__db_dump_freepages(dbp, stdout);
 	return (ret);
 }
 
-/* __db_shrink_undo --
+/* __db_rebuild_freelist_undo --
  *  undo
  *
- * PUBLIC: int __db_shrink_undo __P((DBC *, DB_LSN *, DBMETA *, DB_LSN *, db_pgno_t, size_t, db_pgno_t *, DB_LSN *, int *));
+ * PUBLIC: int __db_rebuild_freelist_undo __P((DBC *, DB_LSN *, DBMETA *, DB_LSN *, db_pgno_t, size_t, db_pgno_t *, DB_LSN *, int *));
  */
 int
-__db_shrink_undo(dbc, lsnp, meta, meta_lsnp, last_pgno, npages, pglist, pglsnlist, pmodified)
+__db_rebuild_freelist_undo(dbc, lsnp, meta, meta_lsnp, last_pgno, npages, pglist, pglsnlist, pmodified)
 	DBC *dbc;
 	DB_LSN *lsnp;
 	DBMETA *meta;
@@ -315,13 +307,13 @@ out:
 }
 
 /*
- * __db_shrink --
+ * __db_rebuild_freelist --
  *  Shrink a database
  *
- * PUBLIC: int __db_shrink __P((DB *, DB_TXN *));
+ * PUBLIC: int __db_rebuild_freelist __P((DB *, DB_TXN *));
  */
 int
-__db_shrink(dbp, txn)
+__db_rebuild_freelist(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
 {
@@ -354,8 +346,6 @@ __db_shrink(dbp, txn)
 	npages = 0;
 	pglistsz = 16;
     maxfreepgno = PGNO_INVALID;
-
-	/* gather a list of free pages, sort them */
 
 	if ((ret = __os_malloc(dbenv, sizeof(db_pgno_t) * pglistsz, &pglist)) != 0)
 		goto out;
@@ -395,7 +385,7 @@ __db_shrink(dbp, txn)
 			goto out;
 	}
 
-    printf("free pg list: ");
+    printf("%s: free pg list: ", __func__);
     for (int i = 0; i != npages; ++i) {
         printf("%u ", pglist[i]);
     }
@@ -407,8 +397,9 @@ __db_shrink(dbp, txn)
     }
 
 	if (maxfreepgno < meta->last_pgno) {
-        logmsg(LOGMSG_WARN, "no free pages at the end of the file? maxfreepgno %u last_pgno %u\n", maxfreepgno, meta->last_pgno);
-        logmsg(LOGMSG_WARN, "only going to sort freelist\n");
+        logmsg(LOGMSG_WARN, "%s: no free pages at the end of the file? maxfreepgno %u last_pgno %u\n",
+				__func__, maxfreepgno, meta->last_pgno);
+        logmsg(LOGMSG_WARN, "%s: only going to sort freelist\n", __func__);
     }
 
     /* log the change */
@@ -428,7 +419,7 @@ __db_shrink(dbp, txn)
 		lsns.data = pglsnlist;
 
         prev_metalsn = LSN(meta);
-		ret = __db_truncate_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, pgno, &pgnos, &lsns);
+		ret = __db_rebuild_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, pgno, &pgnos, &lsns);
 		if (ret != 0)
 			goto out;
 
@@ -441,7 +432,7 @@ __db_shrink(dbp, txn)
 	}
 
     /* not in recovery, just reusing the same function */
-	ret = __db_shrink_redo(dbc, &LSN(meta), meta, &prev_metalsn, pgno, npages, pglist, pglsnlist, &modified);
+	ret = __db_rebuild_freelist_redo(dbc, &LSN(meta), meta, &prev_metalsn, pgno, npages, pglist, pglsnlist, &modified);
 
 out:
 	__os_free(dbenv, pglist);
@@ -456,14 +447,14 @@ out:
 }
 
 /*
- * __db_shrink_pp --
- *	DB->shrink pre/post processing.
+ * __db_rebuild_freelist_pp --
+ *	DB->rebuild_freelist pre/post processing.
  *
- * PUBLIC: int __db_shrink_pp __P((DB *, DB_TXN *));
+ * PUBLIC: int __db_rebuild_freelist_pp __P((DB *, DB_TXN *));
  */
 
 int
-__db_shrink_pp(dbp, txn)
+__db_rebuild_freelist_pp(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
 {
@@ -475,7 +466,7 @@ __db_shrink_pp(dbp, txn)
 	PANIC_CHECK(dbenv);
 
 	if (!F_ISSET(dbp, DB_AM_OPEN_CALLED)) {
-		ret = __db_mi_open(dbenv, "DB->shrink", 0);
+		ret = __db_mi_open(dbenv, "DB->rebuild_freelist", 0);
 		return (ret);
 	}
 
@@ -488,7 +479,7 @@ __db_shrink_pp(dbp, txn)
 		return (ret);
 
 	/* Shrink the file. */
-	ret = __db_shrink(dbp, txn);
+	ret = __db_rebuild_freelist(dbp, txn);
 
 	if (handle_check)
 		__db_rep_exit(dbenv);
@@ -503,7 +494,7 @@ int gbl_max_num_pages_swapped_per_txn = 10;
  * PUBLIC: int __db_swap_pages __P((DB *, DB_TXN *));
  */
 int
-__db_swap_pages(dbp, txn)
+__db_pgswap(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
 {
@@ -930,40 +921,39 @@ err:
 }
 
 /*
- * __db_swap_pages_pp --
- *	DB->swap_pages pre/post processing.
+ * __db_pgswap_pp --
+ *     DB->pgswap pre/post processing.
  *
- * PUBLIC: int __db_swap_pages_pp __P((DB *, DB_TXN *));
+ * PUBLIC: int __db_pgswap_pp __P((DB *, DB_TXN *));
  */
-
 int
-__db_swap_pages_pp(dbp, txn)
-	DB *dbp;
-	DB_TXN *txn;
+__db_pgswap_pp(dbp, txn)
+       DB *dbp;
+       DB_TXN *txn;
 {
-	DB_ENV *dbenv;
-	int handle_check, ret;
+       DB_ENV *dbenv;
+       int handle_check, ret;
 
-	dbenv = dbp->dbenv;
+       dbenv = dbp->dbenv;
 
-	PANIC_CHECK(dbenv);
+       PANIC_CHECK(dbenv);
 
-	if (!F_ISSET(dbp, DB_AM_OPEN_CALLED)) {
-		ret = __db_mi_open(dbenv, "DB->swap_pages", 0);
-		return (ret);
-	}
+       if (!F_ISSET(dbp, DB_AM_OPEN_CALLED)) {
+               ret = __db_mi_open(dbenv, "DB->swap_pages", 0);
+               return (ret);
+       }
 
-	/* Check for consistent transaction usage. */
-	if ((ret = __db_check_txn(dbp, txn, DB_LOCK_INVALIDID, 0)) != 0)
-		return (ret);
+       /* Check for consistent transaction usage. */
+       if ((ret = __db_check_txn(dbp, txn, DB_LOCK_INVALIDID, 0)) != 0)
+               return (ret);
 
-	handle_check = IS_REPLICATED(dbenv, dbp);
-	if (handle_check && (ret = __db_rep_enter(dbp, 1, 0)) != 0)
-		return (ret);
+       handle_check = IS_REPLICATED(dbenv, dbp);
+       if (handle_check && (ret = __db_rep_enter(dbp, 1, 0)) != 0)
+               return (ret);
 
-	ret = __db_swap_pages(dbp, txn);
+       ret = __db_pgswap(dbp, txn);
 
-	if (handle_check)
-		__db_rep_exit(dbenv);
-	return (ret);
+       if (handle_check)
+               __db_rep_exit(dbenv);
+       return (ret);
 }
