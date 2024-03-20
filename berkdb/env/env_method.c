@@ -48,6 +48,7 @@ static const char revid[] =
 #include "logmsg.h"
 #include "locks_wrap.h"
 #include "trigger_sub_status.h"
+#include "debug_switches.h"
 
 static int __dbenv_init __P((DB_ENV *));
 static void __dbenv_err __P((const DB_ENV *, int, const char *, ...));
@@ -88,6 +89,8 @@ static int __dbenv_blobmem_yield __P((DB_ENV *));
 static int __dbenv_set_comdb2_dirs __P((DB_ENV *, char *, char *, char *));
 static int __dbenv_set_is_tmp_tbl __P((DB_ENV *, int));
 static int __dbenv_set_use_sys_malloc __P((DB_ENV *, int));
+static int __dbenv_trigger_lock_all __P((DB_ENV *));
+static int __dbenv_trigger_unlock_all __P((DB_ENV *));
 static int __dbenv_trigger_subscribe __P((DB_ENV *, const char *,
 	pthread_cond_t **, pthread_mutex_t **, const uint8_t **));
 static int __dbenv_trigger_unsubscribe __P((DB_ENV *, const char *));
@@ -334,6 +337,8 @@ __dbenv_init(dbenv)
 	dbenv->set_is_tmp_tbl = __dbenv_set_is_tmp_tbl;
 	dbenv->set_use_sys_malloc = __dbenv_set_use_sys_malloc;
 
+	dbenv->trigger_lock_all = __dbenv_trigger_lock_all;
+	dbenv->trigger_unlock_all = __dbenv_trigger_unlock_all;
 	dbenv->trigger_subscribe = __dbenv_trigger_subscribe;
 	dbenv->trigger_unsubscribe = __dbenv_trigger_unsubscribe;
 	dbenv->trigger_open = __dbenv_trigger_open;
@@ -1372,6 +1377,35 @@ __dbenv_get_durable_lsn(dbenv, lsnp, generation)
 	Pthread_mutex_unlock(&gbl_durable_lsn_lk);
 }
 
+
+static int
+__dbenv_lock_or_unlock_a_trigger_subscription(void *obj, void *action)
+{
+	intptr_t lock_it = (intptr_t)action;
+	struct __db_trigger_subscription *t = obj;
+	if (lock_it)
+		Pthread_mutex_lock(&t->lock);
+	else
+		Pthread_mutex_unlock(&t->lock);
+	return 0;
+}
+
+static int
+__dbenv_trigger_lock_all(dbenv)
+	DB_ENV *dbenv;
+{
+	__db_for_each_trigger_subscription(__dbenv_lock_or_unlock_a_trigger_subscription, 1);
+	return 0;
+}
+
+static int
+__dbenv_trigger_unlock_all(dbenv)
+	DB_ENV *dbenv;
+{
+	__db_for_each_trigger_subscription(__dbenv_lock_or_unlock_a_trigger_subscription, 0);
+	return 0;
+}
+
 static int
 __dbenv_trigger_subscribe(dbenv, fname, cond, lock, status)
 	DB_ENV *dbenv;
@@ -1414,11 +1448,29 @@ __dbenv_trigger_open(dbenv, fname)
 {
 	struct __db_trigger_subscription *t;
 	t = __db_get_trigger_subscription(fname);
-	Pthread_mutex_lock(&t->lock);
+	/*
+	 * If we've seen the trigger, and db is running recovery,
+	 * do not acquire trigger lock. It's already acquired
+	 * before we call into recovery.
+	 */
+	if (t->fresh || !IS_RECOVERING(dbenv)) {
+		if (debug_switch_test_trigger_deadlock()) {
+			logmsg(LOGMSG_WARN, "%s: acquiring t->lock\n", __func__);
+		}
+		Pthread_mutex_lock(&t->lock);
+		if (debug_switch_test_trigger_deadlock()) {
+			logmsg(LOGMSG_WARN, "%s: acquired t->lock\n", __func__);
+		}
+	}
 	DB_ASSERT(t->status == TRIGGER_SUBSCRIPTION_CLOSED);
 	t->status = TRIGGER_SUBSCRIPTION_OPEN;
 	Pthread_cond_signal(&t->cond);
-	Pthread_mutex_unlock(&t->lock);
+	if (t->fresh || !IS_RECOVERING(dbenv)) {
+		Pthread_mutex_unlock(&t->lock);
+		if (debug_switch_test_trigger_deadlock()) {
+			logmsg(LOGMSG_WARN, "%s: released t->lock\n", __func__);
+		}
+	}
 	return 0;
 }
 

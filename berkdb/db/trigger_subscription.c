@@ -22,13 +22,25 @@ struct __db_trigger_subscription *__db_get_trigger_subscription(const char *name
 		htab = hash_init_strptr(0);
 	}
 	struct __db_trigger_subscription *s = hash_find(htab, &name);
-	if (s == NULL) {
+	if (s != NULL) {
+		s->fresh = 0;
+	} else {
 		s = calloc(1, sizeof(struct __db_trigger_subscription));
 		s->name = strdup(name);
+		s->fresh = 1;
 		Pthread_cond_init(&s->cond, NULL);
 		Pthread_mutex_init(&s->lock, NULL);
 		hash_add(htab, s);
 	}
 	Pthread_mutex_unlock(&subscription_lk);
 	return s;
+}
+
+int __db_for_each_trigger_subscription(hashforfunc_t *func, int lock_it)
+{
+	Pthread_mutex_lock(&subscription_lk);
+	if (htab != NULL)
+		hash_for(htab, func, (void *)(intptr_t)lock_it);
+	Pthread_mutex_unlock(&subscription_lk);
+	return 0;
 }
