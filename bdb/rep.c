@@ -3864,7 +3864,7 @@ static int process_berkdb(bdb_state_type *bdb_state, char *host, DBT *control,
          * before acquiring any exclusive locks (bdb-lock, recovery-lock, etc.),
          * to maintain the same lock ordering as triggers.
          */
-        bdb_state->dbenv->trigger_lock_all(bdb_state->dbenv);
+        bdb_state->dbenv->trigger_pause_all(bdb_state->dbenv);
     }
 
     /* Rep_verify can set the recovery flag, which causes the code ignores
@@ -3927,7 +3927,7 @@ static int process_berkdb(bdb_state_type *bdb_state, char *host, DBT *control,
     if (rectype == REP_VERIFY) {
         /* At this point, we shouldn't be holding any exclusive locks.
          * We still hold onto the bdb-lock in read mode, but it's okay. */
-        bdb_state->dbenv->trigger_unlock_all(bdb_state->dbenv);
+        bdb_state->dbenv->trigger_unpause_all(bdb_state->dbenv);
     }
 
     if (bdb_state->attr->repsleep)

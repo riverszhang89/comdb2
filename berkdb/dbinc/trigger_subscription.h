@@ -6,7 +6,7 @@
 
 struct __db_trigger_subscription {
 	char *name;
-	int fresh; /* 1 if just created. */
+	int was_open; /* 1 if recovery should change it back to open */
 	int active;
 	uint8_t status;
 	pthread_cond_t cond;

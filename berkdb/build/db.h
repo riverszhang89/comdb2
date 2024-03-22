@@ -2802,8 +2802,8 @@ struct __db_env {
 	int (*lock_recovery_lock)(DB_ENV *, const char *func, int line);
 	int (*unlock_recovery_lock)(DB_ENV *, const char *func, int line);
 	/* Trigger/consumer signalling support */
-	int(*trigger_lock_all) __P((DB_ENV *));
-	int(*trigger_unlock_all) __P((DB_ENV *));
+	int(*trigger_pause_all) __P((DB_ENV *));
+	int(*trigger_unpause_all) __P((DB_ENV *));
 	int(*trigger_subscribe) __P((DB_ENV *, const char *, pthread_cond_t **,
 					 pthread_mutex_t **, const uint8_t **));
 	int(*trigger_unsubscribe) __P((DB_ENV *, const char *));

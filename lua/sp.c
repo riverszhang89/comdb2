@@ -718,6 +718,7 @@ again:  status = *q->status;
             rc = dbq_poll_int(L, q); // call will release q->lock
         } else if (status == TRIGGER_SUBSCRIPTION_PAUSED) {
             if (stop_waiting(L, q)) {
+                Pthread_mutex_unlock(q->lock);
                 return -1;
             }
             ts = setup_dbq_ts(delay_ms);
