@@ -262,7 +262,9 @@ ARG	ptype		u_int32_t	lu
 END
 
 /*
- * rebuild_freelist
+ * rebuild_freelist: rebuilding freelist in page order
+ *  meta_lsn:	the meta-data page's original lsn
+ *  meta_pgno:	the meta-data page number
  */
 BEGIN rebuild_freelist	70
 DB	fileid		int32_t		ld
@@ -292,4 +294,15 @@ POINTER	parent_pglsn  DB_LSN *	lu
 ARG	pref_indx       db_indx_t	lu
 ARG	new_pgno        db_pgno_t	lu
 POINTER	new_pglsn     DB_LSN *	lu
+END
+
+/*
+ * resize:
+ */
+BEGIN resize	72
+DB		fileid			int32_t		ld
+POINTER	meta_lsn		DB_LSN *	lu
+ARG		meta_pgno		db_pgno_t	lu
+ARG		oldlast			db_pgno_t	lu
+ARG		newlast			db_pgno_t	lu
 END

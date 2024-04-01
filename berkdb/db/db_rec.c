@@ -1420,6 +1420,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	}
 
 	if (DB_REDO(op)) {
+		// ???? is this right? I don't have to check for cmp_p????
 		ret = __db_rebuild_freelist_redo(dbc, lsnp, meta, &LSN(meta), argp->end_pgno, npages, pglist, pglsnlist, &modified);
 		if (cmp_p == 0) {
 			LSN(meta) = *lsnp;
@@ -1704,5 +1705,99 @@ out:	/* release all pages */
 		ret = t_ret;
 	if (prevp != NULL && (t_ret = __memp_fput(mpf, prevp, phmodified ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
 		ret = t_ret;
+	REC_CLOSE;
+}
+
+/*
+ * __db_resize_recover --
+ *	Recovery function for truncate_freelist.
+ *
+ * PUBLIC: int __db_resize_recover
+ * PUBLIC:   __P((DB_ENV *, DBT *, DB_LSN *, db_recops, void *));
+ */
+int
+__db_resize_recover(dbenv, dbtp, lsnp, op, info)
+	DB_ENV *dbenv;
+	DBT *dbtp;
+	DB_LSN *lsnp;
+	db_recops op;
+	void *info;
+{
+	__db_resize_args *argp;
+	DB *file_dbp;
+	DBC *dbc;
+	DBMETA *meta;
+	DB_MPOOLFILE *mpf;
+	PAGE *h;
+
+	int cmp_n, cmp_p, modified, ret;
+	int check_page = gbl_check_page_in_recovery;
+
+	db_pgno_t pgno, next_pgno;
+
+	h = NULL;
+	meta = NULL;
+
+	REC_PRINT(__db_resize_print);
+	REC_INTRO(__db_resize_read, 0);
+
+	/* metapage must exist */
+	if ((ret = __memp_fget(mpf, &argp->meta_pgno, 0, &meta)) != 0) {
+		ret = __db_pgerr(file_dbp, argp->meta_pgno, ret);
+		goto out;
+	}
+
+	if (check_page) {
+		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 0);
+		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 1);
+	}
+
+	modified = 0;
+
+	cmp_n = log_compare(lsnp, &LSN(meta));
+	cmp_p = log_compare(&LSN(meta), &argp->meta_lsn);
+
+	DB_ASSERT(argp->newlast <= argp->oldlast);
+
+	if (cmp_p == 0 && DB_REDO(op)) {
+		for (pgno = argp->newlast; pgno <= argp->oldlast; ++pgno) {
+			/* If we don't find this page in bufferpool, this is fine. No extra work needed. */
+			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_PROBE, &h)) != 0)
+				continue;
+			/* If we find the page in bufferpool, mark clean and discard.
+			 * We don't want memp_sync to write the page after we truncate,
+			 * that may extend the file by mistake */
+			ret = __memp_fput(mpf, h, DB_MPOOL_CLEAN | DB_MPOOL_DISCARD);
+			h = NULL;
+			if (ret != 0)
+				goto out;
+		}
+		/* fixing last pgno on metapage */
+		meta->last_pgno = argp->newlast;
+		/* notify bufferpool */
+		__memp_resize(mpf, argp->newlast);
+	} else if (cmp_n == 0 && DB_UNDO(op)) {
+		/* notify bufferpool */
+		__memp_resize(mpf, argp->oldlast);
+		/* fixing last pgno on metapage */
+		meta->last_pgno = argp->oldlast;
+		for (pgno = argp->newlast; pgno <= argp->oldlast; ++pgno) {
+			/* If we don't retrieve this page in bufferpool, this is NOT fine. */
+			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_CREATE, &h)) != 0) {
+				ret = __db_pgerr(file_dbp, pgno, ret);
+				goto out;
+			}
+			next_pgno = (pgno == argp->oldlast) ? PGNO_INVALID : (pgno + 1);
+			P_INIT(h, file_dbp->pgsize, pgno, PGNO_INVALID, next_pgno, 0, P_INVALID);
+		}
+	}
+done:	*lsnp = argp->prev_lsn;
+	ret = 0;
+
+out:
+	if (h != NULL)
+		(void)__memp_fput(mpf, h, 0);
+	if (meta != NULL)
+		(void)__memp_fput(mpf, meta, 0);
 	REC_CLOSE;
 }

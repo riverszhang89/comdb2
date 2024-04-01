@@ -540,35 +540,8 @@ __memp_resize(dbmfp, pgno)
 
 	R_LOCK(dbenv, dbmp->reginfo);
 	mfp->last_pgno = pgno;
+    ret = __os_truncate(dbenv, dbmfp->fhp, pagesize * (pgno + 1));
 	R_UNLOCK(dbenv, dbmp->reginfo);
 
 	return (0);
-}
-
-/*
- * __memp_ftruncate
- *	ftruncate a file to the last pgno known to buffer pool
- *
- * PUBLIC: int __memp_ftruncate __P((DB_MPOOLFILE *));
- */
-int
-__memp_ftruncate(dbmfp)
-	DB_MPOOLFILE *dbmfp;
-{
-	DB_ENV *dbenv;
-	DB_MPOOL *dbmp;
-	MPOOLFILE *mfp;
-	int ret;
-	size_t pagesize;
-
-	dbenv = dbmfp->dbenv;
-	dbmp = dbenv->mp_handle;
-	mfp = dbmfp->mfp;
-	pagesize = mfp->stat.st_pagesize;
-
-	R_LOCK(dbenv, dbmp->reginfo);
-	ret = __os_truncate(dbenv, dbmfp->fhp, pagesize * (mfp->last_pgno + 1));
-	R_UNLOCK(dbenv, dbmp->reginfo);
-
-	return ret;
 }

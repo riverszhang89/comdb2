@@ -166,11 +166,13 @@ __db_rebuild_freelist_redo(dbc, lsnp, meta, meta_lsnp, endpgno, npages, pglist, 
 
 	*pmodified = 0;
 
+#if 0
 	/* If meta page is ahead, just do the truncation. No need to restore freelist.
      * If there's any pg_alloc between this LSN and meta page's LSN, pg_alloc_recover()
      * will extend the file */
 	if (log_compare(meta_lsnp, lsnp) >= 0)
 		goto resize;
+#endif
 
 	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
 
@@ -211,26 +213,28 @@ __db_rebuild_freelist_redo(dbc, lsnp, meta, meta_lsnp, endpgno, npages, pglist, 
 			goto out;
 	}
 
-	/* discard pages to be truncated from buffer pool */
-	for (ii = notch; ii != npages; ++ii) {
-		pgno = pglist[ii];
-		if ((ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h)) != 0)
-			continue;
-        /* mark clean & discard. we don't want memp_sync to write the page after we truncate */
-		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_CLEAN | DB_MPOOL_DISCARD)) != 0)
-			goto out;
+	/* Discard pages to be truncated from buffer pool */
+	if (endpgno == PGNO_INVALID) {
+		for (ii = notch; ii != npages; ++ii) {
+			pgno = pglist[ii];
+			if ((ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h)) != 0)
+				continue;
+			/* mark clean & discard. we don't want memp_sync to write the page after we truncate */
+			if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_CLEAN | DB_MPOOL_DISCARD)) != 0)
+				goto out;
+		}
 	}
 
 	/* Re-point the freelist to the smallest free page passed to us.
      * However if we successfully truncate all pages in this range (yay!),
      * point the freelist to the first page after this range */
     meta->free = notch > 0 ? pglist[0] : endpgno;
-    
 	*pmodified = 1;
+
 	if (notch < npages && endpgno == PGNO_INVALID) {
 		/* pglist[notch] is where we will truncate. so point last_pgno to the page before this one. */
 		meta->last_pgno = pglist[notch] - 1;
-resize:
+//resize:
 		/* TODO check if this page is still referenced by the oldest log file */
 		if ((ret = __memp_resize(dbmfp, meta->last_pgno)) != 0)
 			goto out;
@@ -297,10 +301,15 @@ __db_rebuild_freelist_undo(dbc, lsnp, meta, meta_lsnp, last_pgno, npages, pglist
         meta->free = pglist[0];
     }
 
+	meta->last_pgno = last_pgno;
+
+#if 0
     /* Make sure we always have the correct last page */
 	__memp_last_pgno(dbmfp, &mp_lastpg);
 	if (mp_lastpg > meta->last_pgno)
 		meta->last_pgno = mp_lastpg;
+#endif
+
 	*pmodified = 1;
 out:
 	return (ret);
@@ -385,14 +394,14 @@ __db_rebuild_freelist(dbp, txn)
 			goto out;
 	}
 
-    printf("%s: free pg list: ", __func__);
-    for (int i = 0; i != npages; ++i) {
-        printf("%u ", pglist[i]);
-    }
-    printf("\n");
+    logmsg(LOGMSG_USER, "%s: freelist before sorting (%zu pages): ", __func__, npages);
+	for (int i = 0; i != npages; ++i) {
+		logmsg(LOGMSG_USER, "%u ", pglist[i]);
+	}
+	logmsg(LOGMSG_USER, "\n");
 
 	if (npages == 0) {
-        logmsg(LOGMSG_USER, "no free pages at all?\n");
+        logmsg(LOGMSG_USER, "%s: no free pages at all?\n", __func__);
 		goto out;
     }
 
@@ -433,6 +442,8 @@ __db_rebuild_freelist(dbp, txn)
 
     /* not in recovery, just reusing the same function */
 	ret = __db_rebuild_freelist_redo(dbc, &LSN(meta), meta, &prev_metalsn, pgno, npages, pglist, pglsnlist, &modified);
+
+	logmsg(LOGMSG_USER, "%s: my LSN is now: %d:%d", __func__, LSN(meta).file, LSN(meta).offset);
 
 out:
 	__os_free(dbenv, pglist);
@@ -551,17 +562,17 @@ __db_pgswap(dbp, txn)
 	}
 
 	if ((ret = __os_calloc(dbenv, max_num_pages_swapped, sizeof(PAGE *), &lfp)) != 0) {
-		__db_err(dbenv, "__os_malloc: rc %d", ret);
+		__db_err(dbenv, "%s: __os_malloc: rc %d", __func__, ret);
 		goto err;
 	}
 
 	if ((ret = __os_calloc(dbenv, max_num_pages_swapped, sizeof(db_pgno_t), &lpgnofromfl)) != 0) {
-		__db_err(dbenv, "__os_malloc: rc %d", ret);
+		__db_err(dbenv, "%s: __os_malloc: rc %d", __func__, ret);
 		goto err;
 	}
 
 	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0) {
-		__db_err(dbenv, "__db_cursor: rc %d", ret);
+		__db_err(dbenv, "%s: __db_cursor: rc %d", __func__, ret);
 		goto err;
 	}
 	cp = (BTREE_CURSOR *)dbc->internal;
@@ -573,7 +584,7 @@ __db_pgswap(dbp, txn)
 			ret = __memp_fput(dbmfp, h, 0);
 			h = NULL;
 			if (ret != 0) {
-				__db_err(dbenv, "__memp_fput(%d): rc %d", cpgno, ret);
+				__db_err(dbenv, "%s: __memp_fput(%d): rc %d", __func__, cpgno, ret);
 				goto err;
 			}
 		}
@@ -581,12 +592,12 @@ __db_pgswap(dbp, txn)
 		if (got_hl) {
 			got_hl = 0;
 			if ((ret = __LPUT(dbc, hl)) != 0) {
-				__db_err(dbenv, "__LPUT(%d): rc %d", cpgno, ret);
+				__db_err(dbenv, "%s: __LPUT(%d): rc %d", __func__, cpgno, ret);
 				goto err;
 			}
 		}
 
-		logmsg(LOGMSG_USER, "------ checking pgno %u ------ \n", pgno);
+		logmsg(LOGMSG_USER, "%s: ------ checking pgno %u ------ \n", __func__, pgno);
 
 		h = ph = nh = pp = np = NULL;
 		nhlsn = phlsn = pplsn = NULL;
@@ -611,7 +622,7 @@ __db_pgswap(dbp, txn)
 		}
 
         if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
-			__db_err(dbenv, "__db_lget(%u): rc %d", pgno, ret);
+			__db_err(dbenv, "%s: __db_lget(%u): rc %d", __func__, pgno, ret);
             goto err;
 		}
 
@@ -785,6 +796,9 @@ __db_pgswap(dbp, txn)
 		} else {
 			LSN_NOT_LOGGED(ret_lsn);
 		}
+
+
+        logmsg(LOGMSG_USER, "%s: my LSN is now: %d:%d", __func__, ret_lsn.file, ret_lsn.offset);
 
         /* update LSN */
 		LSN(h) = ret_lsn;
