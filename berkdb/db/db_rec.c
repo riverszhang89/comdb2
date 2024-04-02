@@ -1355,6 +1355,12 @@ done:
 out:	REC_CLOSE;
 }
 
+static int
+pgno_cmp(const void *x, const void *y)
+{
+	return ((*(db_pgno_t *)x) - (*(db_pgno_t *)y));
+}
+
 /*
  * __db_rebuild_freelist_recover --
  *	Recovery function for truncate_freelist.
@@ -1373,19 +1379,22 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	__db_rebuild_freelist_args *argp;
 	DB *file_dbp;
 	DBC *dbc;
+	DB *dbp;
 	DBMETA *meta;
 	DB_MPOOLFILE *mpf;
 	PAGE *pagep;
-	db_pgno_t pgno, *pglist;
+	db_pgno_t pgno, *pglist, next_pgno;
 	DB_LSN *pglsnlist;
 	int cmp_n, cmp_p, modified, ret;
 	int check_page = gbl_check_page_in_recovery;
-	size_t npages, ii;
+	size_t npages, ii, notch;
 
 	meta = NULL;
 
 	REC_PRINT(__db_rebuild_freelist_print);
 	REC_INTRO(__db_rebuild_freelist_read, 0);
+
+	dbp = dbc->dbp;
 
 	if ((ret = __memp_fget(mpf, &argp->meta_pgno, 0, &meta)) != 0) {
 		/* The metadata page must always exist on redo. */
@@ -1420,15 +1429,84 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	}
 
 	if (DB_REDO(op)) {
-		// ???? is this right? I don't have to check for cmp_p????
-		ret = __db_rebuild_freelist_redo(dbc, lsnp, meta, &LSN(meta), argp->end_pgno, npages, pglist, pglsnlist, &modified);
+		qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
+		for (notch = npages, pgno = meta->last_pgno;
+				notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID;
+				--notch, --pgno) ;
+
+		/* pglist[notch] is where in the freelist we can safely truncate. */
+		if (notch == npages) {
+			logmsg(LOGMSG_USER, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], meta->last_pgno);
+		}
+
+		logmsg(LOGMSG_USER, "last pgno %u truncation point (array index) %zu pgno %u\n", meta->last_pgno, notch, pglist[notch]);
+
+		/* rebuild the freelist, in page order */
+		for (ii = 0; ii != notch; ++ii) {
+			pgno = pglist[ii];
+			if ((ret = __memp_fget(mpf, &pgno, 0, &pagep)) != 0) {
+				__db_pgerr(dbp, pgno, ret);
+				goto out;
+			}
+
+			NEXT_PGNO(pagep) = (ii == notch - 1) ? argp->end_pgno : pglist[ii + 1];
+
+			LSN(pagep) = *lsnp;
+			if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
+				goto out;
+		}
+
+		/* Discard pages to be truncated from buffer pool */
+		for (ii = notch; ii != npages; ++ii) {
+			pgno = pglist[ii];
+			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_PROBE, &pagep)) != 0)
+				continue;
+			/*
+			 * mark the page clean and discard it from bufferpool.
+			 * we don't want memp_sync to accidentally flush the page
+			 * after we truncate, that would create a hole in the file.
+			 */
+			if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_CLEAN | DB_MPOOL_DISCARD)) != 0)
+				goto out;
+		}
+
 		if (cmp_p == 0) {
+			/*
+			 * Re-point the freelist to the smallest free page passed to us.
+			 * If all pages in this range can be truncated, instead, point
+			 * the freelist to the first free page after this range. It can
+			 * be PGNO_INVALID if there is no more free page after this range.
+			 */
+			meta->free = notch > 0 ? pglist[0] : argp->end_pgno;
+			modified = 1;
 			LSN(meta) = *lsnp;
 		}
 	} else if (DB_UNDO(op)) {
-		ret = __db_rebuild_freelist_undo(dbc, lsnp, meta, &LSN(meta), argp->last_pgno, npages, pglist, pglsnlist, &modified);
+		/* undo freelist */
+		for (ii = 0; ii != npages; ++ii) {
+			pgno = pglist[ii];
+			next_pgno = (ii == npages - 1) ? PGNO_INVALID : pglist[ii + 1];
+			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_CREATE, &pagep)) != 0)
+				goto out;
+
+			/*
+			 * If this is a page that we just created from the line above,
+			 * or was last touched by us, init the page and update its LSN.
+			 */
+			if (log_compare(lsnp, &LSN(pagep)) == 0 || IS_ZERO_LSN(LSN(pagep))) {
+				P_INIT(pagep, dbp->pgsize, pgno, PGNO_INVALID, next_pgno, 0, P_INVALID);
+				LSN(pagep) = pglsnlist[ii];
+				if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
+					goto out;
+			} else if ((ret = __memp_fput(mpf, pagep, 0)) != 0) {
+				goto out;
+			}
+		}
+
+		/* undo metapage */
 		if (cmp_n == 0) {
 			LSN(meta) = argp->meta_lsn;
+			modified = 1;
 		}
 	}
 
