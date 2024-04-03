@@ -217,7 +217,7 @@ __db_next_freepage(DB *dbp, db_pgno_t * pg)
 		fprintf(stderr,
 		    "encountered non-invalid page %u (type %d) while reading free list\n",
 		    *pg, TYPE(h));
-        __memp_fput(mpf, h, 0);
+		__memp_fput(mpf, h, 0);
 		return EINVAL;
 	}
 
@@ -493,9 +493,8 @@ __db_new_ex(dbc, type, pagepp, noextend)
 		 * We don't want these pages brought into the mpool, since they
 		 * may not be needed, but want them available for reads later on
 		 * So trick the mpool into believing the pages are there. */
-		if (meta->last_pgno > mpf->mfp->last_pgno) {
+		if (meta->last_pgno > mpf->mfp->last_pgno)
 			mpf->mfp->last_pgno = meta->last_pgno;
-		}
 
 		t->commit(t, 0);
 		t = NULL;

@@ -262,9 +262,13 @@ ARG	ptype		u_int32_t	lu
 END
 
 /*
- * rebuild_freelist: rebuilding freelist in page order
+ * rebuild_freelist: rebuilding freelist in the page order
  *  meta_lsn:	the meta-data page's original lsn
  *  meta_pgno:	the meta-data page number
+ *  meta_pgno:	the meta-data last page number
+ *  end_pgno:	freelist points to this page number if all pages in `fl' can be truncated
+ *  fl:			list of free pages to be rebuilt
+ *	fllsn:		lSN's of pages in `'fl'
  */
 BEGIN rebuild_freelist	70
 DB	fileid		int32_t		ld
@@ -278,6 +282,19 @@ END
 
 /*
  * pg_swap
+ *  pgno:			page to be replaced
+ *  lsn:			LSN of the page to be replaced
+ *  hdr:			header on the page
+ *  data:			data on the page
+ *  next_pgno:		pgno of next page
+ *  next_pglsn:		page LSN of next page
+ *  prev_pgno:		pgno of previous page
+ *  prev_pglsn:		page LSN of previous page
+ *  parent_pgno:	pgno of parent page
+ *  parent_pglsn:	page LSN of parent page
+ *  pref_index:		page reference in parent page
+ *  new_pgno:		pgno of new page that replaces the old page
+ *  new_pglsn:		page LSN of new page
  */
 BEGIN pg_swap	71
 DB	fileid		    int32_t		ld
@@ -298,6 +315,10 @@ END
 
 /*
  * resize:
+ *  meta_lsn:		meta page LSN
+ *  meta_pgno:		meta page number
+ *  oldlast:		original last page number
+ *  newlast:		new last page number
  */
 BEGIN resize	72
 DB		fileid			int32_t		ld

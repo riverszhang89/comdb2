@@ -1385,7 +1385,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	PAGE *pagep;
 	db_pgno_t pgno, *pglist, next_pgno;
 	DB_LSN *pglsnlist;
-	int cmp_n, cmp_p, modified, ret;
+	int cmp_n, cmp_p, cmp_pc, modified, ret;
 	int check_page = gbl_check_page_in_recovery;
 	size_t npages, ii, notch;
 
@@ -1430,16 +1430,16 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 
 	if (DB_REDO(op)) {
 		qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
-		for (notch = npages, pgno = meta->last_pgno;
+		for (notch = npages, pgno = argp->last_pgno;
 				notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID;
 				--notch, --pgno) ;
 
 		/* pglist[notch] is where in the freelist we can safely truncate. */
 		if (notch == npages) {
-			logmsg(LOGMSG_USER, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], meta->last_pgno);
+			logmsg(LOGMSG_USER, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], argp->last_pgno);
 		}
 
-		logmsg(LOGMSG_USER, "last pgno %u truncation point (array index) %zu pgno %u\n", meta->last_pgno, notch, pglist[notch]);
+		logmsg(LOGMSG_USER, "last pgno %u truncation point (array index) %zu pgno %u\n", argp->last_pgno, notch, pglist[notch]);
 
 		/* rebuild the freelist, in page order */
 		for (ii = 0; ii != notch; ++ii) {
@@ -1449,11 +1449,16 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 				goto out;
 			}
 
-			NEXT_PGNO(pagep) = (ii == notch - 1) ? argp->end_pgno : pglist[ii + 1];
-
-			LSN(pagep) = *lsnp;
-			if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
+			cmp_pc = log_compare(lsnp, &LSN(pagep));
+			CHECK_LSN(op, cmp_pc, &LSN(pagep), &argp->meta_lsn, lsnp, argp->fileid, pgno);
+			if (cmp_pc == 0) {
+				NEXT_PGNO(pagep) = (ii == notch - 1) ? argp->end_pgno : pglist[ii + 1];
+				LSN(pagep) = *lsnp;
+				if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
+					goto out;
+			} else if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0) {
 				goto out;
+			}
 		}
 
 		/* Discard pages to be truncated from buffer pool */

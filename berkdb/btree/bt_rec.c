@@ -1275,8 +1275,8 @@ __bam_pgcompact_recover(dbenv, dbtp, lsnp, op, info)
 
 	if (TYPE(pagep) != P_LBTREE && TYPE(pagep) != P_INVALID) {
 		ret = EINVAL;
-		__db_err(dbenv, "%s: Wrong page type. Expect P_LBTREE but got %d",
-				__func__, TYPE(pagep));
+		__db_err(dbenv, "%s: %s",
+				        __func__, "Wrong page type. Expect P_LBTREE.");
 		goto out;
 	}
 
