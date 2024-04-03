@@ -130,13 +130,15 @@ pgno_cmp(const void *x, const void *y)
 	return ((*(db_pgno_t *)x) - (*(db_pgno_t *)y));
 }
 
+int gbl_unsafe_db_resize = 1;
+
 /*
  * __db_rebuild_freelist --
  *  Shrink a database
  *
  * PUBLIC: int __db_rebuild_freelist __P((DB *, DB_TXN *));
  */
-	int
+int
 __db_rebuild_freelist(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
@@ -155,7 +157,11 @@ __db_rebuild_freelist(dbp, txn)
 	db_pgno_t pgno, *pglist, maxfreepgno, endpgno;
 	DB_LSN *pglsnlist;
 	DBT pgnos, lsns;
+
 	DB_LOGC *logc = NULL;
+	DB_LSN firstlsn;
+	DBT firstlog;
+	int is_old_enough;
 
 	dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
@@ -265,9 +271,36 @@ __db_rebuild_freelist(dbp, txn)
 	}
 	logmsg(LOGMSG_USER, "\n");
 
+	memset(&firstlog, 0, sizeof(DBT));
+	firstlog.flags = DB_DBT_MALLOC;
 	ret = dbenv->log_cursor(dbenv, &logc, 0);
+	if (ret) {
+		__db_err(dbenv, "log_cursor error %d\n", ret);
+		goto out;
+	}
+	ret = logc->get(logc, &firstlsn, &firstlog, DB_FIRST);
+	if (ret) {
+		__db_err(dbenv, "log_c_get(FIRST) error %d\n", ret);
+		goto out;
+	}
+	__os_free(dbenv, firstlog.data);
+
+	/* Walk the file backwards, and find out where we can safely truncate */
 	for (notch = npages, pgno = meta->last_pgno; notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID; --notch, --pgno) {
-		logc
+		if (!gbl_unsafe_db_resize)
+			continue;
+
+		/* We can't safely truncate the page unless it's no longer referenced in the log */
+		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+			__db_pgerr(dbp, pgno, ret);
+			goto out;
+		}
+		is_old_enough = (LSN(h).file < firstlsn.file);
+		if ((ret = __memp_fput(dbmfp, h, 0)) != 0)
+			goto out;
+
+		if (!is_old_enough)
+			break;
 	}
 
 	/* pglist[notch] is where in the freelist we can safely truncate. */
@@ -316,10 +349,6 @@ __db_rebuild_freelist(dbp, txn)
 	modified = 1;
 
 	if (notch < npages) {
-
-		/* TODO XXX FIXME check if this page is still referenced by the oldest log file */
-
-
 
 		if (!DBC_LOGGING(dbc)) {
 			LSN_NOT_LOGGED(LSN(meta));
