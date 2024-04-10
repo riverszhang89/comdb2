@@ -265,7 +265,7 @@ __db_dump_freepages(DB *dbp, FILE *out)
     mpf = dbp->mpf;
     rc = __memp_fget(mpf, &pg, 0, &meta);
     if (rc) {
-        fprintf(stderr, "Error getting metapage: %d\n", rc);
+        logmsg(LOGMSG_USER, "Error getting metapage: %d\n", rc);
         return rc;
     }
 
@@ -273,30 +273,30 @@ __db_dump_freepages(DB *dbp, FILE *out)
     __memp_fput(mpf, meta, 0);
 
     if (pg == PGNO_INVALID) {
-        fprintf(out, "(EMPTY)\n");
+        logmsg(LOGMSG_USER, "(EMPTY)\n");
         return 0;
     }
 
-    fprintf(out, "freelist {\n");
+    logmsg(LOGMSG_USER, "freelist {\n");
 
     while(pg != PGNO_INVALID) {
-        fprintf(out, "%6u ", pg);
+        logmsg(LOGMSG_USER, "%6u ", pg);
         i++;
         if (i % 8 == 0) {
-            printf("\n");
+            logmsg(LOGMSG_USER, "\n");
             lastcr = 1;
         }
         else
             lastcr = 0;
         rc = __db_next_freepage(dbp, &pg);
         if (rc) {
-            fprintf(stderr, "rc %d getting freelist page %u\n", rc, pg);
+            logmsg(LOGMSG_USER, "rc %d getting freelist page %u\n", rc, pg);
             break;
         }
     }
     if (!lastcr) 
-        fprintf(out, "\n");
-    fprintf(out, "}\n");
+        logmsg(LOGMSG_USER, "\n");
+    logmsg(LOGMSG_USER, "}\n");
     return rc;
 }
 

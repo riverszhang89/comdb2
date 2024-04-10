@@ -130,8 +130,8 @@ pgno_cmp(const void *x, const void *y)
 	return ((*(db_pgno_t *)x) - (*(db_pgno_t *)y));
 }
 
+int gbl_pgmv_verbose = 1;
 int gbl_unsafe_db_resize = 1;
-
 /*
  * __db_rebuild_freelist --
  *  Shrink a database
@@ -143,7 +143,7 @@ __db_rebuild_freelist(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
 {
-	int ret, t_ret;
+	int ret, t_ret, force_ckp;
 	size_t npages, pglistsz, notch, ii;
 	int modified;
 
@@ -161,7 +161,7 @@ __db_rebuild_freelist(dbp, txn)
 	DB_LOGC *logc = NULL;
 	DB_LSN firstlsn;
 	DBT firstlog;
-	int is_old_enough;
+	int is_too_young;
 
 	dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
@@ -175,8 +175,15 @@ __db_rebuild_freelist(dbp, txn)
 	memset(&pgnos, 0, sizeof(DBT));
 	memset(&lsns, 0, sizeof(DBT));
 	npages = 0;
-	pglistsz = 16;
-	maxfreepgno = -1;
+	pglistsz = 16; /* initial size */
+	maxfreepgno = PGNO_INVALID;
+	force_ckp = 0;
+
+	if (gbl_unsafe_db_resize) {
+		logmsg(LOGMSG_WARN, "%s: unsafe_db_resize is enabled! full-recovery may not work!\n", __func__);
+		logmsg(LOGMSG_WARN, "%s: forcing a checkpoint for recovery to start from...\n", __func__);
+		(void)__txn_checkpoint(dbenv, 0, 0, DB_FORCE);
+	}
 
 	if ((ret = __os_malloc(dbenv, sizeof(db_pgno_t) * pglistsz, &pglist)) != 0)
 		goto out;
@@ -190,6 +197,10 @@ __db_rebuild_freelist(dbp, txn)
 		goto out;
 	if ((ret = __memp_fget(dbmfp, &pgno, 0, &meta)) != 0)
 		goto out;
+
+	if (gbl_pgmv_verbose) {
+		logmsg(LOGMSG_WARN, "%s: collecting free pages\n", __func__);
+	}
 
 	for (pgno = meta->free; pgno != PGNO_INVALID; ++npages) {
 		if (npages == pglistsz) {
@@ -216,21 +227,22 @@ __db_rebuild_freelist(dbp, txn)
 			goto out;
 	}
 
-	logmsg(LOGMSG_USER, "%s: freelist before sorting (%zu pages): ", __func__, npages);
-	for (int i = 0; i != npages; ++i) {
-		logmsg(LOGMSG_USER, "%u ", pglist[i]);
+	if (gbl_pgmv_verbose) {
+		logmsg(LOGMSG_WARN, "%s: %zu free pages collected:\n", __func__, npages);
+		for (int i = 0; i != npages; ++i) {
+			logmsg(LOGMSG_WARN, "%u ", pglist[i]);
+		}
+		logmsg(LOGMSG_WARN, "\n");
 	}
-	logmsg(LOGMSG_USER, "\n");
 
 	if (npages == 0) {
-		logmsg(LOGMSG_USER, "%s: no free pages at all?\n", __func__);
+		logmsg(LOGMSG_WARN, "%s: no free pages. there is nothing for us to do\n", __func__);
 		goto out;
 	}
 
-	if (maxfreepgno < meta->last_pgno) {
-		logmsg(LOGMSG_WARN, "%s: no free pages at the end of the file? maxfreepgno %u last_pgno %u\n",
+	if (gbl_pgmv_verbose && maxfreepgno < meta->last_pgno) {
+		logmsg(LOGMSG_WARN, "%s: no free pages at the end of the file. maxfreepgno %u last_pgno %u\n",
 				__func__, maxfreepgno, meta->last_pgno);
-		logmsg(LOGMSG_WARN, "%s: only going to sort freelist\n", __func__);
 	}
 
 	/* log the change */
@@ -265,12 +277,19 @@ __db_rebuild_freelist(dbp, txn)
 	endpgno = pgno;
 	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
 
-	logmsg(LOGMSG_USER, "freelist after sorting (%zu pages): ", npages);
-	for (int i = 0; i != npages; ++i) {
-		logmsg(LOGMSG_USER, "%u ", pglist[i]);
+	if (gbl_pgmv_verbose) {
+		logmsg(LOGMSG_WARN, "%s: freelist after sorting (%zu pages):\n", __func__, npages);
+		for (int i = 0; i != npages; ++i) {
+			logmsg(LOGMSG_WARN, "%u ", pglist[i]);
+		}
+		logmsg(LOGMSG_WARN, "\n");
 	}
-	logmsg(LOGMSG_USER, "\n");
 
+	/*
+	 * Get the first log record. Do not truncate a page if it's LSN is greater than
+	 * the first log record. It's okay if the actual first log record in the
+	 * system advances after this.
+	 */
 	memset(&firstlog, 0, sizeof(DBT));
 	firstlog.flags = DB_DBT_MALLOC;
 	ret = dbenv->log_cursor(dbenv, &logc, 0);
@@ -287,28 +306,39 @@ __db_rebuild_freelist(dbp, txn)
 
 	/* Walk the file backwards, and find out where we can safely truncate */
 	for (notch = npages, pgno = meta->last_pgno; notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID; --notch, --pgno) {
-		if (!gbl_unsafe_db_resize)
+		if (gbl_unsafe_db_resize)
 			continue;
 
-		/* We can't safely truncate the page unless it's no longer referenced in the log */
+		/*
+		 * Chech if page LSN is still accessible.
+		 * We can't safely truncate the page unless
+		 * it's no longer referenced in the log
+		 */
 		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
 			__db_pgerr(dbp, pgno, ret);
 			goto out;
 		}
-		is_old_enough = (LSN(h).file < firstlsn.file);
+		is_too_young = (LSN(h).file >= firstlsn.file);
 		if ((ret = __memp_fput(dbmfp, h, 0)) != 0)
 			goto out;
 
-		if (!is_old_enough)
+		if (is_too_young) {
+			if (gbl_pgmv_verbose) {
+				logmsg(LOGMSG_WARN, "%s: %u is too young\n", __func__, pgno);
+			}
+			/* This is the pgno that we can truncate to, at most. No point continuing. */
 			break;
+		}
 	}
 
 	/* pglist[notch] is where in the freelist we can safely truncate. */
-	if (notch == npages) {
-		logmsg(LOGMSG_USER, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], meta->last_pgno);
+	if (gbl_pgmv_verbose) {
+		if (notch == npages) {
+			logmsg(LOGMSG_WARN, "%s: can't truncate: last free page %u last pg %u\n", __func__, pglist[notch - 1], meta->last_pgno);
+		} else {
+			logmsg(LOGMSG_WARN, "%s: last pgno %u truncation point (array index) %zu pgno %u\n", __func__, meta->last_pgno, notch, pglist[notch]);
+		}
 	}
-
-	logmsg(LOGMSG_USER, "last pgno %u truncation point (array index) %zu pgno %u\n", meta->last_pgno, notch, pglist[notch]);
 
 	/* rebuild the freelist, in page order */
 	for (ii = 0; ii != notch; ++ii) {
@@ -328,13 +358,13 @@ __db_rebuild_freelist(dbp, txn)
 	/* Discard pages to be truncated from buffer pool */
 	for (ii = notch; ii != npages; ++ii) {
 		pgno = pglist[ii];
+		/*
+		 * Probe the page. If it's paged in already, mark the page clean and
+		 * discard it we don't want memp_sync to accidentally flush the page
+		 * after we truncate, which would create a hole in the file.
+		 */
 		if ((ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h)) != 0)
 			continue;
-		/*
-		 * mark the page clean and discard it from bufferpool.
-		 * we don't want memp_sync to accidentally flush the page
-		 * after we truncate, that would create a hole in the file.
-		 */
 		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_CLEAN | DB_MPOOL_DISCARD)) != 0)
 			goto out;
 	}
@@ -364,12 +394,13 @@ __db_rebuild_freelist(dbp, txn)
 		/* also makes bufferpool aware */
 		if ((ret = __memp_resize(dbmfp, meta->last_pgno)) != 0)
 			goto out;
+
+		if (gbl_unsafe_db_resize) {
+			force_ckp = 1;
+		}
 	}
 
-	logmsg(LOGMSG_USER, "%s: my LSN is now: %d:%d", __func__, LSN(meta).file, LSN(meta).offset);
-
-out:
-	__os_free(dbenv, pglist);
+out: __os_free(dbenv, pglist);
 	__os_free(dbenv, pglsnlist);
 	if ((t_ret = __memp_fput(dbmfp, meta, modified ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
 		ret = t_ret;
@@ -377,6 +408,12 @@ out:
 		ret = t_ret;
 	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
 		ret = t_ret;
+
+	if (ret == 0 && force_ckp) {
+		logmsg(LOGMSG_WARN, "%s: unsafe_db_resize is enabled! Forcing another checkpoint...\n", __func__);
+		(void)__txn_checkpoint(dbenv, 0, 0, DB_FORCE);
+	}
+
 	return (ret);
 }
 
@@ -500,8 +537,8 @@ __db_pgswap(dbp, txn)
 	}
 	cp = (BTREE_CURSOR *)dbc->internal;
 
+	/* Walk the file backwards and swap pages with a lower-numbered free page */
 	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 1; --pgno) {
-
 		if (h != NULL) {
 			cpgno = PGNO(h);
 			ret = __memp_fput(dbmfp, h, 0);
@@ -520,7 +557,9 @@ __db_pgswap(dbp, txn)
 			}
 		}
 
-		logmsg(LOGMSG_USER, "%s: ------ checking pgno %u ------ \n", __func__, pgno);
+		if (gbl_pgmv_verbose) {
+			logmsg(LOGMSG_USER, "%s: checking PAGE %u\n", __func__, pgno);
+		}
 
 		h = ph = nh = pp = np = NULL;
 		nhlsn = phlsn = pplsn = NULL;
@@ -535,12 +574,17 @@ __db_pgswap(dbp, txn)
 		got_hl = got_pl = got_nl = got_newl = 0;
 
 		if (bsearch(&pgno, lpgnofromfl, num_pages_swapped, sizeof(db_pgno_t), pgno_cmp) != NULL) {
-			logmsg(LOGMSG_USER, "pgno %u was just swapped in from freelist, skipping it\n", pgno);
+			if (gbl_pgmv_verbose) {
+				logmsg(LOGMSG_WARN, "%s: pgno %u was just swapped in from freelist, skip it\n", __func__, pgno);
+			}
 			continue;
 		}
 
 		if (num_pages_swapped >= max_num_pages_swapped) {
-			logmsg(LOGMSG_USER, "have enough pages to be freed %d\n", num_pages_swapped);
+			if (gbl_pgmv_verbose) {
+				logmsg(LOGMSG_WARN, "%s: have enough pages to be freed %d max %d\n", __func__,
+						num_pages_swapped, max_num_pages_swapped);
+			}
 			break;
 		}
 
@@ -563,9 +607,9 @@ __db_pgswap(dbp, txn)
 		 * TODO XXX FIXME overflow pages? */
 		if (page_type != P_LBTREE && page_type != P_IBTREE) {
 			if (page_type != P_INVALID)
-				logmsg(LOGMSG_USER, "unsupported page type %d\n", page_type);
-			else
-				logmsg(LOGMSG_USER, "page already empty\n");
+				logmsg(LOGMSG_WARN, "%s: unsupported page type %d\n", __func__, page_type);
+			else if (gbl_pgmv_verbose)
+				logmsg(LOGMSG_WARN, "%s: page already free\n", __func__);
 			continue;
 		}
 
@@ -584,14 +628,16 @@ __db_pgswap(dbp, txn)
 		}
 
 		if (np == NULL) {
-			logmsg(LOGMSG_INFO, "%s: no free page available", __func__);
+			logmsg(LOGMSG_INFO, "%s: free list is empty\n", __func__);
 			goto err;
 		}
 
-		logmsg(LOGMSG_USER, "using new pgno %u\n", PGNO(np));
+		if (gbl_pgmv_verbose)
+			logmsg(LOGMSG_WARN, "%s: use free pgno %u\n", __func__, PGNO(np));
 
 		if (PGNO(np) > pgno) {
-			logmsg(LOGMSG_USER, "greater free page number!\n");
+			if (gbl_pgmv_verbose)
+				logmsg(LOGMSG_WARN, "%s: free page number is greater than this page!\n", __func__);
 			/*
 			 * The new page unfortunately has a higher page number than our page,
 			 * Since we're scanning backwards from the back of the file, the next
@@ -722,9 +768,6 @@ __db_pgswap(dbp, txn)
 			LSN_NOT_LOGGED(ret_lsn);
 		}
 
-
-		logmsg(LOGMSG_USER, "%s: my LSN is now: %d:%d", __func__, ret_lsn.file, ret_lsn.offset);
-
 		/* update LSN */
 		LSN(h) = ret_lsn;
 		LSN(np) = ret_lsn;
@@ -735,7 +778,9 @@ __db_pgswap(dbp, txn)
 		if (pp != NULL)
 			LSN(pp) = ret_lsn;
 
-		logmsg(LOGMSG_USER, "swapping pgno %u with %u\n", PGNO(h), PGNO(np));
+		if (gbl_pgmv_verbose) {
+			logmsg(LOGMSG_WARN, "%s: swapping pgno %u with free page %u\n", __func__, PGNO(h), PGNO(np));
+		}
 
 		/* copy content to new page and fix pgno */
 		newpgno = PGNO(np);
@@ -747,9 +792,13 @@ __db_pgswap(dbp, txn)
 			goto err;
 		}
 
-		/* empty old page, this ensures that we call into the right version of db_free */
+		/*
+		 * Empty old page and remove prefix. This ensures that
+		 * we call into the non-data version of db_free
+		 */
 		HOFFSET(h) = dbp->pgsize;
 		NUM_ENT(h) = 0;
+		CLR_PREFIX(h);
 
 		/* Place the page on the to-be-freed list, that gets freed after the while loop.
 		 * It ensures higher page numbers won't be placed on the front of the list. */
@@ -762,7 +811,9 @@ __db_pgswap(dbp, txn)
 
 		/* relink next */
 		if (nh != NULL) {
-			logmsg(LOGMSG_USER, "relinking pgno %u to %u\n", PGNO(nh), newpgno);
+			if (gbl_pgmv_verbose) {
+				logmsg(LOGMSG_WARN, "%s: relinking pgno %u to %u\n", __func__, PGNO(nh), newpgno);
+			}
 			nh->prev_pgno = newpgno;
 			if ((ret = __memp_fput(dbmfp, nh, DB_MPOOL_DIRTY)) != 0) {
 				__db_err(dbenv, "__memp_fput(%u): rc %d", PGNO(nh), ret);
@@ -778,7 +829,9 @@ __db_pgswap(dbp, txn)
 
 		/* relink prev */
 		if (ph != NULL) {
-			logmsg(LOGMSG_USER, "relinking pgno %u to %u\n", PGNO(ph), newpgno);
+			if (gbl_pgmv_verbose) {
+				logmsg(LOGMSG_WARN, "%s: relinking pgno %u to %u\n", __func__, PGNO(ph), newpgno);
+			}
 			ph->next_pgno = newpgno;
 			if ((ret = __memp_fput(dbmfp, ph, DB_MPOOL_DIRTY)) != 0) {
 				__db_err(dbenv, "__memp_fput(%u): rc %d", PGNO(ph), ret);
@@ -794,7 +847,9 @@ __db_pgswap(dbp, txn)
 
 		/* update parent */
 		if (cp->sp != cp->csp) {
-			logmsg(LOGMSG_USER, "update parent %u reference to %u\n", PGNO(pp), newpgno);
+			if (gbl_pgmv_verbose) {
+				logmsg(LOGMSG_WARN, "%s: update parent %u reference to %u\n", __func__, PGNO(pp), newpgno);
+			}
 			GET_BINTERNAL(dbp, pp, prefindx)->pgno = newpgno;
 
 			if ((ret = __memp_fset(dbmfp, pp, DB_MPOOL_DIRTY)) != 0) {
@@ -829,10 +884,14 @@ err:
 	 * the list (ie from the largest pgno), so that smaller pages
 	 * are placed on the front of the freelist.
 	 */
-	logmsg(LOGMSG_USER, "num_pages_swapped %u\n", num_pages_swapped);
+	if (gbl_pgmv_verbose) {
+		logmsg(LOGMSG_USER, "%s: num_pages_swapped %u\n", __func__, num_pages_swapped);
+	}
 	for (ii = 0; ii != num_pages_swapped; ++ii) {
 		if ((ret = __db_free(dbc, lfp[ii])) != 0) {
-			logmsg(LOGMSG_USER, "__db_free %u\n", PGNO(lfp[ii]));
+			if (gbl_pgmv_verbose) {
+				logmsg(LOGMSG_WARN, "%s: __db_free %u\n", __func__, PGNO(lfp[ii]));
+			}
 			__db_err(dbenv, "__db_free(%u): rc %d", PGNO(lfp[ii]), ret);
 			goto err;
 		}

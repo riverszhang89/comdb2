@@ -1355,6 +1355,7 @@ done:
 out:	REC_CLOSE;
 }
 
+extern int gbl_pgmv_verbose;
 static int
 pgno_cmp(const void *x, const void *y)
 {
@@ -1434,12 +1435,14 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 				notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID;
 				--notch, --pgno) ;
 
-		/* pglist[notch] is where in the freelist we can safely truncate. */
-		if (notch == npages) {
-			logmsg(LOGMSG_USER, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], argp->last_pgno);
+		if (gbl_pgmv_verbose) {
+			/* pglist[notch] is where in the freelist we can safely truncate. */
+			if (notch == npages) {
+				logmsg(LOGMSG_WARN, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], argp->last_pgno);
+			} else {
+				logmsg(LOGMSG_WARN, "last pgno %u truncation point (array index) %zu pgno %u\n", argp->last_pgno, notch, pglist[notch]);
+			}
 		}
-
-		logmsg(LOGMSG_USER, "last pgno %u truncation point (array index) %zu pgno %u\n", argp->last_pgno, notch, pglist[notch]);
 
 		/* rebuild the freelist, in page order */
 		for (ii = 0; ii != notch; ++ii) {
@@ -1449,7 +1452,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 				goto out;
 			}
 
-			cmp_pc = log_compare(lsnp, &LSN(pagep));
+			cmp_pc = log_compare(&LSN(pagep), &argp->meta_lsn);
 			CHECK_LSN(op, cmp_pc, &LSN(pagep), &argp->meta_lsn, lsnp, argp->fileid, pgno);
 			if (cmp_pc == 0) {
 				NEXT_PGNO(pagep) = (ii == notch - 1) ? argp->end_pgno : pglist[ii + 1];
@@ -1865,13 +1868,18 @@ __db_resize_recover(dbenv, dbtp, lsnp, op, info)
 		/* fixing last pgno on metapage */
 		meta->last_pgno = argp->oldlast;
 		for (pgno = argp->newlast; pgno <= argp->oldlast; ++pgno) {
-			/* If we don't retrieve this page in bufferpool, this is NOT fine. */
+			/* If we can't retrieve this page in bufferpool, this is NOT fine. */
 			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_CREATE, &h)) != 0) {
 				ret = __db_pgerr(file_dbp, pgno, ret);
 				goto out;
 			}
+			/* reinit the page, and put it back to bufferpool */
 			next_pgno = (pgno == argp->oldlast) ? PGNO_INVALID : (pgno + 1);
 			P_INIT(h, file_dbp->pgsize, pgno, PGNO_INVALID, next_pgno, 0, P_INVALID);
+			ret = __memp_fput(mpf, h, DB_MPOOL_DIRTY);
+			h = NULL;
+			if (ret != 0)
+				goto out;
 		}
 	}
 done:	*lsnp = argp->prev_lsn;
