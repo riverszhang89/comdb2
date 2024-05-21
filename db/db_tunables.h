@@ -2519,4 +2519,7 @@ REGISTER_TUNABLE("altersc_delay_usec",
                  "Extra microseconds to sleep each converted record during alter schema change, if latency on master increases",
                  TUNABLE_INTEGER, &gbl_altersc_delay_usec, 0, NULL, NULL, NULL, NULL);
 
+REGISTER_TUNABLE("pgcompact_only_process_pages_in_bufferpool",
+                 "set to true to make pgcompact only process pages in the bufferpool",
+                 TUNABLE_BOOLEAN, &gbl_only_process_pages_in_bufferpool, 0, NULL, NULL, NULL, NULL);
 #endif /* _DB_TUNABLES_H */

@@ -463,6 +463,7 @@ __db_rebuild_freelist_pp(dbp, txn)
 }
 
 int gbl_max_num_pages_swapped_per_txn = 100;
+int gbl_only_process_pages_in_bufferpool = 1;
 
 /*
  * __db_swap_pages --
@@ -600,7 +601,16 @@ __db_pgswap(dbp, txn)
 
 		got_hl = 1;
 
-		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+		if (gbl_only_process_pages_in_bufferpool) {
+			ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h);
+			if (ret == DB_FIRST_MISS || ret == DB_PAGE_NOTFOUND) {
+				if (gbl_pgmv_verbose) {
+					logmsg(LOGMSG_WARN, "%s: pgno %u not found in bufferpool\n", __func__, pgno);
+				}
+				h = NULL;
+				continue;
+			}
+		} else if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
 			__db_pgerr(dbp, pgno, ret);
 			h = NULL;
 			goto err;
@@ -954,6 +964,121 @@ __db_pgswap_pp(dbp, txn)
 		return (ret);
 
 	ret = __db_pgswap(dbp, txn);
+
+	if (handle_check)
+		__db_rep_exit(dbenv);
+	return (ret);
+}
+
+/*
+ * __db_evict_from_cache --
+ *
+ * PUBLIC: int __db_evict_from_cache __P((DB *, DB_TXN *));
+ */
+int
+__db_evict_from_cache(dbp, txn)
+	DB *dbp;
+	DB_TXN *txn;
+{
+	int ret, t_ret, ii;
+	int pglvl, unused;
+	u_int8_t page_type;
+
+	DBC *dbc;
+	DB_ENV *dbenv;
+	DB_MPOOLFILE *dbmfp;
+	db_pgno_t pgno, lpgno;
+	PAGE *h;
+
+	DB_LOCK hl;
+	int got_hl;
+
+	dbenv = dbp->dbenv;
+	dbmfp = dbp->mpf;
+	dbc = NULL;
+
+	pgno = lpgno = 0;
+	h = NULL;
+	got_hl = 0;
+
+	if (dbp->type != DB_BTREE) {
+		ret = EINVAL;
+		goto err;
+	}
+
+	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0) {
+		__db_err(dbenv, "%s: __db_cursor: rc %d", __func__, ret);
+		goto err;
+	}
+
+	for (__memp_last_pgno(dbmfp, &lpgno); pgno <= lpgno; ++pgno) {
+		if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
+			__db_err(dbenv, "%s: __db_lget(%u): rc %d", __func__, pgno, ret);
+			goto err;
+		}
+		got_hl = 1;
+
+		ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h);
+		if (ret == DB_FIRST_MISS || ret == DB_PAGE_NOTFOUND) {
+			h = NULL;
+		} else {
+			ret = __memp_fput(dbmfp, h, DB_MPOOL_EVICT);
+			h = NULL;
+			if (ret != 0) {
+				goto err;
+			}
+        }
+
+		got_hl = 0;
+		if ((ret = __LPUT(dbc, hl)) != 0) {
+			__db_err(dbenv, "%s: __LPUT(%d): rc %d", __func__, pgno, ret);
+			goto err;
+		}
+	}
+
+err:
+	if (h != NULL && (t_ret = __memp_fput(dbmfp, h, 0)) != 0 && ret == 0)
+		ret = t_ret;
+	if (got_hl && (t_ret = __LPUT(dbc, hl)) != 0 && ret == 0)
+		ret = t_ret;
+	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
+		ret = t_ret;
+	return (ret);
+}
+
+
+/*
+ * __db_evict_from_cache_pp --
+ *     DB->evict_from_cache pre/post processing.
+ *
+ * PUBLIC: int __db_evict_from_cache_pp __P((DB *, DB_TXN *));
+ */
+int
+__db_evict_from_cache_pp(dbp, txn)
+	DB *dbp;
+	DB_TXN *txn;
+{
+	DB_ENV *dbenv;
+	int handle_check, ret;
+
+	dbenv = dbp->dbenv;
+
+	PANIC_CHECK(dbenv);
+
+	if (!F_ISSET(dbp, DB_AM_OPEN_CALLED)) {
+		ret = __db_mi_open(dbenv, "DB->swap_pages", 0);
+		return (ret);
+	}
+
+	/* Check for consistent transaction usage. */
+	if ((ret = __db_check_txn(dbp, txn, DB_LOCK_INVALIDID, 0)) != 0)
+		return (ret);
+
+	handle_check = IS_REPLICATED(dbenv, dbp);
+	if (handle_check && (ret = __db_rep_enter(dbp, 1, 0)) != 0)
+		return (ret);
+
+	ret = __db_evict_from_cache(dbp, txn);
 
 	if (handle_check)
 		__db_rep_exit(dbenv);

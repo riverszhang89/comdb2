@@ -323,6 +323,8 @@ extern char *gbl_kafka_brokers;
 extern int gbl_noleader_retry_duration_ms;
 extern int gbl_noleader_retry_poll_ms;
 
+extern int gbl_only_process_pages_in_bufferpool;
+
 /* util/ctrace.c */
 extern int nlogs;
 extern unsigned long long rollat;

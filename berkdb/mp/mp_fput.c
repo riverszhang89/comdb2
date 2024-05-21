@@ -81,7 +81,7 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	if (flags) {
 		if ((ret = __db_fchk(dbenv, "memp_fput", flags,
 		    DB_MPOOL_CLEAN | DB_MPOOL_DIRTY |DB_MPOOL_DISCARD |
-		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT)) != 0)
+		    DB_MPOOL_NOCACHE | DB_MPOOL_PFPUT | DB_MPOOL_EVICT)) != 0)
 			 return (ret);
 		if ((ret = __db_fcchk(dbenv, "memp_fput",
 		    flags, DB_MPOOL_CLEAN, DB_MPOOL_DIRTY)) != 0)
@@ -172,6 +172,8 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	}
 	if (LF_ISSET(DB_MPOOL_DISCARD))
 		F_SET(bhp, BH_DISCARD);
+	if (LF_ISSET(DB_MPOOL_EVICT))
+		F_SET(bhp, (BH_EVICT | BH_DISCARD));
 
 	/*
 	 * Check for a reference count going to zero.  This can happen if the
@@ -201,6 +203,13 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 			    bhp->ref_sync);
 		}
 #endif
+		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
+		return (0);
+	}
+
+	/* If the evict flag is on, free the page here */
+	if (F_ISSET(bhp, BH_EVICT)) {
+		__memp_bhfree(dbmp, hp, bhp, 1);
 		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 		return (0);
 	}

@@ -752,6 +752,7 @@ struct __db_log_stat {
 #define	DB_MPOOL_DIRTY		0x002	/* Page is modified. */
 #define	DB_MPOOL_DISCARD	0x004	/* Don't cache the page. */
 #define	DB_MPOOL_PFPUT		0x008	/* page got by prefault */
+#define	DB_MPOOL_EVICT		0x010	/* Evict the page, now! */
 
 /* Flag values for DB_MPOOLFILE->alloc. */
 #define DB_MPOOL_LOWPRI		0x001   /* Evict low-priority pages. */
@@ -1810,6 +1811,11 @@ struct __db {
      * lower-numbered free pages.
      */
 	int  (*pgswap) __P((DB *, DB_TXN *));
+
+	/*
+	 * Evict all pages in this file from the bufferpool
+	 */
+	int  (*evict_from_cache) __P((DB *, DB_TXN *));
 
 	/*
 	 * Never called; these are a place to save function pointers

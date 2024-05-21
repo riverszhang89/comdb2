@@ -6286,3 +6286,8 @@ int pgswap(const char *table)
 {
     return call_bdb_pgmv_rtn(table, bdb_pgswap);
 }
+
+int evict_from_cache(const char *table)
+{
+    return call_bdb_pgmv_rtn(table, bdb_evict_from_cache);
+}

@@ -2399,4 +2399,5 @@ int release_locks_int(const char *trace, const char *func, int line, struct sqlc
 
 int bdb_rebuild_freelist(bdb_state_type *bdb_state);
 int bdb_pgswap(bdb_state_type *bdb_state);
+int bdb_evict_from_cache(bdb_state_type *bdb_state);
 #endif

@@ -9007,6 +9007,7 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
     if (rc != 0)
         goto out;
 
+    /* TODO XXX FIXME : handle ix too */
     for (dta = 0; dta < MAXDTAFILES; ++dta) {
         for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
             if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
@@ -9037,5 +9038,11 @@ int bdb_rebuild_freelist(bdb_state_type *bdb_state)
 int bdb_pgswap(bdb_state_type *bdb_state)
 {
     pgmv_rtn rtn = bdb_state->dbp_data[0][0]->pgswap;
+    return call_berkdb_pgmv_rtn(bdb_state, rtn, __func__);
+}
+
+int bdb_evict_from_cache(bdb_state_type *bdb_state)
+{
+    pgmv_rtn rtn = bdb_state->dbp_data[0][0]->evict_from_cache;
     return call_berkdb_pgmv_rtn(bdb_state, rtn, __func__);
 }
