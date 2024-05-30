@@ -8993,6 +8993,7 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
     int rc = -1;
 
     int dta, stripe;
+    int ix;
     DB_ENV *dbenv;
     DB_TXN *txn;
     DB *dbp;
@@ -9003,11 +9004,10 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
         goto out;
 
     dbenv = bdb_state->dbenv;
-    rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+    rc = dbenv->txn_begin_low_priority(dbenv, NULL, &txn, 0);
     if (rc != 0)
         goto out;
 
-    /* TODO XXX FIXME : handle ix too */
     for (dta = 0; dta < MAXDTAFILES; ++dta) {
         for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
             if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
@@ -9015,6 +9015,14 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
                 if (rc != 0)
                     break;
             }
+        }
+    }
+
+	for (ix = 0; ix < MAXINDEX; ++ix) {
+        if ((dbp = bdb_state->dbp_ix[dta][stripe]) != NULL) {
+            rc = rtn(dbp, txn);
+            if (rc != 0)
+                break;
         }
     }
 

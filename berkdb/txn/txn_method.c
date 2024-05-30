@@ -143,6 +143,7 @@ __txn_dbenv_create(dbenv)
 		dbenv->set_logical_start = __txn_set_logical_start;
 		dbenv->set_logical_commit = __txn_set_logical_commit;
 		dbenv->txn_begin_with_prop = __txn_begin_with_prop_pp;
+		dbenv->txn_begin_low_priority = __txn_begin_low_priority_pp;
 		dbenv->collect_prepared = __txn_prepared_collect_pp;
         dbenv->txn_commit_recovered = __txn_commit_recovered_pp;
         dbenv->txn_abort_recovered = __txn_abort_recovered_pp;

@@ -2694,6 +2694,7 @@ struct __db_env {
 
 	int  (*txn_begin_with_prop)
 		__P((DB_ENV *, DB_TXN *, DB_TXN **, u_int32_t, struct txn_properties*));
+	int  (*txn_begin_low_priority) __P((DB_ENV *, DB_TXN *, DB_TXN **, u_int32_t));
 
 	int  (*set_num_recovery_processor_threads)
 		__P((DB_ENV *env, int nthreads));

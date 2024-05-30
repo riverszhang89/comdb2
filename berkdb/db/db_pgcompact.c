@@ -132,6 +132,8 @@ pgno_cmp(const void *x, const void *y)
 
 int gbl_pgmv_verbose = 1;
 int gbl_unsafe_db_resize = 1;
+int gbl_pgmv_lowpri = 1;
+
 /*
  * __db_rebuild_freelist --
  *  Shrink a database
@@ -193,7 +195,7 @@ __db_rebuild_freelist(dbp, txn)
 	if ((ret = __db_cursor(dbp, txn, &dbc, 0)) != 0)
 		return (ret);
 
-	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, 0, &metalock)) != 0)
+	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, DB_LOCK_NOWAIT, &metalock)) != 0)
 		goto out;
 	if ((ret = __memp_fget(dbmfp, &pgno, 0, &meta)) != 0)
 		goto out;
@@ -594,7 +596,7 @@ __db_pgswap(dbp, txn)
 			break;
 		}
 
-		if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
+		if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ | DB_LOCK_NOWAIT, 0, &hl)) != 0) {
 			__db_err(dbenv, "%s: __db_lget(%u): rc %d", __func__, pgno, ret);
 			goto err;
 		}
@@ -664,7 +666,7 @@ __db_pgswap(dbp, txn)
 		}
 
 		/* Grab a wlock on the new page */
-		if ((ret = __db_lget(dbc, 0, PGNO(np), DB_LOCK_WRITE, 0, &newl)) != 0) {
+		if ((ret = __db_lget(dbc, 0, PGNO(np), DB_LOCK_WRITE | DB_LOCK_NOWAIT, 0, &newl)) != 0) {
 			__db_err(dbenv, "__db_lget(%u): rc %d", PGNO(np), ret);
 			goto err;
 		}
@@ -689,7 +691,7 @@ __db_pgswap(dbp, txn)
 				goto err;
 			}
 
-			if ((ret = __db_lget(dbc, 0, cpgno, DB_LOCK_READ, 0, &hl)) != 0) {
+			if ((ret = __db_lget(dbc, 0, cpgno, DB_LOCK_READ | DB_LOCK_NOWAIT, 0, &hl)) != 0) {
 				__db_err(dbenv, "__db_lget(%u): rc %d", cpgno, ret);
 				goto err;
 			}
@@ -737,7 +739,7 @@ __db_pgswap(dbp, txn)
 		h = cp->csp->page;
 		/* Now grab prev and next */
 		if (h->prev_pgno != PGNO_INVALID) {
-			if ((ret = __db_lget(dbc, 0, h->prev_pgno, DB_LOCK_WRITE, 0, &pl)) != 0)
+			if ((ret = __db_lget(dbc, 0, h->prev_pgno, DB_LOCK_WRITE | DB_LOCK_NOWAIT, 0, &pl)) != 0)
 				goto err;
 			got_pl = 1;
 			if ((ret = __memp_fget(dbmfp, &h->prev_pgno, 0, &ph)) != 0) {
@@ -749,7 +751,7 @@ __db_pgswap(dbp, txn)
 		}
 
 		if (h->next_pgno != PGNO_INVALID) {
-			if ((ret = __db_lget(dbc, 0, h->next_pgno, DB_LOCK_WRITE, 0, &nl)) != 0)
+			if ((ret = __db_lget(dbc, 0, h->next_pgno, DB_LOCK_WRITE | DB_LOCK_NOWAIT, 0, &nl)) != 0)
 				goto err;
 			got_nl = 1;
 			if ((ret = __memp_fget(dbmfp, &h->next_pgno, 0, &nh)) != 0) {

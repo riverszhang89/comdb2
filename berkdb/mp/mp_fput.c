@@ -207,7 +207,7 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 		return (0);
 	}
 
-	/* If the evict flag is on, free the page here */
+	/* There's no more references to this page. If the evict flag is on, free it */
 	if (F_ISSET(bhp, BH_EVICT)) {
 		__memp_bhfree(dbmp, hp, bhp, 1);
 		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
