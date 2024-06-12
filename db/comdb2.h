@@ -3659,5 +3659,6 @@ int csc2_used_bools(void);
 int rebuild_freelist(const char *);
 int pgswap(const char *);
 int evict_from_cache(const char *);
+void *pgmv_thr(void *);
 
 #endif /* !INCLUDED_COMDB2_H */

@@ -4049,6 +4049,10 @@ static int init(int argc, char **argv)
 
     gbl_backend_opened = 1;
 
+	/* Now that the backend is open, start the page mover thread */
+    pthread_t pgmv_tid;
+    Pthread_create(&pgmv_tid, &gbl_pthread_attr, pgmv_thr, NULL);
+
     /* Recovered prepares need the osql-cnonce hash */
     if (!gbl_exit && !gbl_create_mode) {
         rc = osql_blkseq_init();

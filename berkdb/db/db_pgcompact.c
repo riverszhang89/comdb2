@@ -130,9 +130,29 @@ pgno_cmp(const void *x, const void *y)
 	return ((*(db_pgno_t *)x) - (*(db_pgno_t *)y));
 }
 
+/* Print additional pgmv information */
 int gbl_pgmv_verbose = 1;
+/* don't check for pages that are still referenced in the log */
 int gbl_unsafe_db_resize = 1;
-int gbl_pgmv_lowpri = 1;
+/* max number of page swaps within a single txn */
+int gbl_max_num_pages_swapped_per_txn = 100;
+/* only process pages in the bufferpool */
+int gbl_only_process_pages_in_bufferpool = 1;
+
+struct {
+	int64_t nflsorts; /* number of freelist sorts */
+	int64_t nresizes; /* number of file resizes */
+	int64_t npgswaps; /* number of page swaps */
+	int64_t npgvisits; /* number of pages visited */
+} gbl_pgmv_stats;
+
+void print_pgmv_stats()
+{
+	logmsg(LOGMSG_USER, "nflsorts: %ld\n", gbl_pgmv_stats.nflsorts);
+	logmsg(LOGMSG_USER, "nresizes: %ld\n", gbl_pgmv_stats.nresizes);
+	logmsg(LOGMSG_USER, "npgswaps: %ld\n", gbl_pgmv_stats.npgswaps);
+	logmsg(LOGMSG_USER, "npgvisits: %ld\n", gbl_pgmv_stats.npgvisits);
+}
 
 /*
  * __db_rebuild_freelist --
@@ -278,6 +298,7 @@ __db_rebuild_freelist(dbp, txn)
 
 	endpgno = pgno;
 	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
+	++gbl_pgmv_stats.nflsorts;
 
 	if (gbl_pgmv_verbose) {
 		logmsg(LOGMSG_WARN, "%s: freelist after sorting (%zu pages):\n", __func__, npages);
@@ -399,6 +420,7 @@ __db_rebuild_freelist(dbp, txn)
 		if ((ret = __memp_resize(dbmfp, meta->last_pgno)) != 0)
 			goto out;
 
+		++gbl_pgmv_stats.nresizes;
 		if (gbl_unsafe_db_resize) {
 			force_ckp = 1;
 		}
@@ -431,7 +453,7 @@ out: __os_free(dbenv, pglist);
  * PUBLIC: int __db_rebuild_freelist_pp __P((DB *, DB_TXN *));
  */
 
-	int
+int
 __db_rebuild_freelist_pp(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
@@ -463,9 +485,6 @@ __db_rebuild_freelist_pp(dbp, txn)
 		__db_rep_exit(dbenv);
 	return (ret);
 }
-
-int gbl_max_num_pages_swapped_per_txn = 100;
-int gbl_only_process_pages_in_bufferpool = 1;
 
 /*
  * __db_swap_pages --
@@ -546,7 +565,7 @@ __db_pgswap(dbp, txn)
 	cp = (BTREE_CURSOR *)dbc->internal;
 
 	/* Walk the file backwards and swap pages with a lower-numbered free page */
-	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 1; --pgno) {
+	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 1; --pgno, ++gbl_pgmv_stats.npgvisits) {
 		if (h != NULL) {
 			cpgno = PGNO(h);
 			ret = __memp_fput(dbmfp, h, 0);
@@ -891,6 +910,8 @@ __db_pgswap(dbp, txn)
 			__db_err(dbenv, "__bam_stkrel(): rc %d", ret);
 			goto err;
 		}
+
+		++gbl_pgmv_stats.npgswaps;
 	}
 
 err:
@@ -1047,7 +1068,6 @@ err:
 		ret = t_ret;
 	return (ret);
 }
-
 
 /*
  * __db_evict_from_cache_pp --

@@ -6291,3 +6291,26 @@ int evict_from_cache(const char *table)
 {
     return call_bdb_pgmv_rtn(table, bdb_evict_from_cache);
 }
+
+void *pgmv_thr(void *unused)
+{
+    int i;
+    struct dbtable *table;
+
+    thrman_register(THRTYPE_PGMV);
+
+    while (!db_is_exiting()) {
+        for (i = 0; i != thedb->num_dbs; ++i) {
+            table = thedb->dbs[i];
+            if (table->dbtype != DBTYPE_TAGGED_TABLE ||
+                strncasecmp(table->tablename, "sqlite_", strlen("sqlite_")) == 0 ||
+                strncasecmp(table->tablename, "comdb2_", strlen("comdb2_")) == 0) {
+                continue;
+            }
+            rebuild_freelist(table->tablename);
+            pgswap(table->tablename);
+        }
+        poll(NULL, 0, 1000);
+    }
+    return NULL;
+}

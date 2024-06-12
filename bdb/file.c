@@ -9019,7 +9019,7 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
     }
 
 	for (ix = 0; ix < MAXINDEX; ++ix) {
-        if ((dbp = bdb_state->dbp_ix[dta][stripe]) != NULL) {
+        if ((dbp = bdb_state->dbp_ix[ix]) != NULL) {
             rc = rtn(dbp, txn);
             if (rc != 0)
                 break;
