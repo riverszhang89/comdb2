@@ -477,7 +477,7 @@ static int thrman_check_threads_stopped_ll(void *context)
             thr_type_counts[THRTYPE_PURGEBLKSEQ] +
             thr_type_counts[THRTYPE_PGLOGS_ASOF] +
             thr_type_counts[THRTYPE_TRIGGER] +
-			thr_type_counts[THRTYPE_PGMV])
+            thr_type_counts[THRTYPE_PGMV])
         all_gone = 1;
 
     /* if we're exiting then we don't want a schema change thread running */

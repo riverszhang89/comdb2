@@ -540,7 +540,7 @@ __memp_resize(dbmfp, pgno)
 
 	R_LOCK(dbenv, dbmp->reginfo);
 	mfp->last_pgno = pgno;
-    ret = __os_truncate(dbenv, dbmfp->fhp, pagesize * (pgno + 1));
+	ret = __os_truncate(dbenv, dbmfp->fhp, pagesize * (pgno + 1));
 	R_UNLOCK(dbenv, dbmp->reginfo);
 
 	return (0);

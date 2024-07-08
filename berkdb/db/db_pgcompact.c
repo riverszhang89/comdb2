@@ -132,11 +132,11 @@ pgno_cmp(const void *x, const void *y)
 
 /* Print additional pgmv information */
 int gbl_pgmv_verbose = 1;
-/* don't check for pages that are still referenced in the log */
-int gbl_unsafe_db_resize = 1;
+/* check pages even if they are still referenced in the log */
+int gbl_unsafe_db_resize = 0;
 /* max number of page swaps within a single txn */
 int gbl_max_num_pages_swapped_per_txn = 100;
-/* only process pages in the bufferpool */
+/* only process pages already in the bufferpool */
 int gbl_only_process_pages_in_bufferpool = 1;
 
 struct {

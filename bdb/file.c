@@ -9008,6 +9008,7 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
     if (rc != 0)
         goto out;
 
+    /* Process data */
     for (dta = 0; dta < MAXDTAFILES; ++dta) {
         for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
             if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
@@ -9018,13 +9019,16 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
         }
     }
 
-	for (ix = 0; ix < MAXINDEX; ++ix) {
+    /* Process indexes */
+    for (ix = 0; ix < MAXINDEX; ++ix) {
         if ((dbp = bdb_state->dbp_ix[ix]) != NULL) {
             rc = rtn(dbp, txn);
             if (rc != 0)
                 break;
         }
     }
+
+    /* TODO XXX FIXME Process blobs */
 
     if (rc == 0)
         rc = txn->commit(txn, 0);

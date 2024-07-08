@@ -1803,13 +1803,13 @@ struct __db {
 
 	/*
 	 * Rebuilds the freelist in the page-order. Additionally ftruncates the file
-     * if there're continuous free pages at the end of the file.
+	 * if there're continuous free pages at the end of the file.
 	 */
 	int  (*rebuild_freelist) __P((DB *, DB_TXN *));
-    /*
-     * Scan the file backwards, and swap in-use pages with
-     * lower-numbered free pages.
-     */
+	/*
+	 * Scan the file backwards, and swap in-use pages with
+	 * lower-numbered free pages.
+	 */
 	int  (*pgswap) __P((DB *, DB_TXN *));
 
 	/*

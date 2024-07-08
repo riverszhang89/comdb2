@@ -1878,7 +1878,7 @@ clipper_usage:
         } else if (tokcmp(tok, ltok, "repl_wait") == 0) {
             repl_wait_stats();
         } else if (tokcmp(tok, ltok, "pgmv_stats") == 0) {
-			void print_pgmv_stats();
+            void print_pgmv_stats();
             print_pgmv_stats();
         } else if (ltok == 0) {
             unsigned long long rep_retry;
