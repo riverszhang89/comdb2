@@ -4,7 +4,7 @@ dbnm=$1
 dbdir=${DBDIR}
 bindir=`dirname $COMDB2_EXE`
 total=25000
-delrange=100
+delrange=50
 ndels=2000
 
 if [ "$tier" = "" ]; then
@@ -68,20 +68,22 @@ EOF
 
 szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t0'"`
 
-set -e
 for i in `seq 1 $ndels`; do
-    cdb2sql ${CDB2_OPTIONS} $dbnm $tier "DELETE FROM t0 LIMIT $RANDOM%$delrange OFFSET $RANDOM%$total"
+    cdb2sql ${CDB2_OPTIONS} $dbnm $tier "DELETE FROM t0 LIMIT $RANDOM%$delrange OFFSET $RANDOM%$total" >/dev/null
 done
 
 echo 'done deleting'
 
 cdb2sql $dbnm --host $leader - <<EOF
-EXEC PROCEDURE sys.cmd.send('evict t0')
+EXEC PROCEDURE sys.cmd.send('evict_from_cache t0')
 SELECT COUNT(*) FROM t0
 SELECT sleep(10)
 EXEC PROCEDURE sys.cmd.send('flush')
 SELECT sleep(2)
 EOF
+
+cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat pgmv')"
+cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')" 
 
 szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t0'"`
 echo "size before: $szbefore; size after: $szafter"

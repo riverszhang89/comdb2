@@ -1532,7 +1532,6 @@ __lock_vec(dbenv, locker, flags, list, nlist, elistp)
 				}
 				if (objlist != NULL) {
 					counttot++;
-                    printf("---- %d lockmode is %d\n", counttot, lp->mode);
 					/* Tablelocks are readlocks, dont include them  */
 					if (prepare && lp->mode == DB_LOCK_READ) {
 						assert(is_tablelock(lp->lockobj));
