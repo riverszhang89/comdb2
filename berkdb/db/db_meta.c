@@ -1081,7 +1081,6 @@ done:
  *
  * PUBLIC: int __db_new __P((DBC *, u_int32_t, PAGE **));
  */
-
 int
 __db_new(dbc, type, pagepp)
 	DBC *dbc;

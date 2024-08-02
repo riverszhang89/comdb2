@@ -6292,6 +6292,8 @@ int evict_from_cache(const char *table)
     return call_bdb_pgmv_rtn(table, bdb_evict_from_cache);
 }
 
+/* number of milliseconds that we poll for each pgmv iteration */
+int gbl_pgmv_thr_poll_ms = 1000;
 void *pgmv_thr(void *unused)
 {
     int i;
@@ -6307,10 +6309,12 @@ void *pgmv_thr(void *unused)
                 strncasecmp(table->tablename, "comdb2_", strlen("comdb2_")) == 0) {
                 continue;
             }
+            bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_START_RDWR);
             rebuild_freelist(table->tablename);
             pgswap(table->tablename);
+            bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_DONE_RDWR);
         }
-        poll(NULL, 0, 1000);
+        poll(NULL, 0, gbl_pgmv_thr_poll_ms);
     }
     return NULL;
 }

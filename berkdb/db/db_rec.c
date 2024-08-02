@@ -1950,15 +1950,15 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 	DB_MPOOLFILE *mpf;
 
 	PAGE *pagep,		/* old page */
-		 *pp,			/* parent page */
-		 *newp,			/* new page */	
-		 *nextp,		/* next page */
-		 *prevp;		/* previous page */
+	     *pp,			/* parent page */
+	     *newp,			/* new page */
+	     *nextp,		/* next page */
+	     *prevp;		/* previous page */
 	int hmodified,		/* is old page modified */
-		ppmodified, 	/* is parent page modified */
-		newmodified,	/* is new page modified */
-		nhmodified,		/* is next page modified */
-		phmodified;		/* is previous page modified */
+	    ppmodified, 	/* is parent page modified */
+	    newmodified,	/* is new page modified */
+	    nhmodified,		/* is next page modified */
+	    phmodified;		/* is previous page modified */
 
 	int cmp_n, cmp_p;
 	int ret, t_ret;

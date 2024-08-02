@@ -130,14 +130,16 @@ pgno_cmp(const void *x, const void *y)
 	return ((*(db_pgno_t *)x) - (*(db_pgno_t *)y));
 }
 
-/* Print additional pgmv information */
+/* PGMV tunables */
+
+/* print additional pgmv information */
 int gbl_pgmv_verbose = 1;
 /* check pages even if they are still referenced in the log */
-int gbl_unsafe_db_resize = 0;
+int gbl_pgmv_unsafe_db_resize = 0;
 /* max number of page swaps within a single txn */
-int gbl_max_num_pages_swapped_per_txn = 100;
+int gbl_pgmv_max_num_pages_swapped_per_txn = 100;
 /* only process pages already in the bufferpool */
-int gbl_only_process_pages_in_bufferpool = 1;
+int gbl_pgmv_only_process_pages_in_bufferpool = 1;
 
 struct {
 	int64_t nflsorts; /* number of freelist sorts */
@@ -201,7 +203,7 @@ __db_rebuild_freelist(dbp, txn)
 	maxfreepgno = PGNO_INVALID;
 	force_ckp = 0;
 
-	if (gbl_unsafe_db_resize) {
+	if (gbl_pgmv_unsafe_db_resize) {
 		logmsg(LOGMSG_WARN, "%s: unsafe_db_resize is enabled! full-recovery may not work!\n", __func__);
 		logmsg(LOGMSG_WARN, "%s: flushing bufferpool\n", __func__);
 		(void)__txn_checkpoint(dbenv, 0, 0, DB_FORCE);
@@ -329,7 +331,7 @@ __db_rebuild_freelist(dbp, txn)
 
 	/* Walk the file backwards, and find out where we can safely truncate */
 	for (notch = npages, pgno = meta->last_pgno; notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID; --notch, --pgno) {
-		if (gbl_unsafe_db_resize)
+		if (gbl_pgmv_unsafe_db_resize)
 			continue;
 
 		/*
@@ -421,12 +423,13 @@ __db_rebuild_freelist(dbp, txn)
 			goto out;
 
 		++gbl_pgmv_stats.nresizes;
-		if (gbl_unsafe_db_resize) {
+		if (gbl_pgmv_unsafe_db_resize) {
 			force_ckp = 1;
 		}
 	}
 
-out: __os_free(dbenv, pglist);
+out:
+	__os_free(dbenv, pglist);
 	__os_free(dbenv, pglsnlist);
 	if ((t_ret = __memp_fput(dbmfp, meta, modified ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
 		ret = t_ret;
@@ -437,8 +440,10 @@ out: __os_free(dbenv, pglist);
 
 	if (ret == 0 && force_ckp) {
 		logmsg(LOGMSG_WARN,
-				"%s: unsafe_db_resize is enabled! Forcing a checkpoint so that it's less likely for recovery ",
-				"to start recovering from a place where truncated pages are still referenced\n",
+				"%s: unsafe_db_resize is enabled! "
+                "Forcing a checkpoint so that it's less likely "
+                "for recovery to start recovering from a place "
+                "where truncated pages are still referenced\n",
 				__func__);
 		(void)__txn_checkpoint(dbenv, 0, 0, DB_FORCE);
 	}
@@ -504,32 +509,32 @@ __db_pgswap(dbp, txn)
 	DB_ENV *dbenv;
 	DB_MPOOLFILE *dbmfp;
 	db_pgno_t pgno,
-			  cpgno,	/* current page number when descending the btree */
-			  newpgno,	/* page number of the new page */
-			  ppgno,	/* parent page number */
-			  prefpgno;	/* the page number referenced in the parent page */
+	          cpgno,	/* current page number when descending the btree */
+	          newpgno,	/* page number of the new page */
+	          ppgno,	/* parent page number */
+	          prefpgno;	/* the page number referenced in the parent page */
 	db_indx_t prefindx; /* position of `prefpgno' in the parent page */
 	PAGE *h,	/* current page */
-		 *ph,	/* its previous page */
-		 *nh,	/* its next page */
-		 *pp,	/* its parent page */
-		 *np;	/* new page */
+	     *ph,	/* its previous page */
+	     *nh,	/* its next page */
+	     *pp,	/* its parent page */
+	     *np;	/* new page */
 
 	DB_LOCK hl,		/* page lock for current page */
-			pl,		/* page lock for prev */
-			nl,		/* page lock for next */
-			newl;	/* page lock for new page */
+	        pl,		/* page lock for prev */
+	        nl,		/* page lock for next */
+	        newl;	/* page lock for new page */
 	int got_hl, got_pl, got_nl, got_newl;
 
 	int num_pages_swapped = 0;
-	int max_num_pages_swapped = gbl_max_num_pages_swapped_per_txn;
+	int max_num_pages_swapped = gbl_pgmv_max_num_pages_swapped_per_txn;
 	PAGE **lfp; /* list of pages to be placed on freelist */
 	db_pgno_t *lpgnofromfl; /* list of page numbers swapped in from freelist*/
 
 	DB_LSN ret_lsn, /* new lsn */
-		   *nhlsn,	/* lsn of next */
-		   *phlsn,	/* lsn of prev */
-		   *pplsn;	/* lsn of parent */
+	       *nhlsn,	/* lsn of next */
+	       *phlsn,	/* lsn of prev */
+	       *pplsn;	/* lsn of parent */
 
 	BTREE_CURSOR *cp;
 	EPG *epg;
@@ -622,7 +627,7 @@ __db_pgswap(dbp, txn)
 
 		got_hl = 1;
 
-		if (gbl_only_process_pages_in_bufferpool) {
+		if (gbl_pgmv_only_process_pages_in_bufferpool) {
 			ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h);
 			if (ret == DB_FIRST_MISS || ret == DB_PAGE_NOTFOUND) {
 				if (gbl_pgmv_verbose) {
@@ -649,15 +654,7 @@ __db_pgswap(dbp, txn)
 			continue;
 		}
 
-		/*
-		 * Try allocating a page from the freelist, without extending the file.
-		 *
-		 * We're holding onto pages to be freed, so the last pgno on the meta page,
-		 * as well as the one from the bufferpool do not change. If we run out of
-		 * free pages here, a normal __db_new() call would then extend the file
-		 * by one more page, leaving a hole in the file after those pages are freed.
-		 * Hence it's very important that we do not extend the file here.
-		 */
+		/* Try allocating a page from the freelist, without extending the file */
 		if ((ret = __db_new_ex(dbc, page_type, &np, 1)) != 0) {
 			__db_err(dbenv, "__db_new: rc %d", ret);
 			goto err;
@@ -912,7 +909,7 @@ __db_pgswap(dbp, txn)
 		}
 
 		++gbl_pgmv_stats.npgswaps;
-	}
+	} /* end of the big for-loop */
 
 err:
 	/*
@@ -1035,7 +1032,7 @@ __db_evict_from_cache(dbp, txn)
 	}
 
 	for (__memp_last_pgno(dbmfp, &lpgno); pgno <= lpgno; ++pgno) {
-		if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_READ, 0, &hl)) != 0) {
+		if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, 0, &hl)) != 0) {
 			__db_err(dbenv, "%s: __db_lget(%u): rc %d", __func__, pgno, ret);
 			goto err;
 		}

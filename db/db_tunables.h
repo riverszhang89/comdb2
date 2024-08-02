@@ -2519,7 +2519,27 @@ REGISTER_TUNABLE("altersc_delay_usec",
                  "Extra microseconds to sleep each converted record during alter schema change, if latency on master increases",
                  TUNABLE_INTEGER, &gbl_altersc_delay_usec, 0, NULL, NULL, NULL, NULL);
 
-REGISTER_TUNABLE("pgcompact_only_process_pages_in_bufferpool",
-                 "set to true to make pgcompact only process pages in the bufferpool",
-                 TUNABLE_BOOLEAN, &gbl_only_process_pages_in_bufferpool, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("pgmv_verbose",
+                 "Set to true to print debug trace for pgmv",
+                 TUNABLE_BOOLEAN, &gbl_pgmv_verbose, 0, NULL, NULL, NULL, NULL);
+
+REGISTER_TUNABLE("pgmv_unsafe_db_resize",
+                 "Set to true to resize a file even if pages may still be referenced in the log",
+                 TUNABLE_BOOLEAN, &gbl_pgmv_unsafe_db_resize, 0, NULL, NULL, NULL, NULL);
+
+REGISTER_TUNABLE("pgmv_max_num_pages_swapped_per_txn",
+                 "Max number of pages that may be swapped within a single transaction",
+                 TUNABLE_INTEGER, &gbl_pgmv_max_num_pages_swapped_per_txn, 0, NULL, NULL, NULL, NULL);
+
+REGISTER_TUNABLE("pgmv_only_process_pages_in_bufferpool",
+                 "Set to true to make pgmv only process pages in the bufferpool",
+                 TUNABLE_BOOLEAN, &gbl_pgmv_only_process_pages_in_bufferpool, 0, NULL, NULL, NULL, NULL);
+
+REGISTER_TUNABLE("pgmv_thr",
+                 "Set to true to move pages in background",
+                 TUNABLE_BOOLEAN, &gbl_pgmv_thr, 0, NULL, NULL, NULL, NULL);
+
+REGISTER_TUNABLE("pgmv_thr_poll_ms",
+                 "Number of milliseconds we poll for each pgmv iteration",
+                 TUNABLE_INTEGER, &gbl_pgmv_thr_poll_ms, 0, NULL, NULL, NULL, NULL);
 #endif /* _DB_TUNABLES_H */

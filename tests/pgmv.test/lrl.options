@@ -1,0 +1,8 @@
+dtastripe 1
+setattr MASTER_REJECT_REQUESTS 0
+logmsg level info
+pgmv_thr 1
+pgmv_thr_poll_ms 1000
+pgmv_verbose 1
+pgmv_unsafe_db_resize 1
+pgcomp_dbg_stdout 1

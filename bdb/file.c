@@ -9019,17 +9019,25 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
         }
     }
 
-    /* Process indexes */
-    for (ix = 0; ix < MAXINDEX; ++ix) {
-        if ((dbp = bdb_state->dbp_ix[ix]) != NULL) {
-            rc = rtn(dbp, txn);
-            if (rc != 0)
-                break;
+    if (rc == 0) {
+        /* Process indexes */
+        for (ix = 0; ix < MAXINDEX; ++ix) {
+            if ((dbp = bdb_state->dbp_ix[ix]) != NULL) {
+                rc = rtn(dbp, txn);
+                if (rc != 0)
+                    break;
+            }
         }
     }
 
-    /* TODO XXX FIXME Process blobs */
+    if (rc == 0) {
+        /* TODO XXX FIXME Process blobs */
+    }
 
+    if (rc ==0)
+        printf("im going to commit\n");
+    else
+        printf("im going to abort\n");
     if (rc == 0)
         rc = txn->commit(txn, 0);
     else
@@ -9038,7 +9046,6 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
 out:
     BDB_RELLOCK();
     return rc;
-
 }
 
 int bdb_rebuild_freelist(bdb_state_type *bdb_state)

@@ -816,6 +816,9 @@ int gbl_hostname_refresh_time = 60;
 
 int gbl_pstack_self = 1;
 
+/* Set to true to move pages in background */
+int gbl_pgmv_thr = 1;
+
 char *gbl_cdb2api_policy_override = NULL;
 
 int close_all_dbs_tran(tran_type *tran);
@@ -4049,9 +4052,11 @@ static int init(int argc, char **argv)
 
     gbl_backend_opened = 1;
 
-	/* Now that the backend is open, start the page mover thread */
-    pthread_t pgmv_tid;
-    Pthread_create(&pgmv_tid, &gbl_pthread_attr, pgmv_thr, NULL);
+    if (gbl_pgmv_thr) {
+        /* Now that the backend is open, we can start the page mover thread */
+        pthread_t pgmv_tid;
+        Pthread_create(&pgmv_tid, &gbl_pthread_attr, pgmv_thr, NULL);
+    }
 
     /* Recovered prepares need the osql-cnonce hash */
     if (!gbl_exit && !gbl_create_mode) {

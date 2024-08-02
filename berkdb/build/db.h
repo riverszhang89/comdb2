@@ -1811,7 +1811,6 @@ struct __db {
 	 * lower-numbered free pages.
 	 */
 	int  (*pgswap) __P((DB *, DB_TXN *));
-
 	/*
 	 * Evict all pages in this file from the bufferpool
 	 */
