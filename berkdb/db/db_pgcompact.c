@@ -167,7 +167,7 @@ __db_rebuild_freelist(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
 {
-	int ret, t_ret, force_ckp;
+	int ret, t_ret;
 	size_t npages, pglistsz, notch, ii;
 	int modified;
 
@@ -201,13 +201,6 @@ __db_rebuild_freelist(dbp, txn)
 	npages = 0;
 	pglistsz = 16; /* initial size */
 	maxfreepgno = PGNO_INVALID;
-	force_ckp = 0;
-
-	if (gbl_pgmv_unsafe_db_resize) {
-		logmsg(LOGMSG_WARN, "%s: unsafe_db_resize is enabled! full-recovery may not work!\n", __func__);
-		logmsg(LOGMSG_WARN, "%s: flushing bufferpool\n", __func__);
-		(void)__txn_checkpoint(dbenv, 0, 0, DB_FORCE);
-	}
 
 	if ((ret = __os_malloc(dbenv, sizeof(db_pgno_t) * pglistsz, &pglist)) != 0)
 		goto out;
@@ -423,9 +416,6 @@ __db_rebuild_freelist(dbp, txn)
 			goto out;
 
 		++gbl_pgmv_stats.nresizes;
-		if (gbl_pgmv_unsafe_db_resize) {
-			force_ckp = 1;
-		}
 	}
 
 out:
@@ -437,16 +427,6 @@ out:
 		ret = t_ret;
 	if ((t_ret = __db_c_close(dbc)) != 0 && ret == 0)
 		ret = t_ret;
-
-	if (ret == 0 && force_ckp) {
-		logmsg(LOGMSG_WARN,
-				"%s: unsafe_db_resize is enabled! "
-                "Forcing a checkpoint so that it's less likely "
-                "for recovery to start recovering from a place "
-                "where truncated pages are still referenced\n",
-				__func__);
-		(void)__txn_checkpoint(dbenv, 0, 0, DB_FORCE);
-	}
 
 	return (ret);
 }

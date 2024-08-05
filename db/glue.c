@@ -6300,6 +6300,7 @@ void *pgmv_thr(void *unused)
     struct dbtable *table;
 
     thrman_register(THRTYPE_PGMV);
+    bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_START_RDWR);
 
     while (!db_is_exiting()) {
         for (i = 0; i != thedb->num_dbs; ++i) {
@@ -6309,12 +6310,11 @@ void *pgmv_thr(void *unused)
                 strncasecmp(table->tablename, "comdb2_", strlen("comdb2_")) == 0) {
                 continue;
             }
-            bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_START_RDWR);
             rebuild_freelist(table->tablename);
             pgswap(table->tablename);
-            bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_DONE_RDWR);
         }
         poll(NULL, 0, gbl_pgmv_thr_poll_ms);
     }
+    bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_DONE_RDWR);
     return NULL;
 }
