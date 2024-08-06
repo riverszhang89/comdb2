@@ -40,6 +40,7 @@ EXEC PROCEDURE sys.cmd.send('stat pgmv')
 EXEC PROCEDURE sys.cmd.send('stat size')
 DELETE FROM t0
 EXEC PROCEDURE sys.cmd.send('flush')
+SELECT '--- sleeping 2 seconds to let flush do work ---' as info
 SELECT sleep(2)
 EOF
 
@@ -77,8 +78,8 @@ echo 'done deleting'
 cdb2sql $dbnm --host $leader - <<EOF
 EXEC PROCEDURE sys.cmd.send('evict_from_cache t0')
 SELECT COUNT(*) FROM t0
-SELECT sleep(10)
 EXEC PROCEDURE sys.cmd.send('flush')
+SELECT '--- sleeping 2 seconds to let flush do work ---' as info
 SELECT sleep(2)
 EOF
 
@@ -87,8 +88,7 @@ cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
 szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t0'"`
 echo "size before: $szbefore; size after: $szafter"
-exit 0
-if [ "$szafter" != 8192 ]; then
-    echo "expected only 8192 bytes for 2 pages (meta and root), instead got $szafter bytes" >&2
+if [ $szafter -ge $szbefore ]; then
+    echo "expected reduced table size" >&2
     exit 1
 fi

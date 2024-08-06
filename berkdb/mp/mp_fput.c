@@ -172,8 +172,9 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	}
 	if (LF_ISSET(DB_MPOOL_DISCARD))
 		F_SET(bhp, BH_DISCARD);
-	if (LF_ISSET(DB_MPOOL_EVICT))
-		F_SET(bhp, (BH_EVICT | BH_DISCARD));
+	if (LF_ISSET(DB_MPOOL_EVICT) && !F_ISSET(bhp, BH_DIRTY) && !F_ISSET(bhp, BH_DIRTY_CREATE))
+		F_SET(bhp, BH_EVICT);
+	DB_ASSERT(!F_ISSET(BH_DIRTY) || !F_ISSET(BH_DISCARD));
 
 	/*
 	 * Check for a reference count going to zero.  This can happen if the
@@ -208,7 +209,7 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 	}
 
 	/* There's no more references to this page. If the evict flag is on, free it */
-	if (F_ISSET(bhp, BH_EVICT)) {
+	if (F_ISSET(bhp, BH_EVICT) && bhp->ref == 1 && bhp->ref_sync == 0) {
 		__memp_bhfree(dbmp, hp, bhp, 1);
 		MUTEX_UNLOCK(dbenv, &hp->hash_mutex);
 		return (0);

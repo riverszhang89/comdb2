@@ -253,7 +253,8 @@ __db_rebuild_freelist(dbp, txn)
 	}
 
 	if (npages == 0) {
-		logmsg(LOGMSG_WARN, "%s: no free pages. there is nothing for us to do\n", __func__);
+		if (gbl_pgmv_verbose)
+			logmsg(LOGMSG_WARN, "%s: no free pages. there is nothing for us to do\n", __func__);
 		goto out;
 	}
 
@@ -641,7 +642,8 @@ __db_pgswap(dbp, txn)
 		}
 
 		if (np == NULL) {
-			logmsg(LOGMSG_INFO, "%s: free list is empty\n", __func__);
+			if (gbl_pgmv_verbose)
+				logmsg(LOGMSG_INFO, "%s: free list is empty\n", __func__);
 			goto err;
 		}
 
@@ -824,7 +826,7 @@ __db_pgswap(dbp, txn)
 		/* relink next */
 		if (nh != NULL) {
 			if (gbl_pgmv_verbose) {
-				logmsg(LOGMSG_WARN, "%s: relinking pgno %u to %u\n", __func__, PGNO(nh), newpgno);
+				logmsg(LOGMSG_WARN, "%s: relinking pgno %u to the right of %u\n", __func__, PGNO(nh), newpgno);
 			}
 			nh->prev_pgno = newpgno;
 			if ((ret = __memp_fput(dbmfp, nh, DB_MPOOL_DIRTY)) != 0) {
@@ -842,7 +844,7 @@ __db_pgswap(dbp, txn)
 		/* relink prev */
 		if (ph != NULL) {
 			if (gbl_pgmv_verbose) {
-				logmsg(LOGMSG_WARN, "%s: relinking pgno %u to %u\n", __func__, PGNO(ph), newpgno);
+				logmsg(LOGMSG_WARN, "%s: relinking pgno %u to the left of %u\n", __func__, PGNO(ph), newpgno);
 			}
 			ph->next_pgno = newpgno;
 			if ((ret = __memp_fput(dbmfp, ph, DB_MPOOL_DIRTY)) != 0) {
@@ -1025,6 +1027,7 @@ __db_evict_from_cache(dbp, txn)
 			ret = __memp_fput(dbmfp, h, DB_MPOOL_EVICT);
 			h = NULL;
 			if (ret != 0) {
+				__db_err(dbenv, "__memp_fput(%u, evict): rc %d", PGNO(h), ret);
 				goto err;
 			}
         }
