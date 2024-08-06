@@ -1888,6 +1888,7 @@ static int current_long_request_count = 0;
 static int current_long_request_duration_ms = 0;
 static int current_longest_long_request_ms = 0;
 static int current_shortest_long_request_ms = INT_MAX;
+static int gbl_longreq_core_threshold = 60000;
 
 void reqlog_long_running_clnt(struct sqlclntstate *clnt)
 {
@@ -1914,6 +1915,9 @@ void reqlog_long_running_clnt(struct sqlclntstate *clnt)
     if (duration_ms < gbl_sql_time_threshold) {
         return;
     }
+    if (duration_ms >= gbl_longreq_core_threshold) {
+		abort();
+	}
 
     current_long_request_duration_ms = duration_ms;
 
