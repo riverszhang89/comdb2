@@ -482,7 +482,7 @@ __db_pgswap(dbp, txn)
 	DB *dbp;
 	DB_TXN *txn;
 {
-	int ret, t_ret, ii;
+	int ret, t_ret, ii, stack;
 	int pglvl, unused;
 	u_int8_t page_type;
 
@@ -551,7 +551,7 @@ __db_pgswap(dbp, txn)
 	cp = (BTREE_CURSOR *)dbc->internal;
 
 	/* Walk the file backwards and swap pages with a lower-numbered free page */
-	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 1; --pgno, ++gbl_pgmv_stats.npgvisits) {
+	for (__memp_last_pgno(dbmfp, &pgno), stack = 0; pgno >= 1; --pgno, ++gbl_pgmv_stats.npgvisits, stack = 0) {
 		if (h != NULL) {
 			cpgno = PGNO(h);
 			ret = __memp_fput(dbmfp, h, 0);
@@ -664,7 +664,7 @@ __db_pgswap(dbp, txn)
 		}
 
 		/* Grab a wlock on the new page */
-		if ((ret = __db_lget(dbc, 0, PGNO(np), DB_LOCK_WRITE, DB_LOCK_NOWAIT, &newl)) != 0) {
+		if ((ret = __db_lget(dbc, 0, PGNO(np), DB_LOCK_WRITE, 0, &newl)) != 0) {
 			__db_err(dbenv, "__db_lget(%u): rc %d", PGNO(np), ret);
 			goto err;
 		}
@@ -710,6 +710,7 @@ __db_pgswap(dbp, txn)
 			goto err;
 		if ((ret = __bam_search(dbc, PGNO_INVALID, &firstkey, S_WRITE | S_PARENT, pglvl, NULL, &unused)) != 0)
 			goto err;
+		stack = 1;
 
 		/* Release my reference to this page, for __bam_search() pins the page */
 		cpgno = PGNO(h);
@@ -737,8 +738,9 @@ __db_pgswap(dbp, txn)
 		h = cp->csp->page;
 		/* Now grab prev and next */
 		if (h->prev_pgno != PGNO_INVALID) {
-			if ((ret = __db_lget(dbc, 0, h->prev_pgno, DB_LOCK_WRITE, DB_LOCK_NOWAIT, &pl)) != 0)
+			if ((ret = __db_lget(dbc, 0, h->prev_pgno, DB_LOCK_WRITE, DB_LOCK_NOWAIT, &pl)) != 0) {
 				goto err;
+			}
 			got_pl = 1;
 			if ((ret = __memp_fget(dbmfp, &h->prev_pgno, 0, &ph)) != 0) {
 				ret = __db_pgerr(dbp, h->prev_pgno, ret);
@@ -885,7 +887,8 @@ __db_pgswap(dbp, txn)
 			__db_err(dbenv, "__TLPUT(%u): rc %d", newpgno, ret);
 			goto err;
 		}
-		if ((ret = __bam_stkrel(dbc, STK_CLRDBC)) != 0) {
+		if (stack && (ret = __bam_stkrel(dbc, STK_CLRDBC)) != 0) {
+			stack = 0;
 			__db_err(dbenv, "__bam_stkrel(): rc %d", ret);
 			goto err;
 		}
@@ -901,7 +904,7 @@ err:
 	 * are placed on the front of the freelist.
 	 */
 	if (gbl_pgmv_verbose) {
-		logmsg(LOGMSG_USER, "%s: num_pages_swapped %u\n", __func__, num_pages_swapped);
+		logmsg(LOGMSG_USER, "%s: num pages swapped %u\n", __func__, num_pages_swapped);
 	}
 	for (ii = 0; ii != num_pages_swapped; ++ii) {
 		if ((ret = __db_free(dbc, lfp[ii])) != 0) {
@@ -928,6 +931,8 @@ err:
 	if (np != NULL && (t_ret = __memp_fput(dbmfp, np, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if (got_newl && (t_ret = __TLPUT(dbc, newl)) != 0 && ret == 0)
+		ret = t_ret;
+	if (stack && (t_ret = __bam_stkrel(dbc, STK_CLRDBC)) != 0 && ret == 0)
 		ret = t_ret;
 	if (dbc != NULL && (t_ret = __db_c_close(dbc)) != 0 && ret == 0)
 		ret = t_ret;
@@ -989,7 +994,7 @@ __db_evict_from_cache(dbp, txn)
 	DBC *dbc;
 	DB_ENV *dbenv;
 	DB_MPOOLFILE *dbmfp;
-	db_pgno_t pgno, lpgno;
+	db_pgno_t pgno;
 	PAGE *h;
 
 	DB_LOCK hl;
@@ -999,7 +1004,7 @@ __db_evict_from_cache(dbp, txn)
 	dbmfp = dbp->mpf;
 	dbc = NULL;
 
-	pgno = lpgno = 0;
+	pgno = 0;
 	h = NULL;
 	got_hl = 0;
 
@@ -1013,7 +1018,7 @@ __db_evict_from_cache(dbp, txn)
 		goto err;
 	}
 
-	for (__memp_last_pgno(dbmfp, &lpgno); pgno <= lpgno; ++pgno) {
+	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 0; --pgno) {
 		if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, 0, &hl)) != 0) {
 			__db_err(dbenv, "%s: __db_lget(%u): rc %d", __func__, pgno, ret);
 			goto err;
@@ -1021,16 +1026,16 @@ __db_evict_from_cache(dbp, txn)
 		got_hl = 1;
 
 		ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h);
-		if (ret == DB_FIRST_MISS || ret == DB_PAGE_NOTFOUND) {
+		if (ret == DB_PAGE_NOTFOUND || ret == DB_FIRST_MISS) {
 			h = NULL;
-		} else {
-			ret = __memp_fput(dbmfp, h, DB_MPOOL_EVICT);
-			h = NULL;
-			if (ret != 0) {
-				__db_err(dbenv, "__memp_fput(%u, evict): rc %d", PGNO(h), ret);
-				goto err;
-			}
-        }
+			continue;
+		}
+		ret = __memp_fput(dbmfp, h, DB_MPOOL_EVICT);
+		h = NULL;
+		if (ret != 0) {
+			__db_err(dbenv, "__memp_fput(%u, evict): rc %d", PGNO(h), ret);
+			goto err;
+		}
 
 		got_hl = 0;
 		if ((ret = __LPUT(dbc, hl)) != 0) {

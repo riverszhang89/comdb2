@@ -1219,6 +1219,5 @@ __memp_fget(dbmfp, pgnoaddr, flags, addrp)
 		}
 	}
 out:
-
 	return ret;
 }

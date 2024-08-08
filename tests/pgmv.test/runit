@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 dbnm=$1
 dbdir=${DBDIR}
 bindir=`dirname $COMDB2_EXE`

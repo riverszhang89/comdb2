@@ -6265,7 +6265,6 @@ static int call_bdb_pgmv_rtn(const char *table, bdb_pgmv_rtn rtn)
 	if (table == NULL)
 		return -1;
 
-	rdlock_schema_lk();
 	db = get_dbtable_by_name(table);
 	if (db == NULL) {
 		logmsg(LOGMSG_ERROR, "%s: table \"%s\" not found", __func__, table);
@@ -6273,7 +6272,6 @@ static int call_bdb_pgmv_rtn(const char *table, bdb_pgmv_rtn rtn)
 	} else {
 		ret = rtn(get_bdb_handle(db, AUXDB_NONE));
 	}
-	unlock_schema_lk();
 	return ret;
 }
 
@@ -6303,6 +6301,7 @@ void *pgmv_thr(void *unused)
     bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_START_RDWR);
 
     while (!db_is_exiting()) {
+        rdlock_schema_lk();
         for (i = 0; i != thedb->num_dbs; ++i) {
             table = thedb->dbs[i];
             if (table->dbtype != DBTYPE_TAGGED_TABLE ||
@@ -6313,6 +6312,7 @@ void *pgmv_thr(void *unused)
             rebuild_freelist(table->tablename);
             pgswap(table->tablename);
         }
+        unlock_schema_lk();
         poll(NULL, 0, gbl_pgmv_thr_poll_ms);
     }
     bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_DONE_RDWR);
