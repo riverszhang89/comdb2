@@ -211,7 +211,7 @@ __db_rebuild_freelist(dbp, txn)
 
 	if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, DB_LOCK_NOWAIT, &metalock)) != 0)
 		goto out;
-	if ((ret = __memp_fget(dbmfp, &pgno, 0, &meta)) != 0)
+	if ((ret = PAGEGET(dbc, dbmfp, &pgno, 0, &meta)) != 0)
 		goto out;
 
 	if (gbl_pgmv_verbose) {
@@ -233,13 +233,13 @@ __db_rebuild_freelist(dbp, txn)
 		pglist[npages] = pgno;
 
 		/* We have metalock. No need to lock free pages. */
-		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0)
+		if ((ret = PAGEGET(dbc, dbmfp, &pgno, 0, &h)) != 0)
 			goto out;
 
 		pglsnlist[npages] = LSN(h);
 		pgno = NEXT_PGNO(h);
 
-		if ((ret = __memp_fput(dbmfp, h, 0)) != 0)
+		if ((ret = PAGEPUT(dbc, dbmfp, h, 0)) != 0)
 			goto out;
 	}
 
@@ -331,12 +331,12 @@ __db_rebuild_freelist(dbp, txn)
 		 * We can't safely truncate the page unless
 		 * it's no longer referenced in the log
 		 */
-		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+		if ((ret = PAGEGET(dbc, dbmfp, &pgno, 0, &h)) != 0) {
 			__db_pgerr(dbp, pgno, ret);
 			goto out;
 		}
 		is_too_young = (LSN(h).file >= firstlsn.file);
-		if ((ret = __memp_fput(dbmfp, h, 0)) != 0)
+		if ((ret = PAGEPUT(dbc, dbmfp, h, 0)) != 0)
 			goto out;
 
 		if (is_too_young) {
@@ -362,7 +362,7 @@ __db_rebuild_freelist(dbp, txn)
 	/* rebuild the freelist, in page order */
 	for (ii = 0; ii != notch; ++ii) {
 		pgno = pglist[ii];
-		if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+		if ((ret = PAGEGET(dbc, dbmfp, &pgno, 0, &h)) != 0) {
 			__db_pgerr(dbp, pgno, ret);
 			goto out;
 		}
@@ -370,7 +370,7 @@ __db_rebuild_freelist(dbp, txn)
 		NEXT_PGNO(h) = (ii == notch - 1) ? endpgno : pglist[ii + 1];
 
 		LSN(h) = LSN(meta);
-		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_DIRTY)) != 0)
+		if ((ret = PAGEPUT(dbc, dbmfp, h, DB_MPOOL_DIRTY)) != 0)
 			goto out;
 	}
 
@@ -382,9 +382,9 @@ __db_rebuild_freelist(dbp, txn)
 		 * discard it we don't want memp_sync to accidentally flush the page
 		 * after we truncate, which would create a hole in the file.
 		 */
-		if ((ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h)) != 0)
+		if ((ret = PAGEGET(dbc, dbmfp, &pgno, DB_MPOOL_PROBE, &h)) != 0)
 			continue;
-		if ((ret = __memp_fput(dbmfp, h, DB_MPOOL_CLEAN | DB_MPOOL_DISCARD)) != 0)
+		if ((ret = PAGEPUT(dbc, dbmfp, h, DB_MPOOL_CLEAN | DB_MPOOL_DISCARD)) != 0)
 			goto out;
 	}
 
@@ -420,7 +420,7 @@ __db_rebuild_freelist(dbp, txn)
 out:
 	__os_free(dbenv, pglist);
 	__os_free(dbenv, pglsnlist);
-	if ((t_ret = __memp_fput(dbmfp, meta, modified ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
+	if ((t_ret = PAGEPUT(dbc, dbmfp, meta, modified ? DB_MPOOL_DIRTY : 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if ((t_ret = __TLPUT(dbc, metalock)) != 0 && ret == 0)
 		ret = t_ret;
@@ -552,7 +552,7 @@ __db_pgswap(dbp, txn)
 	for (__memp_last_pgno(dbmfp, &pgno), stack = 0; pgno >= 1; --pgno, ++gbl_pgmv_stats.npgvisits, stack = 0) {
 		if (h != NULL) {
 			cpgno = PGNO(h);
-			ret = __memp_fput(dbmfp, h, 0);
+			ret = PAGEPUT(dbc, dbmfp, h, 0);
 			h = NULL;
 			if (ret != 0) {
 				__db_err(dbenv, "%s: __memp_fput(%d): rc %d", __func__, cpgno, ret);
@@ -607,7 +607,7 @@ __db_pgswap(dbp, txn)
 		got_hl = 1;
 
 		if (gbl_pgmv_only_process_pages_in_bufferpool) {
-			ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h);
+			ret = PAGEGET(dbc, dbmfp, &pgno, DB_MPOOL_PROBE, &h);
 			if (ret == DB_FIRST_MISS || ret == DB_PAGE_NOTFOUND) {
 				if (gbl_pgmv_verbose) {
 					logmsg(LOGMSG_WARN, "%s: pgno %u not found in bufferpool\n", __func__, pgno);
@@ -615,7 +615,7 @@ __db_pgswap(dbp, txn)
 				h = NULL;
 				continue;
 			}
-		} else if ((ret = __memp_fget(dbmfp, &pgno, 0, &h)) != 0) {
+		} else if ((ret = PAGEGET(dbc, dbmfp, &pgno, 0, &h)) != 0) {
 			__db_pgerr(dbp, pgno, ret);
 			h = NULL;
 			goto err;
@@ -674,7 +674,7 @@ __db_pgswap(dbp, txn)
 		/* descend from pgno till we hit a non-internal page */
 		while (ret == 0 && ISINTERNAL(h)) {
 			cpgno = GET_BINTERNAL(dbp, h, 0)->pgno;
-			ret = __memp_fput(dbmfp, h, 0);
+			ret = PAGEPUT(dbc, dbmfp, h, 0);
 			h = NULL;
 			if (ret != 0) {
 				__db_err(dbenv, "__memp_fput(%u): rc %d", cpgno, ret);
@@ -693,7 +693,7 @@ __db_pgswap(dbp, txn)
 			}
 			got_hl = 1;
 
-			if ((ret = __memp_fget(dbmfp, &cpgno, 0, &h)) != 0) {
+			if ((ret = PAGEGET(dbc, dbmfp, &cpgno, 0, &h)) != 0) {
 				__db_pgerr(dbp, cpgno, ret);
 				h = NULL;
 				goto err;
@@ -712,7 +712,7 @@ __db_pgswap(dbp, txn)
 
 		/* Release my reference to this page, for __bam_search() pins the page */
 		cpgno = PGNO(h);
-		ret = __memp_fput(dbmfp, h, 0);
+		ret = PAGEPUT(dbc, dbmfp, h, 0);
 		h = NULL;
 		if (ret != 0) {
 			__db_err(dbenv, "__memp_fput(%u): rc %d", cpgno, ret);
@@ -740,7 +740,7 @@ __db_pgswap(dbp, txn)
 				goto err;
 			}
 			got_pl = 1;
-			if ((ret = __memp_fget(dbmfp, &h->prev_pgno, 0, &ph)) != 0) {
+			if ((ret = PAGEGET(dbc, dbmfp, &h->prev_pgno, 0, &ph)) != 0) {
 				ret = __db_pgerr(dbp, h->prev_pgno, ret);
 				ph = NULL;
 				goto err;
@@ -752,7 +752,7 @@ __db_pgswap(dbp, txn)
 			if ((ret = __db_lget(dbc, 0, h->next_pgno, DB_LOCK_WRITE, DB_LOCK_NOWAIT, &nl)) != 0)
 				goto err;
 			got_nl = 1;
-			if ((ret = __memp_fget(dbmfp, &h->next_pgno, 0, &nh)) != 0) {
+			if ((ret = PAGEGET(dbc, dbmfp, &h->next_pgno, 0, &nh)) != 0) {
 				nh = NULL;
 				ret = __db_pgerr(dbp, h->next_pgno, ret);
 				goto err;
@@ -829,7 +829,7 @@ __db_pgswap(dbp, txn)
 				logmsg(LOGMSG_WARN, "%s: relinking pgno %u to the right of %u\n", __func__, PGNO(nh), newpgno);
 			}
 			nh->prev_pgno = newpgno;
-			if ((ret = __memp_fput(dbmfp, nh, DB_MPOOL_DIRTY)) != 0) {
+			if ((ret = PAGEPUT(dbc, dbmfp, nh, DB_MPOOL_DIRTY)) != 0) {
 				__db_err(dbenv, "__memp_fput(%u): rc %d", PGNO(nh), ret);
 				nh = NULL;
 				goto err;
@@ -847,7 +847,7 @@ __db_pgswap(dbp, txn)
 				logmsg(LOGMSG_WARN, "%s: relinking pgno %u to the left of %u\n", __func__, PGNO(ph), newpgno);
 			}
 			ph->next_pgno = newpgno;
-			if ((ret = __memp_fput(dbmfp, ph, DB_MPOOL_DIRTY)) != 0) {
+			if ((ret = PAGEPUT(dbc, dbmfp, ph, DB_MPOOL_DIRTY)) != 0) {
 				__db_err(dbenv, "__memp_fput(%u): rc %d", PGNO(ph), ret);
 				ph = NULL;
 				goto err;
@@ -914,19 +914,19 @@ err:
 		}
 	}
 
-	if (h != NULL && (t_ret = __memp_fput(dbmfp, h, 0)) != 0 && ret == 0)
+	if (h != NULL && (t_ret = PAGEPUT(dbc, dbmfp, h, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if (got_hl && (t_ret = __TLPUT(dbc, hl)) != 0 && ret == 0)
 		ret = t_ret;
-	if (nh != NULL && (t_ret = __memp_fput(dbmfp, nh, 0)) != 0 && ret == 0)
+	if (nh != NULL && (t_ret = PAGEPUT(dbc, dbmfp, nh, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if (got_nl && (t_ret = __TLPUT(dbc, nl)) != 0 && ret == 0)
 		ret = t_ret;
-	if (ph != NULL && (t_ret = __memp_fput(dbmfp, ph, 0)) != 0 && ret == 0)
+	if (ph != NULL && (t_ret = PAGEPUT(dbc, dbmfp, ph, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if (got_pl && (t_ret = __TLPUT(dbc, pl)) != 0 && ret == 0)
 		ret = t_ret;
-	if (np != NULL && (t_ret = __memp_fput(dbmfp, np, 0)) != 0 && ret == 0)
+	if (np != NULL && (t_ret = PAGEPUT(dbc, dbmfp, np, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if (got_newl && (t_ret = __TLPUT(dbc, newl)) != 0 && ret == 0)
 		ret = t_ret;
@@ -1021,12 +1021,12 @@ __db_evict_from_cache(dbp, txn)
 		}
 		got_hl = 1;
 
-		ret = __memp_fget(dbmfp, &pgno, DB_MPOOL_PROBE, &h);
+		ret = PAGEGET(dbc, dbmfp, &pgno, DB_MPOOL_PROBE, &h);
 		if (ret == DB_PAGE_NOTFOUND || ret == DB_FIRST_MISS) {
 			h = NULL;
 			continue;
 		}
-		ret = __memp_fput(dbmfp, h, DB_MPOOL_EVICT);
+		ret = PAGEPUT(dbc, dbmfp, h, DB_MPOOL_EVICT);
 		h = NULL;
 		if (ret != 0) {
 			__db_err(dbenv, "__memp_fput(%u, evict): rc %d", PGNO(h), ret);
@@ -1041,7 +1041,7 @@ __db_evict_from_cache(dbp, txn)
 	}
 
 err:
-	if (h != NULL && (t_ret = __memp_fput(dbmfp, h, 0)) != 0 && ret == 0)
+	if (h != NULL && (t_ret = PAGEPUT(dbc, dbmfp, h, 0)) != 0 && ret == 0)
 		ret = t_ret;
 	if (got_hl && (t_ret = __LPUT(dbc, hl)) != 0 && ret == 0)
 		ret = t_ret;
