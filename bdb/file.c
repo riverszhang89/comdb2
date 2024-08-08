@@ -9051,25 +9051,24 @@ int bdb_rebuild_freelist(bdb_state_type *bdb_state)
     int rc = 0, bdberr = BDBERR_NOERROR;
     if (gbl_pgmv_unsafe_db_resize) {
         logmsg(LOGMSG_WARN, "%s: unsafe_db_resize is enabled! full-recovery may not work!\n", __func__);
-        logmsg(LOGMSG_WARN, "%s: flushing bufferpool\n", __func__);
+        logmsg(LOGMSG_WARN, "%s: flushing bufferpool!\n", __func__);
         rc = bdb_flush(bdb_state, &bdberr);
-        if (rc != 0 || bdberr != BDBERR_NOERROR)
-            logmsg(LOGMSG_WARN, "%s: bdb_flush failed\n", __func__);
+        if (rc != 0 || bdberr != BDBERR_NOERROR) {
+            logmsg(LOGMSG_WARN, "%s: bdb_flush failed rc %d bdberr %d\n", __func__, rc, bdberr);
+            return rc;
+        }
     }
 
     pgmv_rtn rtn = bdb_state->dbp_data[0][0]->rebuild_freelist;
     rc = call_berkdb_pgmv_rtn(bdb_state, rtn, __func__);
 
     if (rc == 0 && gbl_pgmv_unsafe_db_resize) {
-        logmsg(LOGMSG_WARN,
-               "%s: unsafe_db_resize is enabled! "
-               "Forcing a checkpoint so that it's less likely "
-               "for recovery to start recovering from a place "
-               "where truncated pages are still referenced\n",
-               __func__);
+        logmsg(LOGMSG_WARN, "%s: unsafe_db_resize is enabled! flush again to push recovery point further\n", __func__);
         rc = bdb_flush(bdb_state, &bdberr);
-        if (rc != 0 || bdberr != BDBERR_NOERROR)
-            logmsg(LOGMSG_WARN, "%s: bdb_flush failed\n", __func__);
+        if (rc != 0 || bdberr != BDBERR_NOERROR) {
+            logmsg(LOGMSG_WARN, "%s: bdb_flush failed rc %d bdberr %d\n", __func__, rc, bdberr);
+            return rc;
+        }
     }
 
     return rc;
