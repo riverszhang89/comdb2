@@ -994,7 +994,7 @@ __db_evict_from_cache(dbp, txn)
 	DBC *dbc;
 	DB_ENV *dbenv;
 	DB_MPOOLFILE *dbmfp;
-	db_pgno_t pgno;
+	db_pgno_t pgno, last_pgno;
 	PAGE *h;
 
 	DB_LOCK hl;
@@ -1018,7 +1018,7 @@ __db_evict_from_cache(dbp, txn)
 		goto err;
 	}
 
-	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 0; --pgno) {
+	for (__memp_last_pgno(dbmfp, &last_pgno); pgno <= last_pgno; ++pgno) {
 		if ((ret = __db_lget(dbc, 0, pgno, DB_LOCK_WRITE, 0, &hl)) != 0) {
 			__db_err(dbenv, "%s: __db_lget(%u): rc %d", __func__, pgno, ret);
 			goto err;

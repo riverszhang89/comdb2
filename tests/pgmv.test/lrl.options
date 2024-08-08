@@ -1,4 +1,5 @@
 dtastripe 1
+blobstripe 1
 setattr MASTER_REJECT_REQUESTS 0
 logmsg level info
 pgmv_thr 1
