@@ -174,8 +174,8 @@ __memp_fput_internal(dbmfp, pgaddr, flags, pgorder)
 		F_SET(bhp, BH_DISCARD);
 	if (LF_ISSET(DB_MPOOL_EVICT)) {
 		if (F_ISSET(bhp, BH_DIRTY) || F_ISSET(bhp, BH_DIRTY_CREATE) || F_ISSET(bhp, BH_LOCKED)) {
-			/* can't evict a dirty or locked page. make it low priority instead */
-			F_SET(bhp, BH_DISCARD);
+			/* can't evict a dirty or locked page. clear my flag and move on */
+			LF_SET(DB_MPOOL_EVICT);
 		} else {
 			F_SET(bhp, BH_EVICT);
 		}

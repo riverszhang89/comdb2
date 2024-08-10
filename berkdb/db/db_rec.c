@@ -1991,7 +1991,7 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 	if (DB_REDO(op)) {
 
 		if (gbl_pgmv_verbose) {
-			logmsg(LOGMSG_WARN, "%s: redo\n", __func__);
+			logmsg(LOGMSG_WARN, "%s: starting redo %u\n", __func__, argp->pgno);
 		}
 
 		/*
@@ -2094,7 +2094,7 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 		}
 	} else if (DB_UNDO(op)) {
 		if (gbl_pgmv_verbose) {
-			logmsg(LOGMSG_WARN, "%s: undo\n", __func__);
+			logmsg(LOGMSG_WARN, "%s: starting undo %u\n", __func__, argp->pgno);
 		}
 
 		/*
