@@ -186,6 +186,10 @@ __db_rebuild_freelist(dbp, txn)
 	DBT firstlog;
 	int is_too_young;
 
+	if (gbl_pgmv_verbose) {
+		logmsg(LOGMSG_WARN, "%s: %s\n", __func__, dbp->fname);
+	}
+
 	dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;
 
@@ -215,10 +219,6 @@ __db_rebuild_freelist(dbp, txn)
 	if ((ret = PAGEGET(dbc, dbmfp, &pgno, 0, &meta)) != 0) {
 		__db_pgerr(dbp, pgno, ret);
 		goto done;
-	}
-
-	if (gbl_pgmv_verbose) {
-		logmsg(LOGMSG_WARN, "%s: collecting free pages\n", __func__);
 	}
 
 	for (pgno = meta->free; pgno != PGNO_INVALID; ++npages) {
@@ -416,8 +416,10 @@ __db_rebuild_freelist(dbp, txn)
 		meta->last_pgno = pglist[notch] - 1;
 
 		/* also makes bufferpool aware */
-		if ((ret = __memp_resize(dbmfp, meta->last_pgno)) != 0)
+		if ((ret = __memp_resize(dbmfp, meta->last_pgno)) != 0) {
+			__db_err(dbenv, "%s: __memp_resize(%u) rc %d\n", __func__, meta->last_pgno, ret);
 			goto done;
+		}
 
 		++gbl_pgmv_stats.nresizes;
 	}
@@ -524,6 +526,10 @@ __db_pgswap(dbp, txn)
 	EPG *epg;
 
 	DBT hdr, dta, firstkey;
+
+	if (gbl_pgmv_verbose) {
+		logmsg(LOGMSG_WARN, "%s: %s\n", __func__, dbp->fname);
+	}
 
 	dbenv = dbp->dbenv;
 	dbmfp = dbp->mpf;

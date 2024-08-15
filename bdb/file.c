@@ -9075,29 +9075,22 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
         goto out;
 
     /* Process data and blob */
-    for (dta = 0; dta < MAXDTAFILES; ++dta) {
-        for (stripe = 0; stripe < MAXDTASTRIPE; ++stripe) {
+    for (dta = 0; rc == 0 && dta < MAXDTAFILES; ++dta) {
+        for (stripe = 0; rc == 0 && stripe < MAXDTASTRIPE; ++stripe) {
             if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
                 rc = rtn(dbp, txn);
-                if (rc != 0)
-                    break;
+                if (rc != 0) {
+                    logmsg(LOGMSG_ERROR, "pgmv failed rc %d\n", rc);
+                }
             }
         }
     }
 
-    if (rc == 0) {
-        /* Process indexes */
-        for (ix = 0; ix < MAXINDEX; ++ix) {
-            if ((dbp = bdb_state->dbp_ix[ix]) != NULL) {
-                rc = rtn(dbp, txn);
-                if (rc != 0)
-                    break;
-            }
+    /* Process indexes */
+    for (ix = 0; rc == 0 && ix < MAXINDEX; ++ix) {
+        if ((dbp = bdb_state->dbp_ix[ix]) != NULL) {
+            rc = rtn(dbp, txn);
         }
-    }
-
-    if (rc == 0) {
-        /* TODO XXX FIXME Process blobs */
     }
 
     if (rc == 0)

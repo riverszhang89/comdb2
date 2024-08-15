@@ -1844,8 +1844,8 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 				goto out;
 			}
 
-			cmp_pc = log_compare(&LSN(pagep), &argp->meta_lsn);
-			CHECK_LSN(op, cmp_pc, &LSN(pagep), &argp->meta_lsn, lsnp, argp->fileid, pgno);
+			cmp_pc = log_compare(&LSN(pagep), &pglsnlist[ii]);
+			CHECK_LSN(op, cmp_pc, &LSN(pagep), &pglsnlist[ii], lsnp, argp->fileid, pgno);
 			if (cmp_pc == 0) {
 				NEXT_PGNO(pagep) = (ii == notch - 1) ? argp->end_pgno : pglist[ii + 1];
 				LSN(pagep) = *lsnp;
@@ -2269,8 +2269,8 @@ __db_resize_recover(dbenv, dbtp, lsnp, op, info)
 	DB_ASSERT(argp->newlast <= argp->oldlast);
 
 	if (cmp_p == 0 && DB_REDO(op)) {
-		for (pgno = argp->newlast; pgno <= argp->oldlast; ++pgno) {
-			/* If we don't find this page in bufferpool, this is fine. No extra work needed. */
+		for (pgno = argp->newlast + 1; pgno <= argp->oldlast; ++pgno) {
+			/* If we don't find this page in bufferpool, this is fine. */
 			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_PROBE, &h)) != 0)
 				continue;
 			/* If we find the page in bufferpool, mark clean and discard.
@@ -2291,7 +2291,7 @@ __db_resize_recover(dbenv, dbtp, lsnp, op, info)
 		__memp_resize(mpf, argp->oldlast);
 		/* fixing last pgno on metapage */
 		meta->last_pgno = argp->oldlast;
-		for (pgno = argp->newlast; pgno <= argp->oldlast; ++pgno) {
+		for (pgno = argp->newlast + 1; pgno <= argp->oldlast; ++pgno) {
 			/* If we can't retrieve this page in bufferpool, this is NOT fine. */
 			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_CREATE, &h)) != 0) {
 				ret = __db_pgerr(file_dbp, pgno, ret);
