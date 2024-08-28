@@ -6331,19 +6331,19 @@ typedef int (*bdb_pgmv_rtn)(bdb_state_type *);
 static int call_bdb_pgmv_rtn(const char *table, bdb_pgmv_rtn rtn)
 {
     int ret;
-	dbtable *db;
+    dbtable *db;
 
-	if (table == NULL)
-		return -1;
+    if (table == NULL)
+            return -1;
 
-	db = get_dbtable_by_name(table);
-	if (db == NULL) {
-		logmsg(LOGMSG_ERROR, "%s: table \"%s\" not found", __func__, table);
-		ret = -1;
-	} else {
-		ret = rtn(get_bdb_handle(db, AUXDB_NONE));
-	}
-	return ret;
+    db = get_dbtable_by_name(table);
+    if (db == NULL) {
+            logmsg(LOGMSG_ERROR, "%s: table \"%s\" not found", __func__, table);
+            ret = -1;
+    } else {
+            ret = rtn(get_bdb_handle(db, AUXDB_NONE));
+    }
+    return ret;
 }
 
 int rebuild_freelist(const char *table)
@@ -6374,38 +6374,37 @@ void *pgmv_thr(void *unused)
 {
     int i;
     struct dbtable *table;
-	const char *name;
-	int remaining;
+    const char *name;
+    int remaining;
 
     thrman_register(THRTYPE_PGMV);
     bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_START_RDWR);
-	remaining = gbl_pgmv_thr_overflow_run_interval_ms;
+    remaining = gbl_pgmv_thr_overflow_run_interval_ms;
 
     while (!db_is_exiting()) {
-        if (gbl_pgmv_thr_pause) {
+            if (gbl_pgmv_thr_pause) {
             poll(NULL, 0, gbl_pgmv_thr_run_interval_ms);
             continue;
-        }
+            }
 
-        rdlock_schema_lk();
-        for (i = 0; i != thedb->num_dbs; ++i) {
+            rdlock_schema_lk();
+            for (i = 0; i != thedb->num_dbs; ++i) {
             table = thedb->dbs[i];
-			name = table->tablename;
-            if (table->dbtype != DBTYPE_TAGGED_TABLE ||
-                strncasecmp(name, "sqlite_", strlen("sqlite_")) == 0 ||
+            name = table->tablename;
+            if (table->dbtype != DBTYPE_TAGGED_TABLE || strncasecmp(name, "sqlite_", strlen("sqlite_")) == 0 ||
                 strncasecmp(name, "comdb2_", strlen("comdb2_")) == 0) {
                 continue;
             }
             rebuild_freelist(name);
             pgswap(name);
-			if (remaining <= 0) {
-				pgswap_overflow(name);
-				remaining = gbl_pgmv_thr_overflow_run_interval_ms;
-			}
-        }
-        unlock_schema_lk();
-        poll(NULL, 0, gbl_pgmv_thr_run_interval_ms);
-		remaining -= gbl_pgmv_thr_run_interval_ms;
+            if (remaining <= 0) {
+                pgswap_overflow(name);
+                remaining = gbl_pgmv_thr_overflow_run_interval_ms;
+            }
+            }
+            unlock_schema_lk();
+            poll(NULL, 0, gbl_pgmv_thr_run_interval_ms);
+            remaining -= gbl_pgmv_thr_run_interval_ms;
     }
     bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_DONE_RDWR);
     return NULL;

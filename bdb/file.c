@@ -9051,8 +9051,8 @@ static int call_berkdb_pgmv_rtn(bdb_state_type *bdb_state, pgmv_rtn rtn, const c
 
     /* Process data and blob */
     for (dta = 0; rc == 0 && dta < MAXDTAFILES; ++dta) {
-		if (blobonly && dta == 0)
-			continue;
+        if (blobonly && dta == 0)
+            continue;
         for (stripe = 0; rc == 0 && stripe < MAXDTASTRIPE; ++stripe) {
             if ((dbp = bdb_state->dbp_data[dta][stripe]) != NULL) {
                 rc = rtn(dbp, txn);

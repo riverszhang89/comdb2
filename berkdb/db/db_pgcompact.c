@@ -589,6 +589,7 @@ __db_pgswap(dbp, txn)
 
 	h = ph = nh = pp = np = NULL;
 	got_hl = got_pl = got_nl = got_newl = 0;
+	stack = 0;
 
 	lfp = NULL;
 	lpgnofromfl = NULL;

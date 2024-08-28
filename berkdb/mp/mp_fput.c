@@ -25,7 +25,7 @@ static const char revid[] = "$Id: mp_fput.c,v 11.48 2003/09/30 17:12:00 sue Exp 
 #include "comdb2_atomic.h"
 
 extern int gbl_enable_cache_internal_nodes;
-int gbl_memp_fput_abort_on_double_retur; = 0;
+int gbl_memp_fput_abort_on_double_return = 0;
 
 static void __memp_reset_lru __P((DB_ENV *, REGINFO *));
 

@@ -1959,10 +1959,11 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 	int ret, t_ret;
 	int check_page = gbl_check_page_in_recovery;
 
+	pagep = pp = newp = nextp = prevp = NULL;
+	hmodified = ppmodified = newmodified = nhmodified = phmodified = 0;
+
 	REC_PRINT(__db_pg_swap_print);
 	REC_INTRO(__db_pg_swap_read, 0);
-
-	pagep = pp = newp = nextp = prevp = NULL;
 
 	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &pagep)) != 0) {
 		ret = __db_pgerr(file_dbp, argp->pgno, ret);
@@ -1974,8 +1975,6 @@ __db_pg_swap_recover(dbenv, dbtp, lsnp, op, info)
 		__dir_pg(mpf, argp->pgno, (u_int8_t *)pagep, 0);
 		__dir_pg(mpf, argp->pgno, (u_int8_t *)pagep, 1);
     }
-
-	hmodified = ppmodified = newmodified = nhmodified = phmodified = 0;
 
 	if (gbl_pgmv_verbose) {
 		logmsg(LOGMSG_WARN, "replacing pgno %u with newp %u before lsn %d:%d, "
@@ -2243,6 +2242,7 @@ __db_resize_recover(dbenv, dbtp, lsnp, op, info)
 
 	h = NULL;
 	meta = NULL;
+	modified = 0;
 
 	REC_PRINT(__db_resize_print);
 	REC_INTRO(__db_resize_read, 0);
@@ -2258,8 +2258,6 @@ __db_resize_recover(dbenv, dbtp, lsnp, op, info)
 		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 0);
 		__dir_pg(mpf, argp->meta_pgno, (u_int8_t *)meta, 1);
 	}
-
-	modified = 0;
 
 	cmp_n = log_compare(lsnp, &LSN(meta));
 	cmp_p = log_compare(&LSN(meta), &argp->meta_lsn);
@@ -2345,11 +2343,11 @@ __db_pg_swap_overflow_recover(dbenv, dbtp, lsnp, op, info)
 	int ret, t_ret;
 	int ohmodified, pohmodified, nohmodified, hmodified, newohmodified;
 
-	REC_PRINT(__db_pg_swap_overflow_print);
-	REC_INTRO(__db_pg_swap_overflow_read, 0);
-
 	oh = poh = noh = h = newoh = NULL;
 	ohmodified = pohmodified = nohmodified = hmodified = newohmodified = 0;
+
+	REC_PRINT(__db_pg_swap_overflow_print);
+	REC_INTRO(__db_pg_swap_overflow_read, 0);
 
 	if ((ret = __memp_fget(mpf, &argp->pgno, 0, &oh)) != 0) {
 		ret = __db_pgerr(file_dbp, argp->pgno, ret);
