@@ -1820,6 +1820,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	}
 
 	if (DB_REDO(op)) {
+		qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
 		if (gbl_pgmv_verbose) {
 			/* pglist[notch] is where in the freelist we can safely truncate. */
 			if (notch == npages) {
