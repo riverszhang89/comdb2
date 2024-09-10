@@ -293,46 +293,6 @@ __db_rebuild_freelist(dbp, txn)
 				__func__, maxfreepgno, meta->last_pgno);
 	}
 
-	/* log the change */
-	if (!DBC_LOGGING(dbc)) {
-		LSN_NOT_LOGGED(LSN(meta));
-	} else {
-		/* network order */
-		for (ii = 0; ii != npages; ++ii) {
-			pglist[ii] = htonl(pglist[ii]);
-			pglsnlist[ii].file = htonl(pglsnlist[ii].file);
-			pglsnlist[ii].offset = htonl(pglsnlist[ii].offset);
-		}
-
-		pgnos.size = npages * sizeof(db_pgno_t);
-		pgnos.data = pglist;
-		lsns.size = npages * sizeof(DB_LSN);
-		lsns.data = pglsnlist;
-
-		ret = __db_rebuild_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, pgno, &pgnos, &lsns);
-		if (ret != 0)
-			goto done;
-
-		/* host order */
-		for (ii = 0; ii != npages; ++ii) {
-			pglist[ii] = htonl(pglist[ii]);
-			pglsnlist[ii].file = ntohl(pglsnlist[ii].file);
-			pglsnlist[ii].offset = ntohl(pglsnlist[ii].offset);
-		}
-	}
-
-	endpgno = pgno;
-	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
-	++gbl_pgmv_stats.nflsorts;
-
-	if (gbl_pgmv_verbose) {
-		logmsg(LOGMSG_WARN, "%s: freelist after sorting (%zu pages):\n", __func__, npages);
-		for (int i = 0; i != npages; ++i) {
-			logmsg(LOGMSG_WARN, "%u ", pglist[i]);
-		}
-		logmsg(LOGMSG_WARN, "\n");
-	}
-
 	/*
 	 * Get the first log record. Do not truncate a page if it's LSN is greater than
 	 * the first log record. It's okay if the actual first log record in the
@@ -394,6 +354,46 @@ __db_rebuild_freelist(dbp, txn)
 			logmsg(LOGMSG_WARN, "%s: last pgno %u truncation point (array index) %zu pgno %u\n",
 					__func__, meta->last_pgno, notch, pglist[notch]);
 		}
+	}
+
+	/* log the change */
+	if (!DBC_LOGGING(dbc)) {
+		LSN_NOT_LOGGED(LSN(meta));
+	} else {
+		/* network order */
+		for (ii = 0; ii != npages; ++ii) {
+			pglist[ii] = htonl(pglist[ii]);
+			pglsnlist[ii].file = htonl(pglsnlist[ii].file);
+			pglsnlist[ii].offset = htonl(pglsnlist[ii].offset);
+		}
+
+		pgnos.size = npages * sizeof(db_pgno_t);
+		pgnos.data = pglist;
+		lsns.size = npages * sizeof(DB_LSN);
+		lsns.data = pglsnlist;
+
+		ret = __db_rebuild_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, pgno, &pgnos, &lsns, notch);
+		if (ret != 0)
+			goto done;
+
+		/* host order */
+		for (ii = 0; ii != npages; ++ii) {
+			pglist[ii] = htonl(pglist[ii]);
+			pglsnlist[ii].file = ntohl(pglsnlist[ii].file);
+			pglsnlist[ii].offset = ntohl(pglsnlist[ii].offset);
+		}
+	}
+
+	endpgno = pgno;
+	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
+	++gbl_pgmv_stats.nflsorts;
+
+	if (gbl_pgmv_verbose) {
+		logmsg(LOGMSG_WARN, "%s: freelist after sorting (%zu pages):\n", __func__, npages);
+		for (int i = 0; i != npages; ++i) {
+			logmsg(LOGMSG_WARN, "%u ", pglist[i]);
+		}
+		logmsg(LOGMSG_WARN, "\n");
 	}
 
 	/* rebuild the freelist, in page order */

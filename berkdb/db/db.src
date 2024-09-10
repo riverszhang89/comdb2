@@ -270,6 +270,7 @@ END
  *  end_pgno:   freelist points to this page number if all pages in `fl' can be truncated
  *  fl:         list of free pages to be rebuilt
  *  fllsn:      lSN's of pages in `fl'
+ *  notch:      where in the freelist we will truncate
  */
 BEGIN rebuild_freelist	70
 DB      fileid      int32_t     ld
@@ -279,6 +280,7 @@ ARG     last_pgno   db_pgno_t   lu
 ARG     end_pgno    db_pgno_t   lu
 DBT     fl          DBT         s
 DBT     fllsn       DBT         s
+ARG     notch       db_pgno_t   lu
 END
 
 /*
@@ -355,8 +357,8 @@ ARG     next_pgno    db_pgno_t   lu
 POINTER next_pglsn   DB_LSN *    lu
 ARG     prev_pgno    db_pgno_t   lu
 POINTER prev_pglsn   DB_LSN *    lu
-ARG     main_pgno  db_pgno_t   lu
-POINTER main_pglsn DB_LSN *   lu
+ARG     main_pgno    db_pgno_t   lu
+POINTER main_pglsn   DB_LSN *    lu
 ARG     main_indx    db_indx_t   lu
 ARG     new_pgno     db_pgno_t   lu
 POINTER new_pglsn    DB_LSN *    lu

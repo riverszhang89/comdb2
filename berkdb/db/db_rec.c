@@ -1810,6 +1810,8 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	pglist = argp->fl.data;
 	pglsnlist = argp->fllsn.data;
 
+	notch = argp->notch;
+
 	/* convert page lsn to host order */
 	for (ii = 0; ii != npages; ++ii) {
 		pglist[ii] = ntohl(pglist[ii]);
@@ -1818,11 +1820,6 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	}
 
 	if (DB_REDO(op)) {
-		qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
-		for (notch = npages, pgno = argp->last_pgno;
-				notch > 0 && pglist[notch - 1] == pgno && pgno != PGNO_INVALID;
-				--notch, --pgno) ;
-
 		if (gbl_pgmv_verbose) {
 			/* pglist[notch] is where in the freelist we can safely truncate. */
 			if (notch == npages) {
@@ -1847,7 +1844,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 				LSN(pagep) = *lsnp;
 				if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
 					goto out;
-			} else if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0) {
+			} else if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_CLEAN)) != 0) {
 				goto out;
 			}
 		}
