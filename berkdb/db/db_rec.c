@@ -1845,7 +1845,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 				LSN(pagep) = *lsnp;
 				if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
 					goto out;
-			} else if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_CLEAN)) != 0) {
+			} else if ((ret = __memp_fput(mpf, pagep, 0)) != 0) {
 				goto out;
 			}
 		}
