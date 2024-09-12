@@ -1744,6 +1744,12 @@ out:	REC_CLOSE;
 }
 
 extern int gbl_pgmv_verbose;
+
+typedef struct page_db_lsn {
+	db_pgno_t pgno;
+	DB_LSN *lsnp;
+} PAGE_DB_LSN;
+
 static int
 pgno_cmp(const void *x, const void *y)
 {
@@ -1774,6 +1780,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	PAGE *pagep;
 	db_pgno_t pgno, *pglist, next_pgno;
 	DB_LSN *pglsnlist;
+    PAGE_DB_LSN *sorted;
 	int cmp_n, cmp_p, cmp_pc, modified, ret;
 	int check_page = gbl_check_page_in_recovery;
 	size_t npages, ii, notch;
@@ -1809,6 +1816,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 
 	pglist = argp->fl.data;
 	pglsnlist = argp->fllsn.data;
+	sorted = NULL;
 
 	notch = argp->notch;
 
@@ -1820,28 +1828,35 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	}
 
 	if (DB_REDO(op)) {
-		qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
+		if ((ret = __os_malloc(dbenv, sizeof(PAGE_DB_LSN) * npages, &sorted)) != 0)
+			goto out;
+		for (ii = 0; ii != notch; ++ii) {
+			sorted[ii].pgno = pglist[ii];
+			sorted[ii].lsnp = &pglsnlist[ii];
+		}
+		qsort(sorted, npages, sizeof(PAGE_DB_LSN), pgno_cmp);
+
 		if (gbl_pgmv_verbose) {
-			/* pglist[notch] is where in the freelist we can safely truncate. */
+			/* sorted[notch] is where in the freelist we can safely truncate. */
 			if (notch == npages) {
-				logmsg(LOGMSG_WARN, "can't truncate: last free page %u last pg %u\n", pglist[notch - 1], argp->last_pgno);
+				logmsg(LOGMSG_WARN, "can't truncate: last free page %u last pg %u\n", sorted[notch - 1].pgno, argp->last_pgno);
 			} else {
-				logmsg(LOGMSG_WARN, "last pgno %u truncation point (array index) %zu pgno %u\n", argp->last_pgno, notch, pglist[notch]);
+				logmsg(LOGMSG_WARN, "last pgno %u truncation point (array index) %zu pgno %u\n", argp->last_pgno, notch, sorted[notch].pgno);
 			}
 		}
 
 		/* rebuild the freelist, in page order */
 		for (ii = 0; ii != notch; ++ii) {
-			pgno = pglist[ii];
+			pgno = sorted[ii].pgno;
 			if ((ret = __memp_fget(mpf, &pgno, 0, &pagep)) != 0) {
 				__db_pgerr(dbp, pgno, ret);
 				goto out;
 			}
 
-			cmp_pc = log_compare(&LSN(pagep), &pglsnlist[ii]);
-			CHECK_LSN(op, cmp_pc, &LSN(pagep), &pglsnlist[ii], lsnp, argp->fileid, pgno);
+			cmp_pc = log_compare(&LSN(pagep), sorted[ii].lsnp);
+			CHECK_LSN(op, cmp_pc, &LSN(pagep), sorted[ii].lsnp, lsnp, argp->fileid, pgno);
 			if (cmp_pc == 0) {
-				NEXT_PGNO(pagep) = (ii == notch - 1) ? argp->end_pgno : pglist[ii + 1];
+				NEXT_PGNO(pagep) = (ii == notch - 1) ? argp->end_pgno : sorted[ii + 1].pgno;
 				LSN(pagep) = *lsnp;
 				if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
 					goto out;
@@ -1852,7 +1867,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 
 		/* Discard pages to be truncated from buffer pool */
 		for (ii = notch; ii != npages; ++ii) {
-			pgno = pglist[ii];
+			pgno = sorted[ii].pgno;
 			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_PROBE, &pagep)) != 0)
 				continue;
 			/*
@@ -1871,7 +1886,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 			 * the freelist to the first free page after this range. It can
 			 * be PGNO_INVALID if there is no more free page after this range.
 			 */
-			meta->free = notch > 0 ? pglist[0] : argp->end_pgno;
+			meta->free = notch > 0 ? sorted[0].pgno : argp->end_pgno;
 			modified = 1;
 			LSN(meta) = *lsnp;
 		}
@@ -1889,7 +1904,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 			 */
 			if (log_compare(lsnp, &LSN(pagep)) == 0 || IS_ZERO_LSN(LSN(pagep))) {
 				P_INIT(pagep, dbp->pgsize, pgno, PGNO_INVALID, next_pgno, 0, P_INVALID);
-				LSN(pagep) = pglsnlist[ii];
+				LSN(pagep) = *sorted[ii].lsnp;
 				if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
 					goto out;
 			} else if ((ret = __memp_fput(mpf, pagep, 0)) != 0) {
@@ -1917,6 +1932,7 @@ done:	*lsnp = argp->prev_lsn;
 	ret = 0;
 
 out:	
+	__os_free(dbenv, sorted);
 	if (meta != NULL)
 		(void)__memp_fput(mpf, meta, 0);
 	REC_CLOSE;
