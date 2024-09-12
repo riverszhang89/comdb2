@@ -261,7 +261,6 @@ __db_rebuild_freelist(dbp, txn)
 
 		pglist[npages] = pgno;
 
-		/* We have metalock. No need to lock free pages. */
 		if ((ret = PAGEGET(dbc, dbmfp, &pgno, 0, &h)) != 0) {
 			__db_pgerr(dbp, pgno, ret);
 			goto done;
@@ -273,13 +272,15 @@ __db_rebuild_freelist(dbp, txn)
 		if ((ret = PAGEPUT(dbc, dbmfp, h, 0)) != 0)
 			goto done;
 	}
+	endpgno = pgno;
 
 	if (gbl_pgmv_verbose) {
 		logmsg(LOGMSG_WARN, "%s: %zu free pages collected:\n", __func__, npages);
 		for (int i = 0; i != npages; ++i) {
 			logmsg(LOGMSG_WARN, "%u ", pglist[i]);
+			if (i == npages - 1)
+				logmsg(LOGMSG_WARN, "\n");
 		}
-		logmsg(LOGMSG_WARN, "\n");
 	}
 
 	if (npages == 0) {
@@ -372,7 +373,7 @@ __db_rebuild_freelist(dbp, txn)
 		lsns.size = npages * sizeof(DB_LSN);
 		lsns.data = pglsnlist;
 
-		ret = __db_rebuild_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, pgno, &pgnos, &lsns, notch);
+		ret = __db_rebuild_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, endpgno, &pgnos, &lsns, notch);
 		if (ret != 0)
 			goto done;
 
@@ -384,7 +385,6 @@ __db_rebuild_freelist(dbp, txn)
 		}
 	}
 
-	endpgno = pgno;
 	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
 	++gbl_pgmv_stats.nflsorts;
 
