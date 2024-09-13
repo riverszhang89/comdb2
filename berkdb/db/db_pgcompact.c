@@ -373,6 +373,7 @@ __db_rebuild_freelist(dbp, txn)
 		lsns.size = npages * sizeof(DB_LSN);
 		lsns.data = pglsnlist;
 
+		/* TODO XXX: if unsafe-resize is disabled, can we reduce LSN's in this log record? */
 		ret = __db_rebuild_freelist_log(dbp, txn, &LSN(meta), 0, &LSN(meta), PGNO_BASE_MD, meta->last_pgno, endpgno, &pgnos, &lsns, notch);
 		if (ret != 0)
 			goto done;

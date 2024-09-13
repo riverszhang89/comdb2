@@ -1881,7 +1881,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 
 		if (cmp_p == 0) {
 			/*
-			 * Re-point the freelist to the smallest free page passed to us.
+			 * Point the freelist to the smallest free page passed to us.
 			 * If all pages in this range can be truncated, instead, point
 			 * the freelist to the first free page after this range. It can
 			 * be PGNO_INVALID if there is no more free page after this range.
@@ -1894,13 +1894,14 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 		/* undo freelist */
 		for (ii = 0; ii != npages; ++ii) {
 			pgno = pglist[ii];
-			next_pgno = (ii == npages - 1) ? PGNO_INVALID : pglist[ii + 1];
-			if ((ret = __memp_fget(mpf, &pgno, DB_MPOOL_CREATE, &pagep)) != 0)
+			next_pgno = (ii == npages - 1) ? argp->end_pgno : pglist[ii + 1];
+			if ((ret = __memp_fget(mpf, &pgno, 0, &pagep)) != 0)
 				goto out;
 
 			/*
-			 * If this is a page that we just created from the line above,
-			 * or was last touched by us, init the page and update its LSN.
+			 * if we need to undo this free page, or the page is recreated from
+			 * undoing a resize log record (in which case the page lsn will be zero),
+			 * fix the free page's next reference, and set its page lsn correctly.
 			 */
 			if (log_compare(lsnp, &LSN(pagep)) == 0 || IS_ZERO_LSN(LSN(pagep))) {
 				P_INIT(pagep, dbp->pgsize, pgno, PGNO_INVALID, next_pgno, 0, P_INVALID);
@@ -1914,6 +1915,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 
 		/* undo metapage */
 		if (cmp_n == 0) {
+			meta->free = pglist[0];
 			LSN(meta) = argp->meta_lsn;
 			modified = 1;
 		}
@@ -2307,7 +2309,10 @@ __db_resize_recover(dbenv, dbtp, lsnp, op, info)
 				ret = __db_pgerr(file_dbp, pgno, ret);
 				goto out;
 			}
-			/* reinit the page, and put it back to bufferpool */
+			/*
+			 * reinit the page, we'll fix the page lsn and next-page reference
+			 * in rebuild_freelist_recover().
+			 */
 			next_pgno = (pgno == argp->oldlast) ? PGNO_INVALID : (pgno + 1);
 			P_INIT(h, file_dbp->pgsize, pgno, PGNO_INVALID, next_pgno, 0, P_INVALID);
 			ret = __memp_fput(mpf, h, DB_MPOOL_DIRTY);
