@@ -1780,7 +1780,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	PAGE *pagep;
 	db_pgno_t pgno, *pglist, next_pgno;
 	DB_LSN *pglsnlist;
-    PAGE_DB_LSN *sorted;
+	PAGE_DB_LSN *sorted;
 	int cmp_n, cmp_p, cmp_pc, modified, ret;
 	int check_page = gbl_check_page_in_recovery;
 	size_t npages, ii, notch;
@@ -1905,7 +1905,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 			 */
 			if (log_compare(lsnp, &LSN(pagep)) == 0 || IS_ZERO_LSN(LSN(pagep))) {
 				P_INIT(pagep, dbp->pgsize, pgno, PGNO_INVALID, next_pgno, 0, P_INVALID);
-				LSN(pagep) = *sorted[ii].lsnp;
+				LSN(pagep) = pglsnlist[ii];
 				if ((ret = __memp_fput(mpf, pagep, DB_MPOOL_DIRTY)) != 0)
 					goto out;
 			} else if ((ret = __memp_fput(mpf, pagep, 0)) != 0) {
