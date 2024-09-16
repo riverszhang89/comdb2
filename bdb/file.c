@@ -9086,13 +9086,17 @@ int bdb_rebuild_freelist(bdb_state_type *bdb_state)
 {
     int rc = 0, bdberr = BDBERR_NOERROR;
     if (gbl_pgmv_unsafe_db_resize) {
-        logmsg(LOGMSG_WARN, "%s: unsafe_db_resize is enabled! full-recovery may not work!\n", __func__);
-        logmsg(LOGMSG_WARN, "%s: flushing bufferpool!\n", __func__);
-        rc = bdb_flush(bdb_state, &bdberr);
-        if (rc != 0 || bdberr != BDBERR_NOERROR) {
-            logmsg(LOGMSG_WARN, "%s: bdb_flush failed rc %d bdberr %d\n", __func__, rc, bdberr);
-            return rc;
+        BDB_READLOCK(__func__);
+        if (bdb_state->repinfo->master_host == bdb_state->repinfo->myhost) {
+            logmsg(LOGMSG_WARN, "%s: unsafe_db_resize is enabled! full-recovery may not work!\n", __func__);
+            logmsg(LOGMSG_WARN, "%s: flushing bufferpool!\n", __func__);
+            rc = bdb_flush(bdb_state, &bdberr);
+            if (rc != 0 || bdberr != BDBERR_NOERROR) {
+                logmsg(LOGMSG_WARN, "%s: bdb_flush failed rc %d bdberr %d\n", __func__, rc, bdberr);
+                return rc;
+            }
         }
+        BDB_RELLOCK();
     }
 
     pgmv_rtn rtn = bdb_state->dbp_data[0][0]->rebuild_freelist;
