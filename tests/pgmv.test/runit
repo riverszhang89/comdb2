@@ -38,7 +38,7 @@ echo 'check stat size before ---'
 szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
 
 cdb2sql $dbnm --host $leader - <<EOF
-EXEC PROCEDURE sys.cmd.send('stat pgmv')
+SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
 EXEC PROCEDURE sys.cmd.send('stat size')
 DELETE FROM t11
 EXEC PROCEDURE sys.cmd.send('flush')
@@ -50,7 +50,7 @@ nrows=`cdb2sql --tabs $dbnm --host $leader "SELECT COUNT(*) FROM t11"`
 echo "# rows remaining $nrows"
 sleep 10 # Allow the background thread to do work
 
-cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat pgmv')"
+cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
 szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
@@ -74,7 +74,7 @@ echo 'check stat size before ---'
 szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t12'"`
 
 cdb2sql $dbnm --host $leader - <<EOF
-EXEC PROCEDURE sys.cmd.send('stat pgmv')
+SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
 EXEC PROCEDURE sys.cmd.send('stat size')
 DELETE FROM t12
 EXEC PROCEDURE sys.cmd.send('flush')
@@ -86,7 +86,7 @@ nrows=`cdb2sql --tabs $dbnm --host $leader "SELECT COUNT(*) FROM t12"`
 echo "# rows remaining $nrows"
 sleep 10 # Allow the background thread to do work
 
-cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat pgmv')"
+cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
 szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t12'"`
@@ -109,7 +109,7 @@ echo 'check stat size before ---'
 szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t13'"`
 
 cdb2sql $dbnm --host $leader - <<EOF
-EXEC PROCEDURE sys.cmd.send('stat pgmv')
+SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
 EXEC PROCEDURE sys.cmd.send('stat size')
 DELETE FROM t13
 EXEC PROCEDURE sys.cmd.send('flush')
@@ -121,7 +121,7 @@ nrows=`cdb2sql --tabs $dbnm --host $leader "SELECT COUNT(*) FROM t13"`
 echo "# rows remaining $nrows"
 sleep 10 # Allow the background thread to do work
 
-cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat pgmv')"
+cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
 szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t13'"`
@@ -156,7 +156,7 @@ SELECT '--- sleeping 2 seconds to let flush do work ---' as info
 SELECT sleep(2)
 EOF
 
-cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat pgmv')"
+cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
 szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t21'"`
@@ -193,7 +193,7 @@ SELECT '--- sleeping 2 seconds to let flush do work ---' as info
 SELECT sleep(2)
 EOF
 
-cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat pgmv')"
+cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
 szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t22'"`
@@ -229,7 +229,7 @@ SELECT '--- sleeping 2 seconds to let flush do work ---' as info
 SELECT sleep(2)
 EOF
 
-cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat pgmv')"
+cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
 szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t23'"`

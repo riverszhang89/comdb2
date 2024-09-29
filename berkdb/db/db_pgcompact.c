@@ -148,34 +148,28 @@ int gbl_pgmv_only_process_pages_in_bufferpool = 1;
 int gbl_pgmv_handle_overflow = 1;
 int db_is_exiting(void);
 
-struct {
-	int64_t nflsorts;      /* number of freelist sorts */
-	int64_t nresizes;      /* number of file resizes */
-	int64_t npgswaps;      /* number of page swaps */
-	int64_t npgswapruns;   /* number of page swap runs */
-	int64_t novflswaps;    /* number of overflow page swap runs */
-	int64_t novflswapruns; /* number of page swaps */
-	int64_t ndeadlocks;    /* number of deadlock errors */
-	int64_t npgvisits;     /* number of pages visited */
-	int64_t novflvisits;   /* number of overflow pages visited */
-	int64_t npgskips;      /* number of pages skipped */
-	int64_t npgtruncates;  /* number of pages truncated */
-} gbl_pgmv_stats;
-
-void print_pgmv_stats()
-{
-	logmsg(LOGMSG_USER, "nflsorts: %ld\n", gbl_pgmv_stats.nflsorts);
-	logmsg(LOGMSG_USER, "nresizes: %ld\n", gbl_pgmv_stats.nresizes);
-	logmsg(LOGMSG_USER, "npgswaps: %ld\n", gbl_pgmv_stats.npgswaps);
-	logmsg(LOGMSG_USER, "npgswapruns: %ld\n", gbl_pgmv_stats.npgswapruns);
-	logmsg(LOGMSG_USER, "novflswaps: %ld\n", gbl_pgmv_stats.novflswaps);
-	logmsg(LOGMSG_USER, "novflswapruns: %ld\n", gbl_pgmv_stats.novflswapruns);
-	logmsg(LOGMSG_USER, "ndeadlocks: %ld\n", gbl_pgmv_stats.ndeadlocks);
-	logmsg(LOGMSG_USER, "npgvisits: %ld\n", gbl_pgmv_stats.npgvisits);
-	logmsg(LOGMSG_USER, "novflvisits: %ld\n", gbl_pgmv_stats.novflvisits);
-	logmsg(LOGMSG_USER, "npgskips: %ld\n", gbl_pgmv_stats.npgskips);
-	logmsg(LOGMSG_USER, "npgtruncates: %ld\n", gbl_pgmv_stats.npgtruncates);
-}
+/* number of deadlock errors */
+int64_t gbl_pgmv_stat_ndeadlocks;
+/* number of freelist sorts */
+int64_t gbl_pgmv_stat_nflsorts;
+/* number of overflow pages read */
+int64_t gbl_pgmv_stat_novflreads;
+/* number of overflo page swap attempts */
+int64_t gbl_pgmv_stat_novflswapattempts;
+/* number of overflow page swaps */
+int64_t gbl_pgmv_stat_novflswaps;
+/* number of pages read, including main and overflow pages */
+int64_t gbl_pgmv_stat_npgreads;
+/* number of pages skipped */
+int64_t gbl_pgmv_stat_npgskips;
+/* number of page swap attempts, including main and overflow pages */
+int64_t gbl_pgmv_stat_npgswapattempts;
+/* number of page swaps, including main and overflow pages */
+int64_t gbl_pgmv_stat_npgswaps;
+/* number of pages truncated */
+int64_t gbl_pgmv_stat_npgtruncates;
+/* number of file resizes */
+int64_t gbl_pgmv_stat_nresizes;
 
 /*
  * __db_rebuild_freelist --
@@ -387,7 +381,7 @@ __db_rebuild_freelist(dbp, txn)
 	}
 
 	qsort(pglist, npages, sizeof(db_pgno_t), pgno_cmp);
-	++gbl_pgmv_stats.nflsorts;
+	++gbl_pgmv_stat_nflsorts;
 
 	if (gbl_pgmv_verbose) {
 		logmsg(LOGMSG_WARN, "%s: freelist after sorting (%zu pages):\n", __func__, npages);
@@ -466,14 +460,14 @@ __db_rebuild_freelist(dbp, txn)
 			goto done;
 		}
 
-		++gbl_pgmv_stats.nresizes;
-		gbl_pgmv_stats.npgtruncates += oldlast - meta->last_pgno;
+		++gbl_pgmv_stat_nresizes;
+		gbl_pgmv_stat_npgtruncates += oldlast - meta->last_pgno;
 	}
 
 done:
 	if (ret == DB_LOCK_DEADLOCK) {
 		/* Keep track of deadlocks. This gives us an idea of how impactful page mover is */
-		++gbl_pgmv_stats.ndeadlocks;
+		++gbl_pgmv_stat_ndeadlocks;
 	}
 
 	__os_free(dbenv, pglist);
@@ -579,7 +573,7 @@ __db_pgswap(dbp, txn)
 
 	DBT hdr, dta, firstkey;
 
-	++gbl_pgmv_stats.npgswapruns;
+	++gbl_pgmv_stat_npgswapattempts;
 	if (gbl_pgmv_verbose) {
 		logmsg(LOGMSG_WARN, "%s: %s\n", __func__, dbp->fname);
 	}
@@ -617,7 +611,7 @@ __db_pgswap(dbp, txn)
 	cp = (BTREE_CURSOR *)dbc->internal;
 
 	/* Walk the file backwards and swap pages with a lower-numbered free page */
-	for (__memp_last_pgno(dbmfp, &pgno), stack = 0; pgno >= 1; --pgno, ++gbl_pgmv_stats.npgvisits, stack = 0) {
+	for (__memp_last_pgno(dbmfp, &pgno), stack = 0; pgno >= 1; --pgno, ++gbl_pgmv_stat_npgreads, stack = 0) {
 		if (gbl_pgmv_verbose)
 			logmsg(LOGMSG_USER, "%s: checking pgno %u\n", __func__, pgno);
 
@@ -696,7 +690,7 @@ __db_pgswap(dbp, txn)
 		page_type = TYPE(h);
 		if (page_type != P_LBTREE && page_type != P_IBTREE) {
 			if (page_type != P_INVALID && page_type != P_OVERFLOW) {
-				++gbl_pgmv_stats.npgskips;
+				++gbl_pgmv_stat_npgskips;
 				logmsg(LOGMSG_WARN, "%s: unsupported page type %d\n", __func__, page_type);
 			}
 			continue;
@@ -967,7 +961,7 @@ __db_pgswap(dbp, txn)
 			goto done;
 		}
 
-		++gbl_pgmv_stats.npgswaps;
+		++gbl_pgmv_stat_npgswaps;
 	} /* end of the big for-loop */
 
 done:
@@ -1222,7 +1216,7 @@ __db_pgswap_overflow(dbp, txn)
 	lovfl = NULL;
 	ret = t_ret = 0;
 
-	++gbl_pgmv_stats.novflswapruns;
+	++gbl_pgmv_stat_novflswapattempts;
 	if (gbl_pgmv_verbose) {
 		logmsg(LOGMSG_WARN, "%s: %s\n", __func__, dbp->fname);
 	}
@@ -1243,11 +1237,11 @@ __db_pgswap_overflow(dbp, txn)
 	}
 
 	/*
-	 * Walk the file backwards, but unlike __db_pgswap, this function does not stop on
-	 * the first free page which has a higher page number than the page we're looking at.
-	 * Locking is simpler in this function, but may be longer duration: we need to hold
-	 * onto write lock on the main page while traversing the overflow page chain. */
-	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 1; --pgno, ++gbl_pgmv_stats.npgvisits) {
+	 * Walk the file, find overflow page references and follow the overflow page chains.
+	 * Locking is simpler in this function: we only need to acquire write lock on the
+	 * main page. The write lock unfortunately may be longer duration: we need to hold
+	 * onto the lock while traversing the overflow page chain. */
+	for (__memp_last_pgno(dbmfp, &pgno); pgno >= 1; --pgno, ++gbl_pgmv_stat_npgreads) {
 		if (gbl_pgmv_verbose)
 			logmsg(LOGMSG_USER, "%s: checking overflow items on pgno %u\n", __func__, pgno);
 
@@ -1303,7 +1297,7 @@ __db_pgswap_overflow(dbp, txn)
 			ovfl_pgno = bo->pgno;
 
 			/* walk the overflow chain */
-			for (; ovfl_pgno != PGNO_INVALID; ++gbl_pgmv_stats.npgvisits, ++gbl_pgmv_stats.novflvisits) {
+			for (; ovfl_pgno != PGNO_INVALID; ++gbl_pgmv_stat_npgreads, ++gbl_pgmv_stat_novflreads) {
 				if (gbl_pgmv_verbose)
 					logmsg(LOGMSG_USER, "%s: checking overflow chain pgno %u\n", __func__, ovfl_pgno);
 
@@ -1520,8 +1514,8 @@ __db_pgswap_overflow(dbp, txn)
 					}
 				}
 
-				++gbl_pgmv_stats.npgswaps;
-				++gbl_pgmv_stats.novflswaps;
+				++gbl_pgmv_stat_npgswaps;
+				++gbl_pgmv_stat_novflswaps;
 			} /* end of walk the overflow chain */
 		} /* end of walk the entries on the main page */
 	} /* end of walk the btree */
