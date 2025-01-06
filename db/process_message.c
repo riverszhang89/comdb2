@@ -5208,6 +5208,8 @@ clipper_usage:
         }
         tokcpy0(tok, ltok, tbl, sizeof(tbl));
         rc = evict_from_cache(tbl);
+    } else if (tokcmp(tok, ltok, "abort_now") == 0) {
+        abort();
     } else {
         // see if any plugins know how to handle this
         struct message_handler *h;

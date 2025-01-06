@@ -239,5 +239,5 @@ if [ $szafter -ge $szbefore ]; then
     exit 1
 fi
 
-# pause the background thread. testsuite needs to verify btrees
-cdb2sql ${CDB2_OPTIONS} $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('pgmv_thr_pause 1')"
+# Pause the background pgmv thread. Testsuite needs to verify btree and we want to avoid intermidiate writes.
+cdb2sql ${CDB2_OPTIONS} $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('pgmv.thr_pause 1')"

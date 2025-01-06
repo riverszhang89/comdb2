@@ -1299,7 +1299,7 @@ __db_pgswap_overflow(dbp, txn)
 			/* walk the overflow chain */
 			for (; ovfl_pgno != PGNO_INVALID; ++gbl_pgmv_stat_npgreads, ++gbl_pgmv_stat_novflreads) {
 				if (gbl_pgmv_verbose)
-					logmsg(LOGMSG_USER, "%s: checking overflow chain pgno %u\n", __func__, ovfl_pgno);
+					logmsg(LOGMSG_USER, "%s: checking overflow chain pgno %u (main pgno %u)\n", __func__, ovfl_pgno, pgno);
 
 				if (db_is_exiting() || !gbl_pgmv_handle_overflow) {
 					logmsg(LOGMSG_WARN, "%s: we're asked to stop\n", __func__);
@@ -1337,9 +1337,12 @@ __db_pgswap_overflow(dbp, txn)
 					}
 				}
 
-				mainpgno = PGNO_INVALID;
-				pmainpglsn = NULL;
-				mainindx = (db_indx_t)-1;
+				/* these keep track of the reference on the main page of the overflow chain */
+				mainpgno = PGNO(h);
+				pmainpglsn = &LSN(h);
+				mainindx = (db_indx_t)ii;
+
+				/* thse keep track of the overflow chain */
 				next_ovfl_pgno = prev_ovfl_pgno = PGNO_INVALID;
 				ovfl_h = ovfl_newh = ovfl_ph = ovfl_nh = NULL;
 				ovfl_phlsn = ovfl_nhlsn = NULL;
@@ -1461,10 +1464,13 @@ __db_pgswap_overflow(dbp, txn)
 					LSN(ovfl_nh) = ret_lsn;
 				if (ovfl_ph != NULL)
 					LSN(ovfl_ph) = ret_lsn;
+				else
+					LSN(h) = ret_lsn;
 
 				/* copy the content of the old page to new page, and unpin the new page */
 				newpgno = PGNO(ovfl_newh);
 				memcpy(ovfl_newh, dta.data, dta.size);
+				/* fix page number and links */
 				PGNO(ovfl_newh) = newpgno;
 				ret = PAGEPUT(dbc, dbmfp, ovfl_newh, DB_MPOOL_DIRTY);
 				ovfl_newh = NULL;
@@ -1495,7 +1501,7 @@ __db_pgswap_overflow(dbp, txn)
 				/* relink prev. if we're the 1st page on the overflow chain, fix up the main page instead */
 				if (ovfl_ph == NULL) {
 					if (gbl_pgmv_verbose)
-						logmsg(LOGMSG_WARN, "%s: modifying ref on main page %u to %u\n", __func__, PGNO(h), newpgno);
+						logmsg(LOGMSG_WARN, "%s: modifying ref (%d) on main page %u to %u\n", __func__, mainindx, PGNO(h), newpgno);
 					bo->pgno = newpgno;
 					if ((ret = __memp_fset(dbmfp, h, DB_MPOOL_DIRTY)) != 0) {
 						__db_err(dbenv, "%s: __memp_fset(%u): rc %d", __func__, newpgno, ret);

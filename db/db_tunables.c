@@ -357,6 +357,7 @@ extern int gbl_pgmv_max_num_pages_swapped_per_txn;
 extern int gbl_pgmv_only_process_pages_in_bufferpool;
 extern int gbl_pgmv_thr;
 extern int gbl_pgmv_thr_run_interval_ms;
+extern int gbl_pgmv_thr_overflow_run_interval_ms;
 extern int gbl_pgmv_thr_pause;
 extern int gbl_memp_fput_abort_on_double_return;
 

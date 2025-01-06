@@ -2480,6 +2480,7 @@ __db_pg_swap_overflow_recover(dbenv, dbtp, lsnp, op, info)
 					logmsg(LOGMSG_WARN, "%s: redo main page %u ovfl page to %u\n", __func__, argp->main_pgno, argp->new_pgno);
 				bo = GET_BOVERFLOW(file_dbp, h, argp->main_indx);
 				bo->pgno = argp->new_pgno;
+				LSN(h) = *lsnp;
 				hmodified = 1;
 			}
 		}

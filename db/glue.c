@@ -6368,7 +6368,8 @@ int evict_from_cache(const char *table)
 
 /* number of milliseconds that we poll for each pgmv iteration */
 int gbl_pgmv_thr_run_interval_ms = 1000;
-int gbl_pgmv_thr_overflow_run_interval_ms = 1000;
+/* number of milliseconds that we poll for each overflow pgmv iteration */
+int gbl_pgmv_thr_overflow_run_interval_ms = 10000;
 int gbl_pgmv_thr_pause = 0;
 void *pgmv_thr(void *unused)
 {
@@ -6382,17 +6383,18 @@ void *pgmv_thr(void *unused)
     remaining = gbl_pgmv_thr_overflow_run_interval_ms;
 
     while (!db_is_exiting()) {
-            if (gbl_pgmv_thr_pause) {
+        if (gbl_pgmv_thr_pause) {
             poll(NULL, 0, gbl_pgmv_thr_run_interval_ms);
             continue;
-            }
+        }
 
-            rdlock_schema_lk();
-            for (i = 0; i != thedb->num_dbs; ++i) {
+        rdlock_schema_lk();
+        for (i = 0; i != thedb->num_dbs; ++i) {
             table = thedb->dbs[i];
             name = table->tablename;
+            /* skip internal tables */
             if (table->dbtype != DBTYPE_TAGGED_TABLE || strncasecmp(name, "sqlite_", strlen("sqlite_")) == 0 ||
-                strncasecmp(name, "comdb2_", strlen("comdb2_")) == 0) {
+                    strncasecmp(name, "comdb2_", strlen("comdb2_")) == 0) {
                 continue;
             }
             rebuild_freelist(name);
@@ -6401,10 +6403,10 @@ void *pgmv_thr(void *unused)
                 pgswap_overflow(name);
                 remaining = gbl_pgmv_thr_overflow_run_interval_ms;
             }
-            }
-            unlock_schema_lk();
-            poll(NULL, 0, gbl_pgmv_thr_run_interval_ms);
-            remaining -= gbl_pgmv_thr_run_interval_ms;
+        }
+        unlock_schema_lk();
+        poll(NULL, 0, gbl_pgmv_thr_run_interval_ms);
+        remaining -= gbl_pgmv_thr_run_interval_ms;
     }
     bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_DONE_RDWR);
     return NULL;
