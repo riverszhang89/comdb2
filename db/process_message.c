@@ -5460,6 +5460,8 @@ clipper_usage:
         }
     } else if (tokcmp(tok, ltok, "do_not_use_modsnap_for_snapshot") == 0) {
         gbl_use_modsnap_for_snapshot = 0;
+    } else if (tokcmp(tok, ltok, "convert_multimeta") == 0) {
+        convert_multimeta();
     } else {
         // see if any plugins know how to handle this
         struct message_handler *h;

@@ -561,6 +561,8 @@ extern int gbl_sc_history_max_rows;
 extern int gbl_sc_status_max_rows;
 extern int gbl_rep_process_pstack_time;
 extern int gbl_sql_recover_time;
+extern int gbl_convert_multimeta;
+extern int gbl_delete_multimeta;
 
 extern void set_snapshot_impl(snap_impl_enum impl);
 extern const char *snap_impl_str(snap_impl_enum impl);

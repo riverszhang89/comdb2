@@ -1800,3 +1800,121 @@ int scdone_abort_cleanup(struct ireq *iq)
     }
     return 0;
 }
+
+int gbl_convert_multimeta = 1;
+int gbl_delete_multimeta = 1;
+int oldfile_add(const char *filename, int lognum, const char *func, int line, int spew_debug);
+int bdb_get_last_logfile(bdb_state_type *bdb_state, int *bdberr);
+/*
+ * 1: multimeta - cannot delete
+ * 0: singlemeta - delete
+ */
+static int delete_multidata_files(struct dbtable *db, int force)
+{
+    char fname[PATH_MAX], basename[PATH_MAX];
+    int lognum = -1, bdberr;
+    int odh;
+    get_db_odh(db, &odh);
+
+    if (db->multimeta && !force)
+        return 1;
+
+    if (!gbl_delete_multimeta)
+        return 0;
+
+    lognum = bdb_get_last_logfile(thedb->bdb_env, &bdberr);
+    if (lognum >= 1) {
+        snprintf(fname, sizeof(fname), "%s/%s.meta.dta", thedb->basedir, db->tablename);
+        if (access(fname, F_OK) == 0) {
+            snprintf(basename, sizeof(basename), "%s.meta.dta", db->tablename);
+            logmsg(LOGMSG_WARN, "deleting multimeta file %s on logfile %d\n", basename, lognum);
+            oldfile_add(basename, lognum, __func__, __LINE__, 0);
+        }
+        snprintf(fname, sizeof(fname), "%s/%s.metalite.dta", thedb->basedir, db->tablename);
+        if (access(fname, F_OK) == 0) {
+            snprintf(basename, sizeof(basename), "%s.metalite.dta", db->tablename);
+            logmsg(LOGMSG_WARN, "deleting multimeta file %s on logfile %d\n", basename, lognum);
+            oldfile_add(basename, lognum, __func__, __LINE__, 0);
+        }
+    }
+
+    return 0;
+}
+static void *sc_multimeta_convert_thread(void *unused)
+{
+    struct ireq iq;
+    tran_type *tran = NULL;
+    struct schema_change_type sc = {0};
+    struct dbtable *db;
+    int compr = 0, blob_compr = 0, bthashsz = 0;
+    int rc, i;
+
+    logmsg(LOGMSG_INFO, "starting %s\n", __func__);
+    comdb2_name_thread(__func__);
+    while (thedb->master == gbl_myhostname) {
+        bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_START_RDWR);
+        wrlock_schema_lk();
+
+        /* do not need 'static_table' any more. */
+        delete_multidata_files(&thedb->static_table, 1);
+
+        for (i = 0; i < thedb->num_dbs; ++i) {
+            db = thedb->dbs[i];
+
+            if (delete_multidata_files(db, 0) == 0)
+                continue;
+
+            init_schemachange_type(&sc);
+            rc = sc_set_running(NULL, &sc, db->tablename, 1, NULL, 0, __func__, __LINE__);
+            if (rc != 0) {
+                logmsg(LOGMSG_WARN, "schemachange in progress for %s\n", db->tablename);
+                break;
+            }
+
+            init_fake_ireq_auxdb(thedb, &iq, AUXDB_META);
+            rc = trans_start_sc(&iq, NULL, &tran);
+            if (rc == 0) {
+                get_db_compress_tran(db, &compr, tran);
+                get_db_compress_blobs_tran(db, &blob_compr, tran);
+                get_db_bthash_tran(db, &bthashsz, tran);
+
+                sc.headers = db->odh;
+                sc.ip_updates = db->inplace_updates;
+                sc.compress = compr;
+                sc.compress_blobs = blob_compr;
+
+                rc = set_header_and_properties(tran, db, &sc, 1, bthashsz);
+                if (rc == 0)
+                    rc = trans_commit(&iq, tran, gbl_myhostname);
+                if (rc == 0)
+                    logmsg(LOGMSG_INFO, "converted table %s to singlemeta\n", db->tablename);
+                else
+                    logmsg(LOGMSG_WARN, "failed converting table %s to singlemeta\n", db->tablename);
+
+                delete_multidata_files(db, 0);
+                sc_set_running(NULL, &sc, db->tablename, 0, NULL, 0, __func__, __LINE__);
+            }
+        }
+        unlock_schema_lk();
+        bdb_thread_event(thedb->bdb_env, BDBTHR_EVENT_DONE_RDWR);
+        if (i >= thedb->num_dbs) {
+            break;
+        } else {
+            /* sc in-progress; check again in 60 seconds */
+            sleep(60);
+        }
+    }
+    logmsg(LOGMSG_INFO, "exiting %s\n", __func__);
+    return NULL;
+}
+
+void convert_multimeta()
+{
+    int rc;
+    pthread_t tid;
+    if (!gbl_create_mode && gbl_convert_multimeta && thedb->master == gbl_myhostname) {
+        rc = pthread_create(&tid, &gbl_pthread_attr_detached, sc_multimeta_convert_thread, NULL);
+        if (rc != 0)
+            logmsgperror("%s:pthread_create");
+    }
+}

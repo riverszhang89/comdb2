@@ -2470,4 +2470,6 @@ REGISTER_TUNABLE("sc_status_max_rows", "Max number of rows returned in comdb2_sc
 REGISTER_TUNABLE("rep_process_pstack_time", "pstack the server if rep_process runs longer than time specified in secs (Default: 30s)",
                  TUNABLE_INTEGER, &gbl_rep_process_pstack_time, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("sql_recover_time", "Number of msec before checking if SQL has waiters. 0 will disable. (Default: 10ms)", TUNABLE_INTEGER, &gbl_sql_recover_time, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("convert_multimeta", "auto-convert multimeta tables to singlemeta", TUNABLE_BOOLEAN, &gbl_convert_multimeta, 0, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("delete_multimeta", "delete multimeta files", TUNABLE_BOOLEAN, &gbl_delete_multimeta, 0, NULL, NULL, NULL, NULL);
 #endif /* _DB_TUNABLES_H */

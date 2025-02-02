@@ -114,8 +114,9 @@ enum AUXDB_TYPES {
     AUXDB_NONE = 0
     /* 1 used to be AUXDB_BLKSEQ, but it has been purged */
     ,
-    AUXDB_META = 2,
-    AUXDB_FSTBLK = 3
+    AUXDB_META = 2, /* single meta */
+    AUXDB_FSTBLK = 3,
+    AUXDB_MULTIMETA = 4 /* multi meta: do not use this directly; only set internally */
 };
 
 /* This is thenumber of bytes taken up by the null bitmap in the wire protocol,
@@ -786,6 +787,8 @@ typedef struct dbtable {
 
     unsigned disableskipscan : 1;
     unsigned do_local_replication : 1;
+
+    unsigned multimeta : 1;
 
     /* name of the timepartition, if this is a shard */
     const char *timepartition_name;
@@ -3736,5 +3739,6 @@ static inline char *skipws(char *str)
 void get_disable_skipscan_all();
 
 void get_client_origin(char *out, size_t outlen, struct sqlclntstate *clnt);
-
+extern int gbl_convert_multimeta;
+void convert_multimeta();
 #endif /* !INCLUDED_COMDB2_H */

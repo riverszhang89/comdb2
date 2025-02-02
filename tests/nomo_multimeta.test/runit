@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+source ${TESTSROOTDIR}/tools/runit_common.sh
+source ${TESTSROOTDIR}/tools/cluster_utils.sh
+
+bash -n "$0" | exit 1
+
+dbnm=$1
+master=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm default 'SELECT host FROM comdb2_cluster WHERE is_master="Y"'`
+
+cdb2sql ${CDB2_OPTIONS} $dbnm default "CREATE TABLE t1 (a INTEGER PRIMARY KEY, b INTEGER)"
+cdb2sql ${CDB2_OPTIONS} $dbnm default "INSERT INTO t1 VALUES (1,1),(2,2),(3,3)"
+
+echo "should see a list of multimeta files"
+cdb2sql ${CDB2_OPTIONS} $dbnm default "SELECT DISTINCT filename FROM comdb2_files WHERE filename LIKE '%metalite%'"
+
+# this tunable unfortunately requires a bounce
+echo 'convert_multimeta 1' >> ${DBDIR}/${DBNAME}.lrl
+if [ -n "${CLUSTER}" ]; then
+    for node in $CLUSTER; do
+        ssh -o StrictHostKeyChecking=no $node "echo 'convert_multimeta 1' >> ${DBDIR}/${DBNAME}.lrl"
+    done
+fi
+bounce_database 10
+
+sleep 10
+echo "should still see a list of multimeta files"
+cdb2sql ${CDB2_OPTIONS} $dbnm default "SELECT DISTINCT filename FROM comdb2_files WHERE filename LIKE '%metalite%'"
+
+# Ensure we can flush
+cdb2sql ${CDB2_OPTIONS} $dbnm default "EXEC PROCEDURE sys.cmd.send('flush')"
+
+# Push log so files can be deleted
+cdb2sql $dbnm --host $master "EXEC PROCEDURE sys.cmd.send('pushnext')"
+sleep 10
+
+echo "should see no multimeta files"
+cdb2sql ${CDB2_OPTIONS} $dbnm default "SELECT COUNT(filename) FROM comdb2_files WHERE filename LIKE '%metalite%'"
+
+# Ensure that we can read from data and index
+echo "read test"
+cdb2sql ${CDB2_OPTIONS} $dbnm default "SELECT * FROM t1"
+cdb2sql ${CDB2_OPTIONS} $dbnm default "SELECT * FROM t1 WHERE a = 1"
+echo "read test done"
+
+# Ensure again that we can flush, now that multimeta files are deleted
+cdb2sql ${CDB2_OPTIONS} $dbnm default "EXEC PROCEDURE sys.cmd.send('flush')"
+
+# cleanup
+if [ -n "${CLUSTER}" ]; then
+    for node in $CLUSTER; do
+        ssh -o StrictHostKeyChecking=no $node "kill -9 $(cat ${TMPDIR}/${DBNAME}.${node}.pid)"
+    done
+fi
+kill -9 $(cat ${TMPDIR}/${DBNAME}.pid)
+
+wait

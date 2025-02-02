@@ -7774,7 +7774,7 @@ done:
     return rc;
 }
 
-static int oldfile_add(const char *filename, int lognum, const char *func,
+int oldfile_add(const char *filename, int lognum, const char *func,
                        int line, int spew_debug)
 {
     size_t len = strlen(filename);

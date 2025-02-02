@@ -358,8 +358,10 @@ done:
 
 static inline void set_empty_queue_options(struct schema_change_type *s)
 {
-    if (gbl_init_with_queue_odh == 0)
+    if (gbl_init_with_queue_odh == 0) {
         gbl_init_with_queue_compr = 0;
+        gbl_init_with_queue_persistent_seq = 0;
+    }
     if (s->headers == -1)
         s->headers = gbl_init_with_queue_odh;
     if (s->compress == -1)

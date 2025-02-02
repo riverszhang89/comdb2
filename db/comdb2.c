@@ -2275,6 +2275,19 @@ static inline int db_get_alias(void *tran, dbtable *tbl)
     return 0;
 }
 
+static void init_static_table(struct dbenv *dbenv)
+{
+    /* Initialize static table once */
+    if (dbenv->static_table.dbs_idx != 0)
+        return;
+    /* Initialize static table once */
+    logmsg(LOGMSG_INFO, "%s initializing static table '%s'\n", __func__, COMDB2_STATIC_TABLE);
+    dbenv->static_table.dbs_idx = -1;
+    dbenv->static_table.tablename = COMDB2_STATIC_TABLE;
+    dbenv->static_table.dbenv = dbenv;
+    dbenv->static_table.dbtype = DBTYPE_TAGGED_TABLE;
+    dbenv->static_table.handle = dbenv->bdb_env;
+}
 
 /* gets the table names and dbnums from the low level meta table and sets up the
  * dbenv accordingly.  returns 0 on success and anything else otherwise */
@@ -2298,16 +2311,7 @@ static int llmeta_load_tables(struct dbenv *dbenv, void *tran)
      * sure */
     bdb_attr_set(dbenv->bdb_attr, BDB_ATTR_GENIDS, 1);
 
-    /* Initialize static table once */
-    if (dbenv->static_table.dbs_idx == 0) {
-        logmsg(LOGMSG_INFO, "%s initializing static table '%s'\n", __func__,
-               COMDB2_STATIC_TABLE);
-        dbenv->static_table.dbs_idx = -1;
-        dbenv->static_table.tablename = COMDB2_STATIC_TABLE;
-        dbenv->static_table.dbenv = dbenv;
-        dbenv->static_table.dbtype = DBTYPE_TAGGED_TABLE;
-        dbenv->static_table.handle = dbenv->bdb_env;
-    }
+    init_static_table(dbenv);
 
     /* make room for dbs */
     dbenv->dbs = realloc(dbenv->dbs, fndnumtbls * sizeof(dbtable *));
@@ -4220,6 +4224,8 @@ static int init(int argc, char **argv)
 
     if (gbl_create_mode) {
         create_service_file(lrlname);
+        if (!gbl_init_single_meta)
+            init_static_table(thedb);
     }
 
     /* open db engine */
@@ -4277,6 +4283,20 @@ static int init(int argc, char **argv)
     if (gbl_create_mode && verify_deferred_dbstore_clientfuncs() != 0) {
         logmsg(LOGMSG_FATAL, "invalid client function for dbstore\n");
         return -1;
+    }
+
+    if (thedb->master == gbl_myhostname && thedb->meta == NULL && gbl_convert_multimeta) {
+        int bdberr;
+        char singlemeta[256];
+        if (gbl_nonames)
+            snprintf(singlemeta, sizeof(singlemeta), "comdb2_metadata");
+        else
+            snprintf(singlemeta, sizeof(singlemeta), "%s.metadata", thedb->envname);
+
+        thedb->meta = bdb_create_more_lite(singlemeta, thedb->basedir, 0, sizeof(struct metahdr2),
+                                           0, thedb->bdb_env, &bdberr);
+        if (thedb->meta == NULL)
+            logmsg(LOGMSG_WARN, "failed creating singlemeta. db will stay multimeta. bdberr %d\n", bdberr);
     }
     unlock_schema_lk();
 
@@ -5755,6 +5775,7 @@ int main(int argc, char **argv)
     gbl_tunables->freeze = 1;
 
     handle_resume_sc();
+    convert_multimeta();
 
     create_marker_file();
 

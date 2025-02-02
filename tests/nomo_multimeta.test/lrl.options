@@ -1,0 +1,8 @@
+logmsg level info
+singlemeta 0
+dtastripe 1
+convert_multimeta 0
+setattr PRIVATE_BLKSEQ_MAXAGE 1
+setattr MIN_KEEP_LOGS 1
+setattr MIN_KEEP_LOGS_AGE 0 
+setattr DEBUG_LOG_DELETION 1

@@ -191,11 +191,11 @@ static void *get_bdb_handle(struct dbtable *db, int auxdb)
     case AUXDB_NONE:
         bdb_handle = db->handle;
         break;
-    case AUXDB_META:
-        if (!db->meta && db->dbenv->meta)
-            bdb_handle = db->dbenv->meta;
-        else
-            bdb_handle = db->meta;
+    case AUXDB_META: /* prefer single-meta */
+        bdb_handle = db->dbenv->meta ? db->dbenv->meta : db->meta;
+        break;
+    case AUXDB_MULTIMETA: /* must use multi-meta */
+        bdb_handle = db->meta;
         break;
     default:
         logmsg(LOGMSG_ERROR, "get_bdb_handle: bad auxdb=%d\n", auxdb);
@@ -3029,6 +3029,8 @@ static void new_master_callback_int(void *bdb_handle, int assert_sc_clear)
             }
             load_auto_analyze_counters();
             XCHANGE32(gbl_trigger_timepart, 1);
+            if (gbl_ready)
+                convert_multimeta();
         }
         ctrace("I AM NEW MASTER NODE %s\n", host);
         gbl_master_changed_oldfiles = 1;
@@ -3611,8 +3613,8 @@ int open_auxdbs(struct dbtable *db, int force_create)
     char litename[100];
     int bdberr;
 
-    /* if we have a singlemeta then no need to open another meta. */
-    if (thedb->meta)
+    /* if we have a singlemeta then no need to create another meta. */
+    if (thedb->meta && force_create)
         return 0;
 
     /* meta information dbs.  we need to make sure that lite meta tables
@@ -3655,13 +3657,13 @@ int open_auxdbs(struct dbtable *db, int force_create)
                                      numdtafiles, db->dbenv->bdb_env, &bdberr);
         }
     }
-    if (db->meta == NULL) {
+    if (db->meta == NULL && thedb->meta == NULL) {
+        /* no singlemeta no multimeta? */
         logmsg(LOGMSG_ERROR, "bdb_open_more(meta) bdberr %d\n", bdberr);
-    }
-    if (db->meta)
-        return 0;
-    else
+        abort();
         return -1;
+    }
+    return 0;
 }
 
 void comdb2_net_start_thread(void *opaque)
@@ -4092,14 +4094,18 @@ int backend_open_tran(struct dbenv *dbenv, tran_type *tran, uint32_t flags)
     if (!dbenv->meta) {
         /* open the meta file for the "static table". */
         (void)open_auxdbs(&dbenv->static_table, 0);
-        for (ii = 0; ii < dbenv->num_dbs; ii++) {
-            rc = open_auxdbs(dbenv->dbs[ii], 0);
-            /* We still have production comdb2s that don't have meta, so we
-             * can't
-             * make this a fatal error. -- Sam J */
-            if (rc) {
-                logmsg(LOGMSG_ERROR, "meta database not available\n");
-            }
+    }
+    /*
+     * Always try to open any multimeta files. It's not an error
+     * if not found. It just means that the data is singlemeta.
+     */
+    for (ii = 0; ii < dbenv->num_dbs; ii++) {
+        rc = open_auxdbs(dbenv->dbs[ii], 0);
+        /* We still have production comdb2s that don't have meta, so we
+         * can't
+         * make this a fatal error. -- Sam J */
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "multimeta database not available for table %s\n", dbenv->dbs[ii]->tablename);
         }
     }
 
@@ -4917,8 +4923,10 @@ static int meta_get_tran(tran_type *tran, struct dbtable *db, struct metahdr *ke
         iq.debug = 1;
     }
 
-    if (is_auxdb_lite(AUXDB_META, &iq)) {
-        rc = lite_find_exact_auxdb_tran(AUXDB_META, &iq, tran, key, dta,
+    enum AUXDB_TYPES metatype = AUXDB_META;
+meta_find:
+    if (is_auxdb_lite(metatype, &iq)) {
+        rc = lite_find_exact_auxdb_tran(metatype, &iq, tran, key, dta,
                                         &fndlen, dtalen);
     } else {
         if (tran) {
@@ -4926,11 +4934,21 @@ static int meta_get_tran(tran_type *tran, struct dbtable *db, struct metahdr *ke
                             "meta table is not implemented\n");
             return 1;
         }
-        rc = ix_find_auxdb(AUXDB_META, &iq, 0, key, sizeof(struct metahdr),
+        rc = ix_find_auxdb(metatype, &iq, 0, key, sizeof(struct metahdr),
                            &fndhdr, &rrn, &genid, dta, &fndlen, dtalen);
     }
+    if (rc == IX_NOTFND && metatype == AUXDB_META) {
+        /* try again using multi-meta */
+        metahdr_type_put(key1, p_hdr_buf, p_hdr_buf_end);
+        key = p_metahdr;
+        metatype = AUXDB_MULTIMETA;
+        goto meta_find;
+    }
 
-    if (db->dbenv->meta) {
+    if (rc == 0)
+        db->multimeta = (metatype == AUXDB_MULTIMETA);
+
+    if (db->dbenv->meta && metatype == AUXDB_META) {
         memcpy(key1, &key2.hdr1, sizeof(struct metahdr));
     }
 
@@ -4977,8 +4995,10 @@ static int meta_get_var_tran(tran_type *tran, struct dbtable *db,
         iq.debug = 1;
     }
 
-    if (is_auxdb_lite(AUXDB_META, &iq)) {
-        rc = lite_find_exact_var_auxdb_tran(AUXDB_META, &iq, tran, key, dta,
+    enum AUXDB_TYPES metatype = AUXDB_META;
+meta_find:
+    if (is_auxdb_lite(metatype, &iq)) {
+        rc = lite_find_exact_var_auxdb_tran(metatype, &iq, tran, key, dta,
                                             fndlen);
     } else {
         /* silly loop to find record with the right length */
@@ -4996,7 +5016,7 @@ static int meta_get_var_tran(tran_type *tran, struct dbtable *db,
                 free(*dta);
             dtalen = *fndlen;
             *dta = malloc(dtalen);
-            rc = ix_find_auxdb(AUXDB_META, &iq, 0, key, sizeof(struct metahdr),
+            rc = ix_find_auxdb(metatype, &iq, 0, key, sizeof(struct metahdr),
                                &fndhdr, &rrn, &genid, *dta, fndlen, dtalen);
             /* we are looking for an exact match, so bomb on any deviation */
             if (rc != 0) {
@@ -5007,8 +5027,18 @@ static int meta_get_var_tran(tran_type *tran, struct dbtable *db,
             }
         } while (dtalen < *fndlen);
     }
+    if (rc == IX_NOTFND && metatype == AUXDB_META) {
+        /* try again using multi-meta */
+        metahdr_type_put(key1, p_hdr_buf, p_hdr_buf_end);
+        key = p_metahdr;
+        metatype = AUXDB_MULTIMETA;
+        goto meta_find;
+    }
 
-    if (db->dbenv->meta) {
+    if (rc == 0)
+        db->multimeta = (metatype == AUXDB_MULTIMETA);
+
+    if (db->dbenv->meta && metatype == AUXDB_META) {
         memcpy(key1, &key2.hdr1, sizeof(struct metahdr));
     }
 
