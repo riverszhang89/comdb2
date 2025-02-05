@@ -77,6 +77,8 @@ services:
     client:
         container_name: c1
         hostname: c1
+        ulimits:
+            core: -1 
         labels:
             what: "testclient"
         networks:
@@ -107,6 +109,8 @@ cat >> $compose <<EOF
     $node:
         container_name: $node
         hostname: $node
+        ulimits:
+            core: -1 
         labels:
             what: "testserver"
         networks:

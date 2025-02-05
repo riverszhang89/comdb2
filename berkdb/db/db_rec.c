@@ -2297,6 +2297,7 @@ __db_resize_recover(dbenv, dbtp, lsnp, op, info)
 		meta->last_pgno = argp->newlast;
 		/* notify bufferpool */
 		__memp_resize(mpf, argp->newlast);
+        LSN(meta) = *lsnp;
         modified = 1;
 	} else if (cmp_n == 0 && DB_UNDO(op)) {
 		/* notify bufferpool */
@@ -2320,6 +2321,7 @@ __db_resize_recover(dbenv, dbtp, lsnp, op, info)
 			if (ret != 0)
 				goto out;
 		}
+        LSN(meta) = argp->meta_lsn;
         modified = 1;
 	}
 done:	*lsnp = argp->prev_lsn;

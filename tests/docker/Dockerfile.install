@@ -1,4 +1,8 @@
-FROM ubuntu:latest
+FROM artprod.dev.bloomberg.com/ubuntu20:latest
+ENV TZ America/New_York
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US.UTF-8
+
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
@@ -46,6 +50,8 @@ RUN apt-get update && \
     uuid-dev && \
   ln -fs /usr/share/zoneinfo/America/New_York /etc/localtime && \
   dpkg-reconfigure --frontend noninteractive tzdata
+
+RUN  apt install -y nscd uuid-runtime systemd-coredump
 
 COPY . /comdb2
 
