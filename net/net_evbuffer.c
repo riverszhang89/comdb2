@@ -2861,6 +2861,10 @@ static int do_appsock_evbuffer(struct evbuffer *buf, struct sockaddr_in *ss, int
             return 1;
         }
 
+        if (strcmp(key, "get ") == 0 ) {
+        void *d = evbuffer_pullup(buf, 3);
+        puts((char *)d);
+        }
         info = get_appsock_info(key);
     }
 

@@ -24,6 +24,8 @@ struct appsock_handler_arg {
     struct timeval start;
     char *origin;
     TAILQ_ENTRY(appsock_handler_arg) entry;
+
+    int badrte;
 };
 
 int add_appsock_handler(const char *, event_callback_fn);

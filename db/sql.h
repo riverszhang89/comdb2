@@ -886,6 +886,9 @@ struct sqlclntstate {
     uint8_t in_sqlite_init; /* clnt is in sqlite init phase when this is set */
     uint8_t secure;         /* clnt is forwarded from pmux over the secure port, */
 
+    uint8_t skip_a_line;
+    uint8_t report_badrte;
+
     int where_trace_flags;
 
     int ncontext;

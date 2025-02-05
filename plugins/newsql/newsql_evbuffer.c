@@ -415,6 +415,12 @@ static int ssl_check(struct newsql_appdata_evbuffer *appdata, int have_ssl, int 
 
 static int dispatch_client(struct newsql_appdata_evbuffer *appdata)
 {
+    struct sqlclntstate *clnt = &appdata->clnt;
+    if (clnt->report_badrte) {
+        logmsg(LOGMSG_ERROR, "misused rte host:%s pid:%d argv0:%s query:%.32s stack:%s\n",
+               clnt->origin, clnt->conninfo.pid, clnt->argv0, clnt->sql, clnt->stack);
+        clnt->report_badrte = 0;
+    }
     return dispatch_sql_query_no_wait(&appdata->clnt);
 }
 
@@ -870,6 +876,37 @@ static void rd_hdr(int dummyfd, short what, void *arg)
 {
     struct newsqlheader hdr;
     struct newsql_appdata_evbuffer *appdata = arg;
+    if (appdata->clnt.skip_a_line) {
+        size_t len;
+        char *line;
+        char zero[] = "0\n";
+        if ((line = evbuffer_readln(appdata->rd_buf, &len, EVBUFFER_EOL_ANY)) != NULL) {
+            puts(line);
+            free(line);
+            if (--appdata->clnt.skip_a_line)
+                write(appdata->fd, zero, 2);
+        } else {
+            if (evbuffer_read(appdata->rd_buf, appdata->fd, -1) <= 0 && (what & EV_READ)) {
+                newsql_cleanup(appdata);
+                return;
+            }
+
+            if ((line = evbuffer_readln(appdata->rd_buf, &len, EVBUFFER_EOL_ANY)) != NULL) {
+                puts(line);
+                free(line);
+                if (--appdata->clnt.skip_a_line)
+                    write(appdata->fd, zero, 2);
+            }
+
+            printf("%zu\n", evbuffer_get_length(appdata->rd_buf));
+
+            if (evbuffer_get_length(appdata->rd_buf) < sizeof(struct newsqlheader)) {
+                add_rd_event(appdata, appdata->rd_hdr_ev, NULL);
+                return;
+            }
+        }
+    }
+
     if (evbuffer_get_length(appdata->rd_buf) >= sizeof(struct newsqlheader)) {
         goto hdr;
     }
@@ -1151,6 +1188,9 @@ static void newsql_setup_clnt_evbuffer(int fd, short what, void *data)
     clnt->admin = admin;
     clnt->force_readonly = arg->is_readonly;
     clnt->secure = arg->secure;
+    clnt->report_badrte = arg->badrte;
+    if (arg->badrte)
+        clnt->skip_a_line = 2;
     appdata->base = arg->base;
     appdata->initial = 1;
     appdata->local = local;
@@ -1241,6 +1281,7 @@ static void handle_newsql_request_evbuffer(int dummyfd, short what, void *data)
 {
     struct appsock_handler_arg *arg = data;
     arg->admin = 0;
+    arg->badrte = 0;
     gethostname_enqueue(arg);
 }
 
@@ -1248,6 +1289,15 @@ static void handle_newsql_admin_request_evbuffer(int dummyfd, short what, void *
 {
     struct appsock_handler_arg *arg = data;
     arg->admin = 1;
+    arg->badrte = 0;
+    gethostname_enqueue(arg);
+}
+
+static void handle_newsql_bad_rte_request_evbuffer(int dummyfd, short what, void *data)
+{
+    struct appsock_handler_arg *arg = data;
+    arg->admin = 0;
+    arg->badrte = 1;
     gethostname_enqueue(arg);
 }
 
@@ -1257,6 +1307,7 @@ static int newsql_init(void *arg)
     Pthread_create(&gethostname_thd, NULL, gethostname_fn, NULL);
     add_appsock_handler("newsql\n", handle_newsql_request_evbuffer);
     add_appsock_handler("@newsql\n", handle_newsql_admin_request_evbuffer);
+    add_appsock_handler("rte ", handle_newsql_bad_rte_request_evbuffer);
     return 0;
 }
 
