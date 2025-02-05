@@ -2844,7 +2844,8 @@ static void rd_connect_msg_len(int fd, short what, void *data)
     }
 }
 
-static int do_appsock_evbuffer(struct evbuffer *buf, struct sockaddr_in *ss, int fd, int is_readonly, int secure)
+static int do_appsock_evbuffer(struct evbuffer *buf, struct sockaddr_in *ss, int fd, int is_readonly, int secure,
+                               int *pagain)
 {
     struct appsock_info *info = NULL;
     struct evbuffer_ptr b = evbuffer_search(buf, "\n", 1, NULL);
@@ -2858,6 +2859,16 @@ static int do_appsock_evbuffer(struct evbuffer *buf, struct sockaddr_in *ss, int
         key[b.pos + 1] = 0;
         if (secure && strstr(key, "newsql") == NULL) {
             logmsg(LOGMSG_ERROR, "appsock '%s' disallowed on secure port\n", key);
+            return 1;
+        }
+
+        if (strcmp(key, "rte ") == 0) {
+            evbuffer_read(buf, fd, -1);
+            evbuffer_free(buf);
+            logmsg(LOGMSG_ERROR, "misused rte!\n");
+            ssize_t rc = write(fd, "0\n", 2);
+            if (rc == 2 && pagain)
+                *pagain = 1;
             return 1;
         }
 
@@ -2903,6 +2914,7 @@ static void do_read(int fd, short what, void *data)
     netinfo_type *netinfo_ptr = a->netinfo_ptr;
     struct sockaddr_in ss = a->ss;
     int secure = a->secure;
+    int again = 0;
     a->fd = -1;
     accept_info_free(a);
     a = NULL;
@@ -2911,8 +2923,12 @@ static void do_read(int fd, short what, void *data)
         shutdown_close(fd);
         return;
     }
-    if ((do_appsock_evbuffer(buf, &ss, fd, 0, secure)) == 0) return;
-    handle_appsock(netinfo_ptr, &ss, first_byte, buf, fd);
+    if ((do_appsock_evbuffer(buf, &ss, fd, 0, secure, &again)) == 0)
+        return;
+    if (again)
+        accept_info_new(netinfo_ptr, &ss, fd, secure);
+    else
+        handle_appsock(netinfo_ptr, &ss, first_byte, buf, fd);
 }
 
 static void accept_cb(struct evconnlistener *listener, evutil_socket_t fd,
@@ -3881,5 +3897,5 @@ void do_revconn_evbuffer(int fd, short what, void *data)
     struct sockaddr_in addr;
     socklen_t laddr = sizeof(addr);
     getsockname(fd, (struct sockaddr *)&addr, &laddr);
-    do_appsock_evbuffer(buf, &addr, fd, 1, 0);
+    do_appsock_evbuffer(buf, &addr, fd, 1, 0, NULL);
 }
