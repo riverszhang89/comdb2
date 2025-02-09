@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.13)
+cmake_minimum_required (VERSION 3.10)
 project (Comdb2 ${COMDB2_BBPROJECT})
 
 set(CMAKE_C_STANDARD 99)
@@ -223,7 +223,7 @@ if (${CMAKE_C_COMPILER_ID} STREQUAL GNU OR ${CMAKE_C_COMPILER_ID} STREQUAL Clang
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-switch")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-function")
   if (${CMAKE_C_COMPILER_ID} STREQUAL GNU)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-stringop-truncation")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-strict-overflow")
   endif()
   set(COMMON_FLAGS "${COMMON_FLAGS} -pthread")
   set(COMMON_FLAGS "${COMMON_FLAGS} -fno-strict-aliasing")

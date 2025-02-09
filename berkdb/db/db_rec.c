@@ -1830,7 +1830,7 @@ __db_rebuild_freelist_recover(dbenv, dbtp, lsnp, op, info)
 	if (DB_REDO(op)) {
 		if ((ret = __os_malloc(dbenv, sizeof(PAGE_DB_LSN) * npages, &sorted)) != 0)
 			goto out;
-		for (ii = 0; ii != notch; ++ii) {
+		for (ii = 0; ii != npages; ++ii) {
 			sorted[ii].pgno = pglist[ii];
 			sorted[ii].lsnp = &pglsnlist[ii];
 		}
@@ -2472,9 +2472,7 @@ __db_pg_swap_overflow_recover(dbenv, dbtp, lsnp, op, info)
 				LSN(poh) = *lsnp;
 				pohmodified = 1;
 			}
-		}
-
-		if (h != NULL) {
+		} else if (h != NULL) {
 			cmp_p = log_compare(&LSN(h), &argp->main_pglsn);
 			CHECK_LSN(op, cmp_p, &LSN(h), &argp->main_pglsn, lsnp, argp->fileid, argp->main_pgno);
 			if (cmp_p == 0) {

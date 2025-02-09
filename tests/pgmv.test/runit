@@ -31,7 +31,7 @@ DROP TABLE IF EXISTS t11
 CREATE TABLE t11 (i INTEGER)\$\$
 INSERT INTO t11 SELECT value FROM generate_series(1, $total)
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT sleep(2)
+SELECT sleep(5)
 EOF
 
 echo 'check stat size before ---'
@@ -42,8 +42,8 @@ SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
 EXEC PROCEDURE sys.cmd.send('stat size')
 DELETE FROM t11
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT '--- sleeping 2 seconds to let flush do work ---' as info
-SELECT sleep(2)
+SELECT '--- sleeping 5 seconds to let flush do work ---' as info
+SELECT sleep(5)
 EOF
 
 nrows=`cdb2sql --tabs $dbnm --host $leader "SELECT COUNT(*) FROM t11"`
@@ -67,7 +67,7 @@ CREATE TABLE t12 (i INTEGER)\$\$
 CREATE INDEX t12i ON t12(i)
 INSERT INTO t12 SELECT value FROM generate_series(1, $total)
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT sleep(2)
+SELECT sleep(5)
 EOF
 
 echo 'check stat size before ---'
@@ -78,8 +78,8 @@ SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
 EXEC PROCEDURE sys.cmd.send('stat size')
 DELETE FROM t12
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT '--- sleeping 2 seconds to let flush do work ---' as info
-SELECT sleep(2)
+SELECT '--- sleeping 5 seconds to let flush do work ---' as info
+SELECT sleep(5)
 EOF
 
 nrows=`cdb2sql --tabs $dbnm --host $leader "SELECT COUNT(*) FROM t12"`
@@ -102,7 +102,7 @@ DROP TABLE IF EXISTS t13
 CREATE TABLE t13 (b blob)\$\$
 INSERT INTO t13 SELECT randomblob(16) FROM generate_series(1, $total)
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT sleep(2)
+SELECT sleep(5)
 EOF
 
 echo 'check stat size before ---'
@@ -113,8 +113,8 @@ SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
 EXEC PROCEDURE sys.cmd.send('stat size')
 DELETE FROM t13
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT '--- sleeping 2 seconds to let flush do work ---' as info
-SELECT sleep(2)
+SELECT '--- sleeping 5 seconds to let flush do work ---' as info
+SELECT sleep(5)
 EOF
 
 nrows=`cdb2sql --tabs $dbnm --host $leader "SELECT COUNT(*) FROM t13"`
@@ -137,7 +137,7 @@ DROP TABLE IF EXISTS t21
 CREATE TABLE t21 (i INTEGER)\$\$
 INSERT INTO t21 SELECT value FROM generate_series(1, $total)
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT sleep(2)
+SELECT sleep(5)
 EOF
 
 szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t21'"`
@@ -152,8 +152,8 @@ cdb2sql $dbnm --host $leader - <<EOF
 EXEC PROCEDURE sys.cmd.send('evict_from_cache t21')
 SELECT COUNT(*) FROM t21
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT '--- sleeping 2 seconds to let flush do work ---' as info
-SELECT sleep(2)
+SELECT '--- sleeping 5 seconds to let flush do work ---' as info
+SELECT sleep(5)
 EOF
 
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
@@ -173,7 +173,7 @@ CREATE TABLE t22 (i INTEGER)\$\$
 INSERT INTO t22 SELECT value FROM generate_series(1, $total)
 CREATE INDEX t22i ON t22(i)
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT sleep(2)
+SELECT sleep(5)
 EOF
 
 szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t22'"`
@@ -189,8 +189,8 @@ cdb2sql $dbnm --host $leader - <<EOF
 EXEC PROCEDURE sys.cmd.send('evict_from_cache t22')
 SELECT COUNT(*) FROM t22
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT '--- sleeping 2 seconds to let flush do work ---' as info
-SELECT sleep(2)
+SELECT '--- sleeping 5 seconds to let flush do work ---' as info
+SELECT sleep(5)
 EOF
 
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
@@ -209,7 +209,7 @@ DROP TABLE IF EXISTS t23
 CREATE TABLE t23 (b blob)\$\$
 INSERT INTO t23 SELECT randomblob(16) FROM generate_series(1, $total)
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT sleep(2)
+SELECT sleep(5)
 EOF
 
 szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t23'"`
@@ -225,8 +225,8 @@ cdb2sql $dbnm --host $leader - <<EOF
 EXEC PROCEDURE sys.cmd.send('evict_from_cache t23')
 SELECT COUNT(*) FROM t23
 EXEC PROCEDURE sys.cmd.send('flush')
-SELECT '--- sleeping 2 seconds to let flush do work ---' as info
-SELECT sleep(2)
+SELECT '--- sleeping 10 seconds to let flush do work ---' as info
+SELECT sleep(10)
 EOF
 
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"

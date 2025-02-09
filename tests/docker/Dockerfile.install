@@ -1,4 +1,4 @@
-FROM artprod.dev.bloomberg.com/ubuntu20:latest
+FROM ubuntu:bionic
 ENV TZ America/New_York
 ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US.UTF-8
