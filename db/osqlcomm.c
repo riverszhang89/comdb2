@@ -3737,6 +3737,12 @@ int osql_comm_is_done(osql_sess_t *sess, int type, char *rpl, int rpllen,
             sess->is_delayed = 1;
         break;
     }
+    if (sess != NULL && is_write_request(type)) {
+        if (type != OSQL_DBQ_CONSUME)
+            sess->is_dbq_consume_only = 0;
+        else if (sess->is_dbq_consume_only == -1)
+            sess->is_dbq_consume_only = 1;
+    }
     return rc;
 }
 
