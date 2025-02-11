@@ -35,7 +35,7 @@ SELECT sleep(5)
 EOF
 
 echo 'check stat size before ---'
-szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
+szbefore=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
 
 cdb2sql $dbnm --host $leader - <<EOF
 SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
@@ -53,7 +53,7 @@ sleep 10 # Allow the background thread to do work
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
-szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
+szafter=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
 echo "size before: $szbefore; size after: $szafter"
 if [ "$szafter" != 8192 ]; then
     echo "expected only 8192 bytes for 2 pages (meta and root), instead got $szafter bytes" >&2
@@ -71,7 +71,7 @@ SELECT sleep(5)
 EOF
 
 echo 'check stat size before ---'
-szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t12'"`
+szbefore=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t12'"`
 
 cdb2sql $dbnm --host $leader - <<EOF
 SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
@@ -89,7 +89,7 @@ sleep 10 # Allow the background thread to do work
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
-szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t12'"`
+szafter=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t12'"`
 echo "size before: $szbefore; size after: $szafter"
 if [ "$szafter" != 16384 ]; then
     echo "expected only 16384 bytes for 4 pages (meta and root), instead got $szafter bytes" >&2
@@ -106,7 +106,7 @@ SELECT sleep(5)
 EOF
 
 echo 'check stat size before ---'
-szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t13'"`
+szbefore=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t13'"`
 
 cdb2sql $dbnm --host $leader - <<EOF
 SELECT name, "value" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'
@@ -124,7 +124,7 @@ sleep 10 # Allow the background thread to do work
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
-szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t13'"`
+szafter=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t13'"`
 echo "size before: $szbefore; size after: $szafter"
 if [ "$szafter" != 16384 ]; then
     echo "expected only 139264 bytes for 2 data pages and 2 blob pages, instead got $szafter bytes" >&2
@@ -140,7 +140,7 @@ EXEC PROCEDURE sys.cmd.send('flush')
 SELECT sleep(5)
 EOF
 
-szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t21'"`
+szbefore=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t21'"`
 
 for i in `seq 1 $ndels`; do
     cdb2sql ${CDB2_OPTIONS} $dbnm $tier "DELETE FROM t21 LIMIT $RANDOM%$delrange OFFSET $RANDOM%$total" >/dev/null
@@ -159,7 +159,7 @@ EOF
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
-szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t21'"`
+szafter=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t21'"`
 echo "size before: $szbefore; size after: $szafter"
 if [ $szafter -ge $szbefore ]; then
     echo "expected reduced table size" >&2
@@ -176,7 +176,7 @@ EXEC PROCEDURE sys.cmd.send('flush')
 SELECT sleep(5)
 EOF
 
-szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t22'"`
+szbefore=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t22'"`
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
 for i in `seq 1 $ndels`; do
@@ -196,7 +196,7 @@ EOF
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
-szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t22'"`
+szafter=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t22'"`
 echo "size before: $szbefore; size after: $szafter"
 if [ $szafter -ge $szbefore ]; then
     echo "expected reduced table size" >&2
@@ -212,7 +212,7 @@ EXEC PROCEDURE sys.cmd.send('flush')
 SELECT sleep(5)
 EOF
 
-szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t23'"`
+szbefore=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t23'"`
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')" 
 
 for i in `seq 1 $ndels`; do
@@ -232,7 +232,7 @@ EOF
 cdb2sql $dbnm --host $leader "SELECT name, \"value\" FROM comdb2_metrics WHERE name LIKE 'pgmv_%'"
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')"
 
-szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t23'"`
+szafter=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t23'"`
 echo "size before: $szbefore; size after: $szafter"
 if [ $szafter -ge $szbefore ]; then
     echo "expected reduced table size" >&2
@@ -241,3 +241,5 @@ fi
 
 # Pause the background pgmv thread. Testsuite needs to verify btree and we want to avoid intermidiate writes.
 cdb2sql ${CDB2_OPTIONS} $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('pgmv.thr_pause 1')"
+# give the pgmv thread enough time to finish its work
+sleep 10

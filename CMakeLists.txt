@@ -223,7 +223,7 @@ if (${CMAKE_C_COMPILER_ID} STREQUAL GNU OR ${CMAKE_C_COMPILER_ID} STREQUAL Clang
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-switch")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-function")
   if (${CMAKE_C_COMPILER_ID} STREQUAL GNU)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-strict-overflow")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-strict-overflow -Wno-stringop-truncation")
   endif()
   set(COMMON_FLAGS "${COMMON_FLAGS} -pthread")
   set(COMMON_FLAGS "${COMMON_FLAGS} -fno-strict-aliasing")

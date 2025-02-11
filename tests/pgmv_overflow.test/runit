@@ -33,7 +33,7 @@ EXEC PROCEDURE sys.cmd.send('flush')
 SELECT sleep(5)
 EOF
 
-szbefore=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
+szbefore=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
 cdb2sql $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('stat size')" 
 
 # Stop if we have deleted 1500 blobs
@@ -65,7 +65,7 @@ while [ $nresizes -lt 20 ]; do
     nresizes=`cdb2sql --tabs $dbnm --host $leader "SELECT \"value\" fROM comdb2_metrics WHERE name = 'pgmv_nresizes'"`
     echo num resizes $nresizes
 
-    szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
+    szafter=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
     echo "size before: $szbefore; size after: $szafter"
     success=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT $szbefore/$szafter >= 2"`
 
@@ -80,8 +80,10 @@ done
 
 # Pause the background pgmv thread. Testsuite needs to verify btree and we want to avoid intermidiate writes.
 cdb2sql ${CDB2_OPTIONS} $dbnm --host $leader "EXEC PROCEDURE sys.cmd.send('pgmv.thr_pause 1')"
+# give the pgmv thread enough time to finish its work
+sleep 10
 
-szafter=`cdb2sql --tabs ${CDB2_OPTIONS} $dbnm $tier "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
+szafter=`cdb2sql --tabs $dbnm --host $leader "SELECT bytes FROM comdb2_tablesizes WHERE tablename='t11'"`
 echo "size before: $szbefore; size after: $szafter"
 
 cdb2sql ${CDB2_OPTIONS} $dbnm $tier "SELECT $szbefore/$szafter.0 AS ratio"
