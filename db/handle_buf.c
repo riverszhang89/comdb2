@@ -84,11 +84,9 @@ static LISTC_T(struct dbq_entry_t) rq_reqs; /* queue of read requests */
 
 /* thread associated with this request */
 struct thd {
-    pthread_t tid;
     pthread_cond_t wakeup;
     struct ireq *iq;
     LINKC_T(struct thd) lnk;
-    int inited;
 
     // extensions to allow calling thd_req inline
     struct thr_handle *thr_self;
@@ -148,73 +146,13 @@ void thd_cleanup()
 {
     thdpool_destroy(&gbl_handle_buf_write_thdpool, 0);
     thdpool_destroy(&gbl_handle_buf_read_thdpool, 0);
-
-    LISTC_CLEAN(&busy, lnk, 0, struct thd);
-    LISTC_CLEAN(&idle, lnk, 0, struct thd);
-    LISTC_CLEAN(&rq_reqs, rqlnk, 0, struct dbq_entry_t);
-    LISTC_CLEAN(&q_reqs, qlnk, 0, struct dbq_entry_t);
-    pool_clear(pq_reqs);
-    pool_clear(p_slocks);
-    pool_clear(p_bufs);
-    pool_clear(p_reqs);
-    pool_clear(p_thds);
-    Pthread_cond_destroy(&coalesce_wakeup);
-    Pthread_attr_destroy(&attr);
-    Pthread_mutex_destroy(&lock);
-
 }
 
 int thd_init(void)
 {
     gbl_handle_buf_write_thdpool = create_handle_buf_thdpool("handle_buf_write", gbl_maxwthreads);
     gbl_handle_buf_read_thdpool = create_handle_buf_thdpool("handle_buf_read", gbl_maxthreads);
-
-    Pthread_mutex_init(&lock, 0);
-    Pthread_attr_init(&attr);
-    Pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    Pthread_cond_init(&coalesce_wakeup, NULL);
-    p_thds = pool_setalloc_init(sizeof(struct thd), 0, malloc, free);
-    if (p_thds == 0) {
-        logmsg(LOGMSG_ERROR, "thd_init:failed thd pool init");
-        return -1;
-    }
-    p_reqs = pool_setalloc_init(sizeof(struct ireq), 0, malloc, free);
-    if (p_reqs == 0) {
-        logmsg(LOGMSG_ERROR, "thd_init:failed req pool init");
-        return -1;
-    }
-    p_bufs = pool_setalloc_init(MAX_BUFFER_SIZE, 64, malloc, free);
-    if (p_bufs == 0) {
-        logmsg(LOGMSG_ERROR, "thd_init:failed buf pool init");
-        return -1;
-    }
-    p_slocks = pool_setalloc_init(sizeof(struct buf_lock_t), 64, malloc, free);
-    if (p_slocks == 0) {
-        logmsg(LOGMSG_ERROR, "thd_init:failed sock lock pool init");
-        return -1;
-    }
-    pq_reqs = pool_setalloc_init(sizeof(struct dbq_entry_t), 64, malloc, free);
-    if (pq_reqs == 0) {
-        logmsg(LOGMSG_ERROR, "thd_init:failed queue req pool init");
-        return -1;
-    }
-
-    listc_init(&q_reqs, offsetof(struct dbq_entry_t, qlnk));
-    listc_init(&rq_reqs, offsetof(struct dbq_entry_t, rqlnk));
-
-#ifdef MONITOR_STACK
-    stack_sz = 4096 * 1024;
-    stack_alloc = comdb2ma_create_with_scope(0, 0, "stack", "tag", 1);
-    if (stack_alloc == NULL) {
-        logmsg(LOGMSG_ERROR, "thd_init: failed to initialize thread subsystem\n");
-        return 1;
-    }
-#endif
-
-    listc_init(&idle, offsetof(struct thd, lnk));
-    listc_init(&busy, offsetof(struct thd, lnk));
     Pthread_key_create(&thd_info_key, free);
-    Pthread_attr_setstacksize(&attr, 4096 * 1024);
     logmsg(LOGMSG_INFO, "thd_init: thread subsystem initialized\n");
     return 0;
 }
@@ -313,42 +251,6 @@ void thd_dbinfo2_stats(struct db_info2_stats *stats)
     stats->q_mean_reached = 0;
 }
 
-static void thd_coalesce_check_ll(void)
-{
-    if (coalesce_waiters && busy.count <= coalesce_reqthd_waiters &&
-        q_reqs.count == 0) {
-        Pthread_cond_broadcast(&coalesce_wakeup);
-    }
-}
-
-static void thd_dump_nolock(void)
-{
-    struct thd *thd;
-    uint64_t nowus;
-    int opc, cnt = 0;
-    nowus = comdb2_time_epochus();
-
-    {
-        for (thd = busy.top; thd; thd = thd->lnk.next) {
-            cnt++;
-            opc = thd->iq->opcode;
-            logmsg(LOGMSG_USER,
-                   "busy  tid %p  time %5d ms  %-6s (%-3d) "
-                   "%-20s where %s %s\n",
-                   (void *)thd->tid, U2M(nowus - thd->iq->nowus), req2a(opc), opc, getorigin(thd->iq), thd->iq->where,
-                   thd->iq->gluewhere);
-        }
-
-        for (thd = idle.top; thd; thd = thd->lnk.next) {
-            cnt++;
-            logmsg(LOGMSG_USER, "idle  tid %p \n", (void *)thd->tid);
-        }
-    }
-
-    if (cnt == 0)
-        logmsg(LOGMSG_USER, "no active threads\n");
-}
-
 int thd_queue_depth(void)
 {
     int rv = thdpool_get_queue_depth(gbl_handle_buf_read_thdpool) +
@@ -360,46 +262,6 @@ void thd_coalesce(struct dbenv *dbenv)
 {
     thdpool_stop(gbl_handle_buf_read_thdpool);
     thdpool_stop(gbl_handle_buf_write_thdpool);
-#if 0
-    LOCK(&lock)
-    {
-        struct thd *thd;
-        int am_req_thd = 0;
-        int num_wait = 0;
-
-        /* fstsnd based fastinit can lead to us waiting for ourself.. check if
-         * this is one of the request threads and if so that's one less
-         * thread to wait for. */
-        LISTC_FOR_EACH(&busy, thd, lnk)
-        {
-            if (thd->tid == pthread_self()) {
-                am_req_thd = 1;
-                break;
-            }
-        }
-        coalesce_waiters++;
-        coalesce_reqthd_waiters += am_req_thd;
-        while (busy.count > coalesce_reqthd_waiters || q_reqs.count > 0) {
-            int rc;
-            struct timespec ts;
-
-            ++num_wait;
-            logmsg(LOGMSG_USER, "waiting for threads %d/%d/%d num queue %d\n",
-                   write_thd_count, busy.count, idle.count, q_reqs.count);
-            if (num_wait > 5)
-                thd_dump_nolock();
-            rc = clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_sec += 1;
-            rc = pthread_cond_timedwait(&coalesce_wakeup, &lock, &ts);
-            if (rc != 0 && rc != ETIMEDOUT)
-                logmsg(LOGMSG_ERROR, "%s:pthread_cond_timedwait: %d %s\n", __func__,
-                        rc, strerror(rc));
-        }
-        coalesce_waiters--;
-        coalesce_reqthd_waiters -= am_req_thd;
-    }
-    UNLOCK(&lock);
-#endif
 }
 
 void dump_a_thread(struct thdpool *pool, pthread_t tid, int idle, void *thddata, void *user)
@@ -413,11 +275,11 @@ void dump_a_thread(struct thdpool *pool, pthread_t tid, int idle, void *thddata,
     nowus = comdb2_time_epochus();
 
     if (idle)
-        logmsg(LOGMSG_USER, "idle  tid %p \n", (void *)thd->tid);
+        logmsg(LOGMSG_USER, "idle  tid %p \n", (void *)tid);
     else {
         iq = thd->iq;
         logmsg(LOGMSG_USER, "busy  tid %p  time %5d ms  %-6s (%-3d) %-20s where %s %s\n",
-               (void *)thd->tid, U2M(nowus - iq->nowus), req2a(iq->opcode), iq->opcode,
+               (void *)tid, U2M(nowus - iq->nowus), req2a(iq->opcode), iq->opcode,
                getorigin(iq), iq->where, iq->gluewhere);
     }
 }
@@ -590,8 +452,6 @@ void thd_req(void *vthd)
     thd->iq->dup_key_insert = 0;
     thd->iq = 0;
 
-    thd_coalesce_check_ll();
-
     // TODO: reuse
     /* Should not be done under lock - might be expensive */
     truncate_constraint_table(thdinfo->ct_add_table);
@@ -602,159 +462,11 @@ void thd_req(void *vthd)
         pool_clear(thdinfo->ct_add_table_genid_pool);
     }
     truncate_defered_index_tbl();
-
-#if 0
-
-        /*NEXT REQUEST*/
-        LOCK(&lock)
-        {
-            struct dbq_entry_t *nxtrq = NULL;
-            int newrqwriter = 0;
-
-            if (iamwriter) {
-                write_thd_count--;
-            }
-
-            if (thd->iq->usedb && thd->iq->ixused >= 0 &&
-                thd->iq->ixused < thd->iq->usedb->nix &&
-                thd->iq->usedb->ixuse) {
-                thd->iq->usedb->ixuse[thd->iq->ixused] += thd->iq->ixstepcnt;
-            }
-            thd->iq->ixused = -1;
-            thd->iq->ixstepcnt = 0;
-
-            if (thd->iq->dbglog_file) {
-                sbuf2close(thd->iq->dbglog_file);
-                thd->iq->dbglog_file = NULL;
-            }
-            if (thd->iq->nwrites) {
-                free(thd->iq->nwrites);
-                thd->iq->nwrites = NULL;
-            }
-            if (thd->iq->vfy_genid_hash) {
-                hash_free(thd->iq->vfy_genid_hash);
-                thd->iq->vfy_genid_hash = NULL;
-            }
-            if (thd->iq->vfy_genid_pool) {
-                pool_free(thd->iq->vfy_genid_pool);
-                thd->iq->vfy_genid_pool = NULL;
-            }
-            thd->iq->vfy_genid_track = 0;
-            if (thd->iq->vfy_idx_hash) {
-                destroy_hash(thd->iq->vfy_idx_hash, free_it);
-                thd->iq->vfy_idx_hash = NULL;
-            }
-            thd->iq->vfy_idx_track = 0;
-            thd->iq->dup_key_insert = 0;
-#if 0
-            fprintf(stderr, "%s:%d: THD=%p relablk iq=%p\n", __func__, __LINE__, pthread_self(), thd->iq);
-#endif
-            pool_relablk(p_reqs, thd->iq); /* this request is done, so release
-                                            * resource. */
-            /* get next item off hqueue */
-            nxtrq = (struct dbq_entry_t *)listc_rtl(&q_reqs);
-            thd->iq = 0;
-            if (nxtrq != 0) {
-                thd->iq = nxtrq->obj;
-                newrqwriter = is_req_write(thd->iq->opcode) ? 1 : 0;
-
-                numwriterthreads = gbl_maxwthreads - gbl_maxwthreadpenalty;
-                if (numwriterthreads < 1)
-                    numwriterthreads = 1;
-
-                if (newrqwriter &&
-                    (write_thd_count - iothreads) >= numwriterthreads) {
-                    /* dont process next request as it goes over
-                       the write limit..put it back on queue and grab
-                       next read */
-                    listc_atl(&q_reqs, nxtrq);
-                    nxtrq = (struct dbq_entry_t *)listc_rtl(&rq_reqs);
-                    if (nxtrq != NULL) {
-                        listc_rfl(&q_reqs, nxtrq);
-                        /* release the memory block of the link */
-                        thd->iq = nxtrq->obj;
-                        pool_relablk(pq_reqs, nxtrq);
-                        newrqwriter = 0;
-                    } else {
-                        thd->iq = 0;
-                    }
-                } else {
-                    if (!newrqwriter) {
-                        /*get rid of new request from read queue */
-                        listc_rfl(&rq_reqs, nxtrq);
-                    }
-                    /* release the memory block of the link */
-                    pool_relablk(pq_reqs, nxtrq);
-                }
-                if (newrqwriter && thd->iq != 0) {
-                    write_thd_count++;
-                }
-            }
-            if (thd->iq == 0) {
-                /*wait for something to do, or go away after a while */
-                listc_rfl(&busy, thd);
-                thd_coalesce_check_ll();
-
-                listc_atl(&idle, thd);
-
-                rc = clock_gettime(CLOCK_REALTIME, &ts);
-                if (rc != 0) {
-                    logmsg(LOGMSG_ERROR, "thd_req:clock_gettime bad rc %d:%s\n", rc,
-                            strerror(errno));
-                    memset(&ts, 0, sizeof(ts)); /*force failure later*/
-                }
-
-                rc = 0;
-                int ii = 0;
-                do { /* wait gbl_thd_linger seconds via one second increments */
-                    ts.tv_sec += 1;
-                    ii++;
-                    /*waitft thread will deposit a request in thd->iq*/
-                    rc = pthread_cond_timedwait(&thd->wakeup, &lock, &ts);
-                } while ((thd->iq == 0 && rc == 0) ||
-                         (rc == ETIMEDOUT && ii < gbl_thd_linger && !db_is_exiting()));
-
-                if (rc != 0 && rc != ETIMEDOUT) {
-                    logmsg(LOGMSG_ERROR, "thd_req:pthread_cond_timedwait failed:%s\n",
-                           strerror(rc));
-                    /* error'd out, so i still have lock: errLOCK(&lock);*/
-                }
-                if (thd->iq == 0) /*nothing to do. this thread retires.*/
-                {
-                    nretire++;
-                    listc_rfl(&idle, thd);
-                    Pthread_cond_destroy(&thd->wakeup);
-                    thd->tid = (pthread_t)-2;  /*returned. this is just for info & debugging*/
-                    pool_relablk(p_thds, thd); /*release this struct*/
-                    /**/
-                    retUNLOCK(&lock);
-                    /**/
-                    /*printf("ending handler %p\n", pthread_self());*/
-                    return 0;
-                }
-            }
-        }
-        UNLOCK(&lock);
-
-        // TODO: reuse
-        /* Should not be done under lock - might be expensive */
-        truncate_constraint_table(thdinfo->ct_add_table);
-        truncate_constraint_table(thdinfo->ct_del_table);
-        truncate_constraint_table(thdinfo->ct_add_index);
-        hash_clear(thdinfo->ct_add_table_genid_hash);
-        if (thdinfo->ct_add_table_genid_pool) {
-            pool_clear(thdinfo->ct_add_table_genid_pool);
-        }
-        truncate_defered_index_tbl();
-    } while (1);
-#endif
 }
 
 void thd_req_inline(struct ireq *iq) {
     struct thd inlinerq = {0};
     // TODO: reuse the constraint tables, etc
-    inlinerq.inited = 0;
-    inlinerq.tid = pthread_self();
     inlinerq.iq = iq;
 
     handle_buf_thd_start(NULL, (void *)&inlinerq);
@@ -766,36 +478,16 @@ void thd_req_inline(struct ireq *iq) {
 static int reterr(intptr_t curswap, struct thd *thd, struct ireq *iq, int rc)
 /* 040307dh: 64bits */
 {
-    if (thd || iq) {
-        LOCK(&lock)
-        {
-            if (thd) {
-                if (thd->iq) {
-                    int iamwriter = 0;
-                    iamwriter = is_req_write(thd->iq->opcode) ? 1 : 0;
-                    listc_rfl(&busy, thd); /*this means busy*/
-                    thd_coalesce_check_ll();
-                    if (iamwriter) {
-                        write_thd_count--;
-                    }
-                }
-                thd->iq = 0;
-                thd->tid = (pthread_t)-1;
-                pool_relablk(p_thds, thd);
-            }
-            if (iq) {
-                if (iq->is_fromsocket) {
-                    if (iq->is_socketrequest) {
-                        sndbak_open_socket(iq->sb, NULL, 0, ERR_INTERNAL);
-                    } else {
-                        sndbak_socket(iq->sb, NULL, 0, ERR_INTERNAL);
-                        iq->sb = NULL;
-                    }
-                }
-                pool_relablk(p_reqs, iq);
-            }
+    if (thd)
+        thd->iq = 0;
+    if (iq && iq->is_fromsocket) {
+        if (iq->is_socketrequest) {
+            sndbak_open_socket(iq->sb, NULL, 0, ERR_INTERNAL);
+        } else {
+            sndbak_socket(iq->sb, NULL, 0, ERR_INTERNAL);
+            iq->sb = NULL;
         }
-        UNLOCK(&lock);
+        free(iq);
     }
     if (iq && iq->ipc_sndbak) {
         iq->ipc_sndbak(iq, rc, iq->p_buf_out_end - iq->p_buf_out_start);
@@ -834,15 +526,7 @@ static int reterr_withfree(struct ireq *iq, int rc)
         iq->p_buf_out_end = iq->p_buf_out_start = iq->p_buf_out = NULL;
         iq->p_buf_in_end = iq->p_buf_in = NULL;
 
-        LOCK(&lock)
-        {
-#if 0
-           fprintf(stderr, "%s:%d: THD=%p relablk iq=%p\n", __func__, __LINE__, pthread_self(), iq);
-#endif
-            pool_relablk(p_reqs, iq);
-        }
-        UNLOCK(&lock);
-
+        free(iq);
         return 0;
     } else {
         return reterr(iq->curswap, NULL, iq, rc);
@@ -1228,207 +912,6 @@ int handle_buf_main2(struct dbenv *dbenv, SBUF2 *sb, const uint8_t *p_buf,
                thdpool_get_queue_depth(pool), thdpool_get_maxqueue(pool));
         reterr_withfree(iq, ERR_REJECTED);
     }
-
-#if 0
-    // deadcode start ?
-    newent = (struct dbq_entry_t *)pool_getablk(pq_reqs);
-    if (newent == NULL) {
-        errUNLOCK(&lock);
-        logmsg(LOGMSG_ERROR,
-                "handle_buf:failed to alloc new queue entry, rc %d\n",
-                rc);
-        return reterr(curswap, /*thd*/ 0, iq, ERR_REJECTED);
-    }
-    newent->obj = (void *)iq;
-    newent->queue_time_ms = comdb2_time_epochms();
-
-    if (!iamwriter) {
-        (void)listc_abl(&rq_reqs, newent);
-    }
-
-    /*add to global queue*/
-    (void)listc_abl(&q_reqs, newent);
-
-    /* dispatch work ...*/
-
-    while (busy.count - iothreads < gbl_maxthreads) {
-        struct dbq_entry_t *nextrq = NULL;
-        nextrq = (struct dbq_entry_t *)listc_rtl(&q_reqs);
-        if (nextrq == NULL)
-            break;
-        iq = nextrq->obj;
-        iamwriter = is_req_write(iq->opcode) ? 1 : 0;
-
-        // DEAD
-        numwriterthreads = gbl_maxwthreads - gbl_maxwthreadpenalty;
-        if (numwriterthreads < 1)
-            numwriterthreads = 1;
-
-        if (iamwriter &&
-                (write_thd_count - iothreads) >= numwriterthreads) {
-            /* i am invalid writer, check the read queue instead */
-            listc_atl(&q_reqs, nextrq);
-
-            nextrq = (struct dbq_entry_t *)listc_rtl(&rq_reqs);
-            if (nextrq == NULL)
-                break;
-            iq = nextrq->obj;
-            // TODO XXX FIXME
-            /* remove from global list, and release link block of reader*/
-            listc_rfl(&q_reqs, nextrq);
-            if (add_latency > 0) {
-                poll(0, 0, rand() % add_latency);
-            }
-            time_metric_add(thedb->handle_buf_queue_time, comdb2_time_epochms() - nextrq->queue_time_ms);
-            time_metric_add(thedb->queue_depth,
-                    q_reqs.count + thdpool_get_queue_depth(get_default_sql_pool(0)));
-            pool_relablk(pq_reqs, nextrq);
-            if (!iq)
-                /* this should never be hit */
-                break;
-            /* make sure to mark the reader request accordingly */
-            iamwriter = 0;
-        } else {
-            /* i am reader or valid writer */
-            if (!iamwriter) {
-                /* remove reader from read queue */
-                listc_rfl(&rq_reqs, nextrq);
-            }
-            if (add_latency > 0) {
-                poll(0, 0, rand() % add_latency);
-            }
-            time_metric_add(thedb->handle_buf_queue_time, comdb2_time_epochms() - nextrq->queue_time_ms);
-            time_metric_add(thedb->queue_depth,
-                    q_reqs.count + thdpool_get_queue_depth(get_default_sql_pool(0)));
-            /* release link block */
-            pool_relablk(pq_reqs, nextrq);
-            if (!iq) {
-                /* this should never be hit */
-                abort();
-                break;
-            }
-        }
-        if ((thd = listc_rtl(&idle)) != NULL) /*try to find an idle thread*/
-        {
-#if 0
-            printf("%s:%d: thdpool FOUND THD=%p -> newTHD=%d iq=%p\n", __func__, __LINE__, pthread_self(), thd->tid, iq);
-#endif
-            thd->iq = iq;
-            thd->inited = 0;
-            iq->where = "dispatched";
-            num = busy.count;
-            listc_abl(&busy, thd);
-            if (iamwriter) {
-                write_thd_count++;
-            }
-            if (num >= MAXSTAT)
-                num = MAXSTAT - 1;
-            bkt_thd[num]++; /*count threads*/
-            Pthread_cond_signal(&thd->wakeup);
-            ndispatch++;
-        } else /*i can create one..*/
-        {
-            thd = (struct thd *)pool_getzblk(p_thds);
-            if (thd == 0) {
-                rc = errno;
-                errUNLOCK(&lock);
-                logmsg(LOGMSG_ERROR, "handle_buf:failed calloc thread:%s\n",
-                        strerror(errno));
-                return reterr(curswap, /*thd*/ 0, iq, ERR_INTERNAL);
-            }
-            /*add holder for this one being born...*/
-            num = busy.count;
-            listc_abl(&busy, thd);
-            if (iamwriter) {
-                write_thd_count++;
-            }
-            thd->iq = iq;
-            /*                fprintf(stderr, "added3 %8.8x\n",thd);*/
-            iq->where = "dispatched new";
-            Pthread_cond_init(&thd->wakeup, 0);
-            nthdcreates++;
-#ifdef MONITOR_STACK
-            rc = comdb2_pthread_create(&thd->tid, &attr, thd_req,
-                    (void *)thd, stack_alloc, stack_sz);
-#else
-            rc = pthread_create(&thd->tid, &attr, thd_req, (void *)thd);
-#endif
-
-#if 0
-            printf("%s:%d: thdpool CREATE THD=%p -> newTHD=%d iq=%p\n", __func__, __LINE__, pthread_self(), thd->tid, iq);
-#endif
-            if (rc != 0) {
-                errUNLOCK(&lock);
-                perror_errnum("handle_buf:failed pthread_thread_start", rc);
-                /* This tends to happen when we're out of memory.  Rather
-                 * than limp onwards, we should just exit here.  Hand off
-                 * masterness if possible. */
-                if (debug_exit_on_pthread_create_error()) {
-                    bdb_transfermaster(thedb->static_table.handle);
-                    logmsg(LOGMSG_FATAL, 
-                            "%s:Exiting due to thread create errors\n",
-                            __func__);
-                    exit(1);
-                }
-                return reterr(curswap, thd, iq, ERR_INTERNAL);
-            }
-            /* added thread to thread pool.*/
-            if (num >= MAXSTAT)
-                num = MAXSTAT - 1;
-            bkt_thd[num]++; /*count threads*/
-            ndispatch++;
-        }
-        comdb2bma_transfer_priority(blobmem, thd->tid);
-    }
-
-    if (qtype != REQ_OFFLOAD && rc > gbl_maxqueue) {
-        struct dbq_entry_t *nextrq = NULL;
-        logmsg(LOGMSG_ERROR, "handle_buf:rejecting requests queue too full %d (max %d)\n",
-                (void *)pthread_self(), rc, gbl_maxqueue);
-
-        comdb2bma_yield_all();
-        /* Dequeue the request I just queued. */
-        nextrq = (struct dbq_entry_t *)listc_rbl(&q_reqs);
-        if (nextrq && nextrq == newent) {
-            iq = nextrq->obj;
-            iamwriter = is_req_write(iq->opcode) ? 1 : 0;
-            if (!iamwriter) {
-                listc_rfl(&rq_reqs, nextrq);
-            }
-            pool_relablk(pq_reqs, nextrq);
-            Pthread_mutex_unlock(&lock);
-            nqfulls++;
-            reterr_withfree(iq, ERR_REJECTED);
-        } else {
-            /* THIS can happen since the queue might be already full,
-               with requests we keep, and this could be a successfully
-               dispatched request (which is not at the head of the list
-               anymore).
-               If it is not me, stay in queue */
-            listc_abl(&q_reqs, nextrq);
-
-            iq = nextrq->obj;
-#if 0
-            fprintf(stderr, "SKIP DISCARDING iq=%p\n", iq);
-#endif
-
-            /* paranoia; this cannot be read */
-            iamwriter = is_req_write(iq->opcode) ? 1 : 0;
-            if (!iamwriter) {
-                /* this should not be a read, unless code changed; reads are
-                   not kept in the queue above the limit */
-                abort();
-            }
-
-            Pthread_mutex_unlock(&lock);
-        }
-    } else {
-        Pthread_mutex_unlock(&lock);
-    }
-
-    if (ndispatch == 0)
-        nwaits++;
-#endif
     return 0;
 }
 
