@@ -1260,7 +1260,7 @@ struct osql_sess {
     int queryid;
     unsigned is_reorder_on : 1;
     unsigned is_delayed : 1;
-    unsigned is_dbq_consume_only : 1;
+    unsigned is_qconsume_only : 1;
 
     /* from sorese */
     osql_target_t target; /* replicant machine; host is NULL if local */
@@ -1824,6 +1824,8 @@ extern int gbl_appsock_pooling;
 extern struct thdpool *gbl_appsock_thdpool;
 extern struct thdpool *gbl_osqlpfault_thdpool;
 extern struct thdpool *gbl_udppfault_thdpool;
+extern struct thdpool *gbl_handle_buf_write_thdpool;
+extern struct thdpool *gbl_handle_buf_read_thdpool;
 
 extern int gbl_consumer_rtcpu_check;
 extern int gbl_node1rtcpuable;

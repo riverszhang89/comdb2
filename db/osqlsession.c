@@ -80,7 +80,6 @@ osql_sess_t *osql_sess_create(const char *sql, int sqlen, char *tzname,
     sess->sql = (char *)(sess->impl + 1);
     strncpy0((char *)sess->sql, sql, sqlen + 1);
     sess->impl->embedded_sql = 1;
-    sess->is_dbq_consume_only = -1;
 
     return _osql_sess_create(sess, tzname, type, rqid, uuid, host,
                              is_reorder_on);
@@ -107,7 +106,6 @@ osql_sess_t *osql_sess_create_socket(const char *sql, char *tzname, int type,
     sess->sql = sql;
     sess->impl->embedded_sql = 0;
     sess->impl->socket = 1;
-    sess->is_dbq_consume_only = -1;
 
     return _osql_sess_create(sess, tzname, type, rqid, uuid, host,
                              is_reorder_on);
@@ -701,6 +699,7 @@ static osql_sess_t *_osql_sess_create(osql_sess_t *sess, char *tzname, int type,
 
     listc_init(&sess->participants, offsetof(struct participant, linkv));
     sess->impl->clients = 1;
+    sess->is_qconsume_only = -1; /* unknown */
     /* defaults to net */
     init_bplog_net(&sess->target);
 
