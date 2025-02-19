@@ -828,7 +828,7 @@ static struct thdpool *create_handle_buf_thdpool(const char *name, int nthds)
         thdpool_set_init_fn(pool, handle_buf_thd_start);
         thdpool_set_delt_fn(pool, handle_buf_thd_stop);
         thdpool_set_dque_fn(pool, handle_buf_thd_dequeue);
-        thdpool_set_minthds(pool, nthds);
+        thdpool_set_minthds(pool, 0);
         thdpool_set_maxthds(pool, nthds);
         thdpool_set_linger(pool, gbl_thd_linger);
         thdpool_set_maxqueue(pool, gbl_maxqueue);
@@ -900,7 +900,6 @@ int handle_buf_main2(struct dbenv *dbenv, SBUF2 *sb, const uint8_t *p_buf,
     } else {
         pool = gbl_handle_buf_write_thdpool;
         int n = gbl_maxwthreads - gbl_maxwthreadpenalty;
-        thdpool_set_minthds(pool, n);
         thdpool_set_maxthds(pool, n);
     }
     pool = is_req_write(iq->opcode) ? gbl_handle_buf_write_thdpool : gbl_handle_buf_read_thdpool;

@@ -6233,12 +6233,15 @@ static inline int is_write_request(int type)
 
 static void qconsume_check(osql_sess_t *sess, int type)
 {
+    const char *tblname;
     if (sess == NULL || !is_write_request(type) || sess->is_qconsume_only == 0)
         return;
 
+    tblname = osql_last_usedb_tablename(sess);
+
     if (type == OSQL_DBQ_CONSUME)
         sess->is_qconsume_only = 1;
-    else if (is_tablename_queue(osql_last_usedb_tablename(sess)) && (type == OSQL_DELREC || type == OSQL_DELETE))
+    else if ((type == OSQL_DELREC || type == OSQL_DELETE) && tblname != NULL && is_tablename_queue(tblname))
         sess->is_qconsume_only = 1;
     else
         sess->is_qconsume_only = 0;
