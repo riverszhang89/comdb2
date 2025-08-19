@@ -68,6 +68,7 @@ struct convert_record_data {
     int blobix[MAXBLOBS], toblobs2fromblobs[MAXBLOBS];
     unsigned n_genids_changed;
     long long nrecs, prev_nrecs, nrecskip;
+    long long max_nrecs_oplog;
     int num_records_per_trans;
     int num_retry_errors;
     int *tagmap; // mapping of fields from -> to

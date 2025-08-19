@@ -866,6 +866,55 @@ static int convert_record(struct convert_record_data *data)
             sc_errf(data->s, "ix_find/ix_next error rcode %d\n", rc);
             return -2;
         }
+    } else if (data->scanmode == SCAN_OPLOG) {
+        if (data->nrecs == 0) {
+            memset(data->lastkey, 0, MAXKEYLEN);
+            /* get the cursor positioned first */
+            rc = ix_find(&data->iq, 0 /*ixnum*/, data->lastkey, 0 /*keylen*/,
+                         data->curkey, &rrn, &genid, data->dta_buf, &dtalen,
+                         data->from->lrl);
+            if (rc == IX_FND || rc == IX_FNDMORE) {
+                /* now get us to the last item on the btree */
+                memset(data->lastkey, 0xFF, MAXKEYLEN);
+                rc = ix_next(&data->iq, 0 /*ixnum*/, data->lastkey, 0 /*keylen*/,
+                             data->lastkey, data->lastrrn, data->lastgenid,
+                             data->curkey, &rrn, &genid, data->dta_buf, &dtalen,
+                             data->from->lrl, 0 /*context - 0 means don't care*/);
+                if (rc == IX_PASTEOF)
+                    rc = IX_FND;
+            }
+        } else if (data->nrecs < data->max_nrecs_oplog) {
+            char *tmp = data->curkey;
+            data->curkey = data->lastkey;
+            data->lastkey = tmp;
+            rc = ix_prev(&data->iq, 0 /*ixnum*/, data->lastkey, 0 /*keylen*/,
+                         data->lastkey, data->lastrrn, data->lastgenid,
+                         data->curkey, &rrn, &genid, data->dta_buf, &dtalen,
+                         data->from->lrl, 0 /*context - 0 means don't care*/);
+        } else {
+            rc = IX_EMPTY;
+        }
+
+        if (rc == IX_FND || rc == IX_FNDMORE) {
+            /* record found */
+            data->lastrrn = rrn;
+            data->lastgenid = genid;
+            dta = data->dta_buf;
+
+            check_genid = bdb_normalise_genid(data->to->handle, genid);
+            if (check_genid != genid && !data->s->retry_bad_genids) {
+                logmsg(LOGMSG_ERROR,
+                       "Have old-style genids in table, disabling plan\n");
+                data->s->retry_bad_genids = 1;
+                return -1;
+            }
+        } else if (rc == IX_NOTFND || rc == IX_PASTEOF || rc == IX_EMPTY) {
+            /* no more records - success! */
+            return 0;
+        } else {
+            sc_errf(data->s, "ix_find/ix_next error rcode %d\n", rc);
+            return -2;
+        }
     } else {
         sc_errf(data->s, "internal error - bad scan mode!\n");
         return -2;
@@ -1338,6 +1387,7 @@ static void stop_sc_redo_wait(bdb_state_type *bdb_state,
 
 int gbl_sc_pause_at_end = 0;
 int gbl_sc_is_at_end = 0;
+int gbl_max_nrecs_oplog = 10;
 
 int convert_all_records(struct dbtable *from, struct dbtable *to,
                         unsigned long long *sc_genids,
@@ -1355,8 +1405,9 @@ int convert_all_records(struct dbtable *from, struct dbtable *to,
     data.scanmode = s->scanmode;
     data.sc_genids = sc_genids;
     data.s = s;
+    data.max_nrecs_oplog = gbl_max_nrecs_oplog;
 
-    if (data.live && data.scanmode != SCAN_PARALLEL) {
+    if (data.live && data.scanmode != SCAN_PARALLEL && data.scanmode != SCAN_OPLOG) {
         sc_errf(data.s,
                 "live schema change can only be done in parallel scan mode\n");
         logmsg(LOGMSG_ERROR,

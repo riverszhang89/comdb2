@@ -1033,6 +1033,8 @@ static inline void comdb2Rebuild(Parse *pParse, Token* nm, Token* lnm, int opt)
 
     if (OPT_ON(opt, PAGE_ORDER))
         sc->scanmode = SCAN_PAGEORDER;
+    if (OPT_ON(opt, COMDB2_OPLOG))
+        sc->scanmode = SCAN_OPLOG;
 
     if (OPT_ON(opt, READ_ONLY))
         sc->live = 0;
@@ -1273,6 +1275,8 @@ void comdb2RebuildIndex(Parse* pParse, Token* nm, Token* lnm, Token* index, int 
 
     if (OPT_ON(opt, PAGE_ORDER))
         sc->scanmode = SCAN_PAGEORDER;
+    if (OPT_ON(opt, COMDB2_OPLOG) && strncasecmp(sc->tablename, "comdb2_oplog", strlen("comdb2_oplog")) == 0)
+        sc->scanmode = SCAN_OPLOG;
 
     if (OPT_ON(opt, READ_ONLY))
         sc->live = 0;
@@ -7174,6 +7178,9 @@ void comdb2AlterTableOptions(
     }
     if (comdb2Opts & READ_ONLY) {
         *tableOpts |= READ_ONLY;
+    }
+    if (comdb2Opts & COMDB2_OPLOG) {
+        *tableOpts |= COMDB2_OPLOG;
     }
     return;
 }

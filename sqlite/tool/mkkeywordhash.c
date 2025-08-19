@@ -372,6 +372,7 @@ static Keyword aKeywordTable[] = {
   { "NEXTSEQUENCE",      "TK_CTIME_KW",          ALWAYS           },
   { "NONE",              "TK_NONE",              ALWAYS           },
   { "OP",                "TK_OP",                ALWAYS           },
+  { "OPLOG",             "TK_OPLOG",             ALWAYS           },
   { "OPTION",            "TK_OPTION",            ALWAYS           },
   { "OPTIONS",           "TK_OPTIONS",           ALWAYS           },
   { "ODH",               "TK_ODH",               ALWAYS           },

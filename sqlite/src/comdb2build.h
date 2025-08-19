@@ -36,6 +36,7 @@
 #define REBUILD_DATA  0x00800000
 #define REBUILD_BLOB  0x01000000
 #define FORCE_SC      0x02000000
+#define COMDB2_OPLOG  0x04000000
 
 #define OPT_ON(opt, val) (val & opt)
 

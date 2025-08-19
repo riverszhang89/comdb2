@@ -6890,7 +6890,7 @@ int osql_finalize_scs(struct ireq *iq, tran_type *trans)
         assert(iq->sc->nothrevent);
 
         if (gbl_comdb2_oplog_preserve_seqno &&
-            IS_FASTINIT(iq->sc) &&
+            (IS_FASTINIT(iq->sc) || IS_ALTERTABLE(iq->sc)) &&
             gbl_replicate_local &&
             strcasecmp(iq->usedb->tablename, "comdb2_oplog") == 0) {
             long long seqno;
