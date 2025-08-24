@@ -121,10 +121,11 @@ do {                                            \
 
 #define ssl_sfliberrprint(err, n, cb, msg)                      \
     do {                                                        \
+        unsigned long __err = ERR_get_error();                  \
         if (err != NULL)                                        \
             snprintf(err, n,                                    \
                      "SSL Error: %s: (%lu) %s",                 \
-                     msg, ERR_get_error(), SSL_ERRSTR());       \
+                     msg, __err, ERR_reason_error_string(__err)); \
         else                                                    \
             PRINT_SSL_ERRSTR_MT(cb, msg);                       \
     } while (0)
