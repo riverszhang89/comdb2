@@ -754,6 +754,8 @@ static void get_stack_frames(void **fp, mspace m)
 #define get_stack_frames(fp, m)
 #endif
 
+extern void *env_alloc;
+
 /*
  * Memory block layout
  * +----------------+
@@ -788,6 +790,10 @@ void *comdb2_malloc(comdb2ma cm, size_t size)
        in the middle of this malloc() call. */
     int d = debug_started;
     char *fp;
+
+    if (cm == env_alloc) {
+        printf("hi I'm mallocing from berkdb env %zu\n", size);
+    }
 
     if (size > COMDB2MA_MAX_MEM) {
         // force failure if integer overflow
@@ -977,6 +983,10 @@ void *comdb2_resize(comdb2ma cm, void *ptr, size_t n)
 static void comdb2_free_int(comdb2ma cm, void *ptr)
 {
     void **p = (void **)ptr;
+
+    if (cm == env_alloc) {
+        puts("hi I'm freeing from berkdb env");
+    }
 
     if (COMDB2MA_LOCK(cm) == 0) {
         mspace_free(cm->m, p + COMDB2MA_SENTINEL_OFS);

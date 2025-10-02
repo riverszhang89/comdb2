@@ -5975,6 +5975,9 @@ static bdb_state_type *bdb_open_int(int envonly, const char name[], const char d
             }
         }
 
+        extern int remember_this_env;
+        remember_this_env = 1;
+
         bdb_state->recoverylsn = recoverylsn;
         /*
            create a transactional environment.

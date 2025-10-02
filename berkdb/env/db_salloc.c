@@ -50,6 +50,8 @@ struct __data {
 
 SH_LIST_HEAD(__head, __data);
 
+int remember_this_env = 0;
+void *env_alloc = NULL;
 /*
  * __db_shalloc_init --
  *	Initialize the area as one large chunk.
@@ -90,6 +92,12 @@ __db_shalloc_init(dbenv, description, area, size, lock)
 			__os_free(dbenv, h);
 			return;
 		}
+
+        if (remember_this_env && strcmp(description, "env") == 0) {
+            env_alloc = h->msp;
+            remember_this_env = 0;
+        }
+
 
 		__os_strdup(dbenv, description, &h->description);
 		h->blocks = 0;

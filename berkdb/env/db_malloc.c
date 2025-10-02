@@ -62,6 +62,9 @@ __db_shalloc_malloc(void *p, size_t len, size_t align, void *retp)
 
 	memcpy(&h, p, sizeof(HEAP *));
 
+	if (len == 64)
+		puts("HIHIHIHI");
+
 	if (align < sizeof(int))
 		align = sizeof(int);
 

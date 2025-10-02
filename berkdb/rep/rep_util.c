@@ -917,18 +917,22 @@ __rep_grow_sites(dbenv, nsites)
 	if ((ret = __db_shalloc(infop->addr,
 			nalloc * sizeof(REP_VTALLY), sizeof(REP_VTALLY),
 			&tally)) == 0) {
+        printf("hello my tally_off before free checking is %d\n", (int)rep->tally_off);
 		if (rep->tally_off != INVALID_ROFF)
 			__db_shalloc_free(infop->addr,
 				R_ADDR(infop, rep->tally_off));
 		rep->tally_off = R_OFFSET(infop, tally);
+        printf("hello my tally_off is %d\n", (int)rep->tally_off);
 		if ((ret = __db_shalloc(infop->addr,
 				nalloc * sizeof(REP_VTALLY), sizeof(REP_VTALLY),
 				&tally)) == 0) {
 			/* Success */
+            printf("hello my v2tally_off before free check is %d\n", (int)rep->v2tally_off);
 			if (rep->v2tally_off != INVALID_ROFF)
 				__db_shalloc_free(infop->addr,
 					R_ADDR(infop, rep->v2tally_off));
 			rep->v2tally_off = R_OFFSET(infop, tally);
+            printf("hello my v2tally_off is %d\n", (int)rep->v2tally_off);
 			rep->asites = nalloc;
 			rep->nsites = nsites;
 		} else {

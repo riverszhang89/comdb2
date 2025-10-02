@@ -5088,6 +5088,11 @@ clipper_usage:
         bdb_del_seqno(NULL);
     } else if (tokcmp(tok, ltok, "clear_sc_history") == 0) {
         bdb_clear_sc_history();
+    } else if (tokcmp(tok, ltok, "rep_grow_sites") == 0) {
+        tok = segtok(line, lline, &st, &ltok);
+        int nsites = toknum(tok, ltok);
+        int __rep_grow_sites(DB_ENV *, int);
+        __rep_grow_sites(thedb->bdb_env->dbenv, nsites);
     } else {
         // see if any plugins know how to handle this
         struct message_handler *h;
