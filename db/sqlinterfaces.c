@@ -6682,14 +6682,12 @@ int get_max_appsocks_limit(void)
     return bdb_attr_get(thedb->bdb_attr, BDB_ATTR_MAXAPPSOCKSLIMIT);
 }
 
-int check_appsock_limit(int pending, int is_admin, int is_accepted)
+int check_appsock_limit(int pending, int is_admin)
 {
     ++total_appsock_conns;
     int max = bdb_attr_get(thedb->bdb_attr, BDB_ATTR_MAXAPPSOCKSLIMIT);
     int warn = bdb_attr_get(thedb->bdb_attr, BDB_ATTR_APPSOCKSLIMIT);
-    if (!is_accepted)
-        ATOMIC_ADD32(active_appsock_conns, 1);
-    int current = pending + active_appsock_conns;
+    int current = pending + ATOMIC_ADD32(active_appsock_conns, 1);
     time_metric_add(thedb->connections, current);
     if (is_admin) return 0;
     if (warn > max) warn = max;
@@ -6702,14 +6700,8 @@ int check_appsock_limit(int pending, int is_admin, int is_accepted)
         time_t now = time(NULL);
         if (now != last) {
             logmsg(LOGMSG_USER,
-                   "Exhausted appsock connections, %zu sql total %d connections denied-connection count=%" PRId64 "\n",
-                   gbl_nnewsql, current, gbl_denied_appsock_connection_count);
-            if (current >= 15000)
-                abort();
-            if (gbl_denied_appsock_connection_count >= 2026649) {
-                fprintf(stderr, "going to abort myself now\n");
-                abort();
-            }
+                   "Exhausted appsock connections, total %d connections denied-connection count=%" PRId64 "\n", current,
+                   gbl_denied_appsock_connection_count);
             last = now;
         }
         return -1;

@@ -74,7 +74,7 @@ static void ssl_handshake_evbuffer(int fd, short what, void *data)
             ATOMIC_ADD64(gbl_ssl_num_full_handshakes, 1);
         }
         ssl_data->cert = SSL_get_peer_certificate(ssl);
-        ssl_data->do_shutdown = 1;
+        ssl_data->do_shutdown = 0;
         arg->success_cb(arg->data); /* newsql_accept_ssl_success, net_accept_ssl_success, net_connect_ssl_success */
         free(arg);
         return;
@@ -164,7 +164,9 @@ int rd_ssl_evbuffer(struct evbuffer *rd_buf, struct ssl_data *ssl_data, int *eof
     }
     int err = SSL_get_error(ssl, rc);
     switch (err) {
-    case SSL_ERROR_ZERO_RETURN: *eof = 1; /* fallthrough */
+    case SSL_ERROR_ZERO_RETURN:
+        *eof = 1;
+        ssl_data->do_shutdown = 1; /* fallthrough */
     case SSL_ERROR_WANT_READ: return 1;
     case SSL_ERROR_WANT_WRITE:
         logmsg(LOGMSG_ERROR, "%s:%d SSL_read rc:%d err:%d SSL_ERROR_WANT_WRITE]\n",
@@ -256,8 +258,10 @@ void ssl_data_free(struct ssl_data *ssl_data)
 {
     if (!ssl_data) return;
     if (ssl_data->ev) event_free(ssl_data->ev);
-    if (ssl_data->do_shutdown)
-        SSL_set_shutdown(ssl_data->ssl, SSL_SENT_SHUTDOWN); /* fast shutdown and make session reusable */
+    if (!ssl_data->do_shutdown)
+        SSL_set_shutdown(ssl_data->ssl, SSL_SENT_SHUTDOWN); /* make session reusable */
+    else if (SSL_shutdown(ssl_data->ssl) == 0)
+        SSL_shutdown(ssl_data->ssl);
 
     SSL_free(ssl_data->ssl);
     X509_free(ssl_data->cert);
