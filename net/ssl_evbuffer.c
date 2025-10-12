@@ -90,9 +90,12 @@ static void ssl_handshake_evbuffer(int fd, short what, void *data)
         event_add(ssl_data->ev, NULL);
         return;
     case SSL_ERROR_SYSCALL:
-        if (gbl_ssl_print_io_errors)
+        if (gbl_ssl_print_io_errors) {
+            if (errno == 0) /* openssl 1.x bug: an errno 0 reported under SSL_ERROR_SYSCALL means EOF from peer */
+                errno = ECONNRESET;
             logmsg(LOGMSG_ERROR, "%s:%d SSL_do_handshake fd:%d rc:%d err:%d errno:%d [%s]\n", __func__, __LINE__, fd,
                    rc, err, errno, strerror(errno));
+        }
         break;
     default:
         if (gbl_ssl_print_io_errors)
@@ -168,7 +171,9 @@ int rd_ssl_evbuffer(struct evbuffer *rd_buf, struct ssl_data *ssl_data, int *eof
                __func__, __LINE__, rc, err);
         break;
     case SSL_ERROR_SYSCALL:
-        if (gbl_ssl_print_io_errors && errno && errno != ECONNRESET) {
+        if (gbl_ssl_print_io_errors) {
+            if (errno == 0)
+                errno = ECONNRESET;
             logmsg(LOGMSG_ERROR, "%s:%d SSL_read rc:%d err:%d errno:%d [%s]\n",
                    __func__, __LINE__, rc, err, errno, strerror(errno));
         }
@@ -204,7 +209,9 @@ int wr_ssl_evbuffer(struct ssl_data *ssl_data, struct evbuffer *wr_buf)
                __func__, __LINE__, rc, err);
         break;
     case SSL_ERROR_SYSCALL:
-        if (gbl_ssl_print_io_errors && errno && errno != ECONNRESET) {
+        if (gbl_ssl_print_io_errors) {
+            if (errno == 0)
+                errno = ECONNRESET;
             logmsg(LOGMSG_ERROR, "%s:%d SSL_write rc:%d err:%d errno:%d [%s]\n",
                    __func__, __LINE__, rc, err, errno, strerror(errno));
         }
@@ -249,10 +256,8 @@ void ssl_data_free(struct ssl_data *ssl_data)
 {
     if (!ssl_data) return;
     if (ssl_data->ev) event_free(ssl_data->ev);
-    if (!ssl_data->do_shutdown)
-        SSL_set_shutdown(ssl_data->ssl, SSL_SENT_SHUTDOWN); /* make session reusable */
-    else if (SSL_shutdown(ssl_data->ssl) == 0)
-        SSL_shutdown(ssl_data->ssl);
+    if (ssl_data->do_shutdown)
+        SSL_set_shutdown(ssl_data->ssl, SSL_SENT_SHUTDOWN); /* fast shutdown and make session reusable */
 
     SSL_free(ssl_data->ssl);
     X509_free(ssl_data->cert);

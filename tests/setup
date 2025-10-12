@@ -145,6 +145,17 @@ setup_db() {
     echo "comdb2_config:ssl_cert_path=$TESTDIR" >>$CDB2_CONFIG
     echo "comdb2_config:allow_pmux_route:true" >> $CDB2_CONFIG
 
+    # Be a little more generous on connect timeout if running a stress test
+    # TODO: should we also increase ulimit here?
+    if [ "${STRESS_TEST}" = "1" ]; then
+        if [ "${SKIPSSL}" = "1" ]; then
+            echo "comdb2_config:connect_timeout:1000" >> $CDB2_CONFIG
+        else
+            # SSL handshakes are expensive!
+            echo "comdb2_config:connect_timeout:10000" >> $CDB2_CONFIG
+        fi
+    fi
+
     set +e
 
     # If PMUXPORT is defined we will overwrite the default pmux port with that

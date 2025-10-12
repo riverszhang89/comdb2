@@ -2927,7 +2927,14 @@ static int should_reject_request(uint8_t first_byte)
     if (db_is_exiting() || gbl_exit || !gbl_ready) return 1;
     int is_admin = 0;
     if (first_byte == '@') is_admin = 1;
-    return check_appsock_limit(pending_connections, is_admin);
+    return check_appsock_limit(pending_connections, is_admin, 0);
+}
+
+int should_reject_request_after_accept(int is_admin)
+{
+    if (db_is_exiting() || gbl_exit || !gbl_ready)
+        return 1;
+    return check_appsock_limit(pending_connections, is_admin, 1);
 }
 
 /* PMUV REQUEST/RESPONSE */

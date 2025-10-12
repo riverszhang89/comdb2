@@ -138,6 +138,9 @@ int main(int argc, char *argv[]) {
     setvbuf(stderr, NULL, _IOLBF, 0);
     signal(SIGPIPE, SIG_IGN);
 
+    cdb2_set_max_retries(100);
+    cdb2_set_min_retries(100);
+
     const char *conf = getenv("CDB2_CONFIG");
     if (conf) { cdb2_set_comdb2db_config(conf); }
 

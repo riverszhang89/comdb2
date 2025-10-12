@@ -879,9 +879,31 @@ static void process_ssl_request(struct newsql_appdata_evbuffer *appdata)
         evtimer_once(appdata->base, rd_hdr, appdata);
         return;
     }
-    appdata->ssl_data = ssl_data_new(appdata->fd, clnt->origin);
-    accept_ssl_evbuffer(appdata->ssl_data, appdata->base, newsql_accept_ssl_error, newsql_accept_ssl_success, appdata);
-    return;
+
+    /* An SSL handshake is expensive and may tie up a precious appsock event base. Check again if we're above limit:
+     * #0  0x00007f031fdac965 in bn_sqrx8x_internal () from /lib64/libcrypto.so.1.1
+     * #1  0x00007f031fdac55d in bn_powerx5 () from /lib64/libcrypto.so.1.1
+     * #2  0x00007f031fd981f1 in BN_mod_exp_mont_consttime () from /lib64/libcrypto.so.1.1
+     * #3  0x00007f031fe9e13a in rsa_ossl_mod_exp () from /lib64/libcrypto.so.1.1
+     * #4  0x00007f031fe9fafd in rsa_ossl_private_encrypt () from /lib64/libcrypto.so.1.1
+     * #5  0x00007f031fea21f7 in pkey_rsa_sign () from /lib64/libcrypto.so.1.1
+     * #6  0x00007f031fe5187c in EVP_DigestSignFinal () from /lib64/libcrypto.so.1.1
+     * #7  0x00007f0320222c19 in tls_construct_cert_verify () from /lib64/libssl.so.1.1
+     * #8  0x00007f032021942f in state_machine.part () from /lib64/libssl.so.1.1
+     * #9  0x00007f0320204cb8 in SSL_do_handshake () from /lib64/libssl.so.1.1
+     * #10 0x000000000078fc3a in ssl_handshake_evbuffer (fd=56516, what=<optimized out>, data=0x6002e880) at
+     * /home/hzhang320/mbig/opensrc/yac2/net/ssl_evbuffer.c:69 #11 0x00007f031f2839b5 in
+     * event_process_active_single_queue () from /lib64/libevent_core-2.1.so.6 #12 0x00007f031f2843b7 in event_base_loop
+     * () from /lib64/libevent_core-2.1.so.6 #13 0x000000000077dcf2 in net_dispatch (arg=0x1273c98) at
+     * /home/hzhang320/mbig/opensrc/yac2/net/net_evbuffer.c:556 #14 0x00007f031e8c31ca in start_thread () from
+     * /lib64/libpthread.so.0 #15 0x00007f031e51d8d3 in clone () from /lib64/libc.so.6
+     */
+    if (!should_reject_request_after_accept(clnt->admin)) {
+        appdata->ssl_data = ssl_data_new(appdata->fd, clnt->origin);
+        accept_ssl_evbuffer(appdata->ssl_data, appdata->base, newsql_accept_ssl_error, newsql_accept_ssl_success,
+                            appdata);
+        return;
+    }
 
 cleanup:
     newsql_cleanup(appdata);
