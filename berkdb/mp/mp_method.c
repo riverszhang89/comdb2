@@ -504,10 +504,13 @@ __memp_get_refcnt(dbenv, fileid, refp)
 	if (fileid_mpf) {
 		LISTC_FOR_EACH_SAFE(&fileid_mpf->mpflist, mfp, tmp, lnk) {
 			/* Ignore non-active files. */
+#if 0
 			if (mfp->deadfile || F_ISSET(mfp, MP_TEMP))
 				continue;
+#endif
 
 			*refp = mfp->mpf_cnt;
+            printf("------------ got %d\n", mfp->mpf_cnt);
 			break;
 		}
 	}

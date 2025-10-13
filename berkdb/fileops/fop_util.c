@@ -978,9 +978,12 @@ retry:	if (LOCKING_ON(dbenv)) {
 	} else if ((ret = REL_ENVLOCK(dbenv, &elock)) != 0)
 		goto err;
 
+    printf("------------ hello going to check memp refcnt for %s\n", name);
 	/* Check if the file is already open. */
 	if ((ret = __memp_get_refcnt(dbenv, dbp->fileid, &cnt)) != 0)
 		goto err;
+
+    printf("------------ hello memp refcnt for %s is %d\n", name, cnt);
 	/*
 	 * Now, error check.  If the file is already open (refcnt != 0), then
 	 * we must have it open (since we got the lock) and we need to report

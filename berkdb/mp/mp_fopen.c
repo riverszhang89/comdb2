@@ -5,6 +5,7 @@
  *	Sleepycat Software.  All rights reserved.
  */
 #include "db_config.h"
+#define UFID_HASH_DEBUG
 
 #ifndef lint
 static const char revid[] = "$Id: mp_fopen.c,v 11.120 2003/11/07 18:45:15 ubell Exp $";
@@ -831,6 +832,7 @@ __memp_fopen(dbmfp, mfp, path, flags, mode, pagesize)
 			if (LF_ISSET(DB_TRUNCATE)) {
 				MUTEX_LOCK(dbenv, &loop_mfp->mutex);
 				loop_mfp->deadfile = 1;
+                printf("hello Im here %d\n", __LINE__);
 				MUTEX_UNLOCK(dbenv, &loop_mfp->mutex);
 				continue;
 			}
@@ -1370,6 +1372,9 @@ __memp_fclose(dbmfp, flags)
 		logmsg(LOGMSG_USER, "%s not discarding mpool %p file %s\n",
 				__func__, mfp, mfp && mfp->path_off ?
 				(char *)R_ADDR(dbmp->reginfo, mfp->path_off) : "(none)");
+        int mycnt = 0;
+        __memp_get_refcnt(dbenv, mfp->fileid, &mycnt);
+        printf("hi my cnt is %d\n", mycnt);
 #endif
 		MUTEX_UNLOCK(dbenv, &mfp->mutex);
 	}

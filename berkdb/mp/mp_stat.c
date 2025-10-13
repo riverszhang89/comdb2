@@ -380,6 +380,8 @@ __memp_dump_region(dbenv, area, fp)
 			if (i < DB_FILE_ID_LEN - 1)
 				(void)logmsgf(LOGMSG_USER, fp, " ");
 		}
+        int mycnt;
+        __memp_get_refcnt(dbenv, mfp->fileid, &mycnt);
 		(void)logmsgf(LOGMSG_USER, fp, "\n");
 		if (cnt < FMAP_ENTRIES)
 			fmap[cnt] = mfp;

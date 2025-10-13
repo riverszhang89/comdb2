@@ -20,6 +20,7 @@ int __berkdb_read_alarm_ms;
 int __berkdb_fsync_alarm_ms;
 
 extern int gbl_delay_sql_lock_release_sec;
+int i;
 
 void __berkdb_set_num_read_ios(long long *n);
 void __berkdb_set_num_write_ios(long long *n);

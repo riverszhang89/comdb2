@@ -308,6 +308,7 @@ __txn_doevents(dbenv, txn, opcode, preprocess)
 			} else if ((t_ret =
 				__os_unlink(dbenv, e->u.r.name)) != 0 && ret == 0)
 				ret = t_ret;
+            printf("hello!\n");
 			break;
 		case TXN_TRADE:
 			DO_TRADE;

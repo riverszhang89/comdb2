@@ -3449,9 +3449,11 @@ clipper_usage:
         }
 
         /*get file number*/
+        tok = segtok(line, lline, &st, &ltok);
         file_num = toknum(tok, ltok);
 
         /*get table*/
+        tok = segtok(line, lline, &st, &ltok);
         table_name = tokdup(tok, ltok);
         db = get_dbtable_by_name(table_name);
         free(table_name);
