@@ -2260,6 +2260,7 @@ int main(int argc, char *argv[])
                                            {"binary", no_argument, &printmode, DISP_BINARY},
                                            {"tabs", no_argument, &printmode, DISP_TABS},
                                            {"tabular", no_argument, &printmode, DISP_TABULAR},
+                                           {"noout", no_argument, &printmode, DISP_NONE},
                                            {"coltype", no_argument, &printcoltype, 1},
                                            {"stderr", no_argument, &printtostderr, 1},
                                            {"verbose", no_argument, &verbose, 1},
