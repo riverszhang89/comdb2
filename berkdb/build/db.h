@@ -208,7 +208,6 @@ struct txn_properties;
 #define	DB_USE_ENVIRON	      0x0000400	/* Use the environment. */
 #define	DB_USE_ENVIRON_ROOT   0x0000800	/* Use the environment if root. */
 #define DB_RECOVERY_CKP       0x0001000 /* Do recovery checkpoint */
-#define	DB_CLR_UFID           0x0002000	/* Clear open handle in ufid-hash */
 
 /*
  * Common flags --
@@ -1890,6 +1889,7 @@ struct __db {
 	uint8_t compression_flags;
 	void (*set_compression_flags) __P((DB *, uint8_t));
 	uint8_t (*get_compression_flags) __P((DB *));
+	int (*clear_ufid_hash) __P((DB *, DB_TXN *));
 	uint8_t temptable;
 	int offset_bias;
 	uint8_t olcompact;

@@ -279,6 +279,7 @@ __db_init(dbp, flags)
 	dbp->get_numpages = __db_get_numpages;
 	dbp->set_compression_flags = __db_set_compression_flags;
 	dbp->get_compression_flags = __db_get_compression_flags;
+	dbp->clear_ufid_hash = __db_clear_ufid_hash;
 
 	/* Access method specific. */
 	if ((ret = __bam_db_create(dbp)) != 0)
