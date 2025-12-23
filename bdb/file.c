@@ -6531,7 +6531,6 @@ static int bdb_del_file(bdb_state_type *bdb_state, DB_TXN *tid, char *filename,
                         int *bdberr)
 {
     DB_ENV *dbenv;
-    DB *dbp;
     char transname[PATH_MAX];
     char *pname = bdb_trans(filename, transname);
     int rc = 0;
@@ -6542,14 +6541,7 @@ static int bdb_del_file(bdb_state_type *bdb_state, DB_TXN *tid, char *filename,
         dbenv = bdb_state->dbenv;
 
     if ((rc = access(pname, F_OK)) == 0) {
-        int rc;
-
-        if ((rc = db_create(&dbp, dbenv, 0)) == 0 &&
-            (rc = dbp->open(dbp, NULL, pname, NULL, DB_BTREE, DB_CLR_UFID, 0666)) == 0) {
-            dbp->close(dbp, DB_NOSYNC);
-        }
-
-        rc = dbenv->dbremove(dbenv, tid, filename, NULL, 0);
+        int rc = dbenv->dbremove(dbenv, tid, filename, NULL, 0);
         if (rc) {
            logmsg(LOGMSG_ERROR, "bdb_del_file: dbremove %s failed: %d %s\n", filename, rc,
                    db_strerror(rc));
@@ -6996,16 +6988,52 @@ static int bdb_close_only_int(bdb_state_type *bdb_state, DB_TXN *tid, int *bdber
     return bdb_close_only_flags(bdb_state, tid, bdberr, 0);
 }
 
+/* clear all open DB handles of the table held by ufid-hash */
+static void bdb_clear_ufid_hash(bdb_state_type *bdb_state, DB_TXN *tid, int *bdberr)
+{
+    int rc, ixnum, dtanum, strnum;
+
+    if (!bdb_state->isopen)
+        return;
+
+    for (dtanum = 0; dtanum < MAXDTAFILES; dtanum++) {
+        for (strnum = 0; strnum < MAXDTASTRIPE; strnum++) {
+            if (bdb_state->dbp_data[dtanum][strnum]) {
+                rc = bdb_state->dbp_data[dtanum][strnum]->clear_ufid_hash(bdb_state->dbp_data[dtanum][strnum], tid);
+                if (rc != 0) {
+                    logmsg(LOGMSG_ERROR, "%s: error clearing ufid %s[%d][%d]: rc %d %s\n", __func__, bdb_state->name,
+                           dtanum, strnum, rc, db_strerror(rc));
+                }
+            }
+        }
+    }
+
+    if (bdb_state->bdbtype == BDBTYPE_TABLE) {
+        for (ixnum = 0; ixnum < bdb_state->numix; ++ixnum) {
+            rc = bdb_state->dbp_ix[ixnum]->clear_ufid_hash(bdb_state->dbp_ix[ixnum], tid);
+            if (rc != 0) {
+                logmsg(LOGMSG_ERROR, "%s: error clearing ufid %s ix[%d] rc %d %s\n", __func__, bdb_state->name, ixnum,
+                       rc, db_strerror(rc));
+            }
+        }
+    }
+}
+
 int bdb_close_only_sc(bdb_state_type *bdb_state, tran_type *tran, int *bdberr)
 {
     int rc;
+    DB_TXN *tid;
 
     if (bdb_state->envonly)
         return 0;
 
     BDB_READLOCK("bdb_close_only_sc");
 
-    rc = bdb_close_only_int(bdb_state, tran ? tran->tid : NULL, bdberr);
+    tid = tran ? tran->tid : NULL;
+
+    bdb_clear_ufid_hash(bdb_state, tid, bdberr);
+
+    rc = bdb_close_only_int(bdb_state, tid, bdberr);
 
     BDB_RELLOCK();
 

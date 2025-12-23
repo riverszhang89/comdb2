@@ -1777,3 +1777,32 @@ err:	if (buf != NULL)
 		(void)__os_closehandle(dbenv, wfhp);
 }
 #endif
+
+/*
+ * __db_clear_ufid_hash --
+ *	DB->close method.
+ *
+ * PUBLIC: int __db_clear_ufid_hash __P((DB *, DB_TXN *));
+ */
+int
+__db_clear_ufid_hash(dbp, txn)
+	DB *dbp;
+	DB_TXN *txn;
+{
+	DB_LSN dummy_lsn;
+	ZERO_LSN(dummy_lsn);
+	DB *ufid_dbp = NULL;
+	int ufid_find_rc = 0;
+	int ret = 0;
+
+	ufid_find_rc = __ufid_find_db(dbp->dbenv, txn, &ufid_dbp, dbp->fileid, &dummy_lsn);
+	if ((ufid_find_rc == 0 && ufid_dbp != NULL) && ufid_dbp != dbp && F_ISSET(ufid_dbp, DB_AM_RECOVER)) {
+		logmsg(LOGMSG_INFO, "%s: closing ufid hash open DB handle to %s\n", __func__, dbp->fname);
+		ret = __db_close(ufid_dbp, txn, DB_NOSYNC);
+		if (ret != 0) {
+			__db_err(dbp->dbenv, "__db_close(%s)", dbp->fname);
+		}
+	}
+
+	return ret;
+}
