@@ -300,19 +300,17 @@ __db_ovref(dbc, pgno, adjust)
 	return (0);
 }
 
-/*
- * __db_doff --
- *	Delete an offpage chain of overflow pages.
- *
- * PUBLIC: int __db_doff __P((DBC *, db_pgno_t));
- */
-int
-__db_doff(dbc, pgno)
+int gbl_ovfl_free_page_order_thresh = 0;
+
+
+static int
+__db_doff_page(dbc, h, free_it, ppgno)
 	DBC *dbc;
-	db_pgno_t pgno;
+	PAGE *h;
+	int free_it;
+	db_pgno_t *ppgno;
 {
 	DB *dbp;
-	PAGE *pagep;
 	DB_LSN null_lsn;
 	DB_MPOOLFILE *mpf;
 	DBT tmp_dbt;
@@ -320,6 +318,62 @@ __db_doff(dbc, pgno)
 
 	dbp = dbc->dbp;
 	mpf = dbp->mpf;
+
+	if (DBC_LOGGING(dbc)) {
+		tmp_dbt.data = (u_int8_t *)h + P_OVERHEAD(dbp);
+		tmp_dbt.size = OV_LEN(h);
+		ZERO_LSN(null_lsn);
+		if ((ret = __db_big_log(dbp, dbc->txn,
+						&LSN(h), 0, DB_REM_BIG,
+						PGNO(h), PREV_PGNO(h),
+						NEXT_PGNO(h), &tmp_dbt,
+						&LSN(h), &null_lsn, &null_lsn)) != 0) {
+			PAGEPUT(dbc, mpf, h, 0);
+			return (ret);
+		}
+	} else
+		LSN_NOT_LOGGED(LSN(h));
+	*ppgno = h->next_pgno;
+	OV_LEN(h) = 0;
+	if (free_it && (ret = __db_free(dbc, h)) != 0)
+		return (ret);
+	return (0);
+}
+
+static int
+pgno_cmp(const void *x, const void *y)
+{
+	return ((*(db_pgno_t *)x) - (*(db_pgno_t *)y));
+}
+
+/*
+ * __db_doff --
+ *	Delete an offpage chain of overflow pages in page order
+ *
+ * PUBLIC: int __db_doff __P((DBC *, db_pgno_t));
+ */
+int
+__db_doff_page_order(dbc, pgno)
+	DBC *dbc;
+	db_pgno_t pgno;
+{
+	DB *dbp;
+	PAGE *pagep;
+	DB_MPOOLFILE *mpf;
+	int ret;
+
+    int thresh, nfree;
+    db_pgno_t *l;
+	PAGE dummy_page = {0};
+
+	dbp = dbc->dbp;
+	mpf = dbp->mpf;
+    thresh = gbl_ovfl_free_page_order_thresh;
+    nfree = 0;
+
+	/* We'll empty pages, so page numbers are all we need */
+	l = alloca(thresh * sizeof(db_pgno_t));
+	memset(l, 0, thresh * sizeof(db_pgno_t));
 
 	do {
 		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &pagep)) != 0)
@@ -335,23 +389,62 @@ __db_doff(dbc, pgno)
 			return (__db_ovref(dbc, pgno, -1));
 		}
 
-		if (DBC_LOGGING(dbc)) {
-			tmp_dbt.data = (u_int8_t *)pagep + P_OVERHEAD(dbp);
-			tmp_dbt.size = OV_LEN(pagep);
-			ZERO_LSN(null_lsn);
-			if ((ret = __db_big_log(dbp, dbc->txn,
-			    &LSN(pagep), 0, DB_REM_BIG,
-			    PGNO(pagep), PREV_PGNO(pagep),
-			    NEXT_PGNO(pagep), &tmp_dbt,
-			    &LSN(pagep), &null_lsn, &null_lsn)) != 0) {
-				PAGEPUT(dbc, mpf, pagep, 0);
-				return (ret);
-			}
-		} else
-			LSN_NOT_LOGGED(LSN(pagep));
-		pgno = pagep->next_pgno;
-		OV_LEN(pagep) = 0;
-		if ((ret = __db_free(dbc, pagep)) != 0)
+		if (nfree > thresh) {
+			if ((ret = __db_doff_page(dbc, pagep, 1, &pgno)) != 0)
+				break;
+		} else {
+			if ((ret = __db_doff_page(dbc, pagep, 0, &pgno)) != 0)
+			l[nfree++] = PGNO(pagep);
+		}
+	} while (pgno != PGNO_INVALID);
+
+	qsort(l, nfree, sizeof(db_pgno_t), pgno_cmp);
+	while (nfree-- > 0) {
+		PGNO(&dummy_page) = l[nfree];
+		if ((ret = __db_free(dbc, &dummy_page)) != 0)
+			return (ret);
+	}
+
+	return (0);
+}
+
+/*
+ * __db_doff --
+ *	Delete an offpage chain of overflow pages.
+ *
+ * PUBLIC: int __db_doff __P((DBC *, db_pgno_t));
+ */
+int
+__db_doff(dbc, pgno)
+	DBC *dbc;
+	db_pgno_t pgno;
+{
+	DB *dbp;
+	PAGE *pagep;
+	DB_MPOOLFILE *mpf;
+	int ret;
+
+	dbp = dbc->dbp;
+	mpf = dbp->mpf;
+
+	if (gbl_ovfl_free_page_order_thresh > 0)
+		return __db_doff_page_order(dbc, pgno);
+
+	do {
+		if ((ret = PAGEGET(dbc, mpf, &pgno, 0, &pagep)) != 0)
+			return (__db_pgerr(dbp, pgno, ret));
+
+		DB_ASSERT(TYPE(pagep) == P_OVERFLOW);
+		/*
+		 * If it's referenced by more than one key/data item,
+		 * decrement the reference count and return.
+		 */
+		if (OV_REF(pagep) > 1) {
+			PAGEPUT(dbc, mpf, pagep, 0);
+			return (__db_ovref(dbc, pgno, -1));
+		}
+
+		if ((ret = __db_doff_page(dbc, pagep, 1, &pgno)) != 0)
 			return (ret);
 	} while (pgno != PGNO_INVALID);
 
