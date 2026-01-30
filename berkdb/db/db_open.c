@@ -41,6 +41,18 @@ static const char revid[] = "$Id: db_open.c,v 11.236 2003/09/27 00:29:03 sue Exp
 #include <tohex.h>
 void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 #endif
+
+#define NFRAMES 64
+int gbl_db_track_open = 1;
+DB_OPEN_LIST gbl_db_open_list;
+
+static pthread_once_t db_track_open_once = PTHREAD_ONCE_INIT;
+static void __db_track_open_init(void)
+{
+    Pthread_mutex_init(&gbl_db_open_list.lk, NULL);
+    LIST_INIT(&gbl_db_open_list);
+}
+
 /*
  * __db_open --
  *	DB->open method.
@@ -296,6 +308,18 @@ DB_TEST_RECOVERY_LABEL
 	comdb2_cheapstack_sym(stderr, "%s called on %s flags=0x%x dbp %p ret %d %s:",
             __func__, fname ? fname : "(nil)", flags, dbp, ret, fid_str);
 #endif
+	if (ret == 0 && gbl_db_track_open && !LF_ISSET(DB_TEMPTABLE)) {
+		Pthread_once(&db_track_open_once, __db_track_open_init);
+		if (__os_malloc(dbenv, sizeof(DB_WALKBACK) + (NFRAMES - 1) * sizeof(void *), &dbp->wb) == 0) {
+			DB_WALKBACK *wb = dbp->wb;
+			stack_pc_getlist(NULL, wb->frames, NFRAMES, &(wb->nframes));
+			wb->dbp = dbp;
+
+			Pthread_mutex_lock(&gbl_db_open_list.lk);
+			LIST_INSERT_HEAD(&gbl_db_open_list, wb, lnk);
+			Pthread_mutex_unlock(&gbl_db_open_list.lk);
+		}
+	}
 err:
 	return (ret);
 }
@@ -630,4 +654,29 @@ swap_retry:
 bad_format:
 	__db_err(dbenv, "%s: unexpected file type or format", name);
 	return (ret == 0 ? EINVAL : ret);
+}
+
+/*
+ * __db_open --
+ *
+ * PUBLIC: void __db_dump_open __P((FILE *));
+ */
+void __db_dump_open(out)
+	FILE *out;
+{
+	DB_WALKBACK *dbwb;
+	int i, nframes;
+	void **frames;
+
+	LIST_FOREACH(dbwb, &gbl_db_open_list, lnk) {
+		nframes = dbwb->nframes;
+		frames = dbwb->frames;
+		logmsgf(LOGMSG_USER, out, "[%s] ", dbwb->dbp->fname);
+        for (i = 0; i < nframes; ++i) {
+            if (frames[i] != NULL) {
+                logmsgf(LOGMSG_USER, out, "%p ", frames[i]);
+            }
+        }
+        logmsgf(LOGMSG_USER, out, "\n");
+	}
 }

@@ -957,6 +957,8 @@ __db_dbenv_mpool(dbp, fname, flags)
 	return (0);
 }
 
+extern DB_OPEN_LIST gbl_db_open_list;
+
 /*
  * __db_close --
  *	DB->close method.
@@ -1068,9 +1070,17 @@ __db_close(dbp, txn, flags)
 		dbp->pg_hash = NULL;
 	}
 
+	if (dbp->wb != NULL) {
+		Pthread_mutex_lock(&gbl_db_open_list.lk);
+		LIST_REMOVE(dbp->wb, lnk);
+		Pthread_mutex_unlock(&gbl_db_open_list.lk);
+		__os_free(dbenv, dbp->wb);
+	}
+
 	/* Free the database handle. */
 	memset(dbp, CLEAR_BYTE, sizeof(*dbp));
 	dbp->is_free = 1;
+
 	__os_free(dbenv, dbp);
 
 	return (ret);

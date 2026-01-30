@@ -1556,6 +1556,23 @@ typedef struct __db_cq_hash_list {
 extern DB_CQ_HASH_LIST gbl_all_cursors;
 extern pthread_key_t tlcq_key;
 
+typedef struct __db_walkback {
+	/* walkback info */
+	struct __db *dbp;
+	struct {
+		struct __db_walkback *le_next;
+		struct __db_walkback **le_prev;
+	} lnk;
+	unsigned int nframes;
+	void *frames[1];
+} DB_WALKBACK;
+
+typedef struct __db_open_list {
+	struct __db_walkback *lh_first;
+	pthread_mutex_t lk;
+} DB_OPEN_LIST;
+extern DB_OPEN_LIST gbl_db_open_list;
+
 /* Database handle. */
 struct __db {
 	/*******************************************************
@@ -1894,6 +1911,8 @@ struct __db {
 	int offset_bias;
 	uint8_t olcompact;
 	struct __db_trigger_subscription *trigger_subscription;
+
+    DB_WALKBACK *wb;
 };
 
 /*
