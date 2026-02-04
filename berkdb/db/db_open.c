@@ -672,7 +672,7 @@ void __db_dump_open(out)
 		nframes = dbwb->nframes;
 		frames = dbwb->frames;
 		logmsgf(LOGMSG_USER, out, "[%s] ", dbwb->dbp->fname);
-        for (i = 0; i < nframes; ++i) {
+        for (i = 3; i < nframes; ++i) {
             if (frames[i] != NULL) {
                 logmsgf(LOGMSG_USER, out, "%p ", frames[i]);
             }
