@@ -429,7 +429,7 @@ int handle_ireq(struct ireq *iq)
 
     if (!iq->sorese) /* don't count osql */
         iq->rawnodestats =
-            get_raw_node_stats(NULL, NULL, iq->frommach, sbuf2fileno(iq->sb), 0 /* tag does not support ssl */);
+            get_raw_node_stats(NULL, NULL, NULL, iq->frommach, sbuf2fileno(iq->sb), 0 /* tag does not support ssl */);
     if (iq->rawnodestats && iq->opcode >= 0 && iq->opcode < MAXTYPCNT)
         iq->rawnodestats->opcode_counts[iq->opcode]++;
     if (gbl_print_deadlock_cycles && IQ_HAS_SNAPINFO(iq))
@@ -585,7 +585,7 @@ int handle_ireq(struct ireq *iq)
         /* Free the sorese transaction buffer */
         free(iq->p_buf_out_start);
     } else {
-        release_node_stats(NULL, NULL, iq->frommach);
+        release_node_stats(NULL, NULL, NULL, iq->frommach);
     }
     reqlog_end_request(iq->reqlogger, rc, __func__, __LINE__);
     if (gbl_print_deadlock_cycles)

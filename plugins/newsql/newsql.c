@@ -2427,7 +2427,7 @@ newsql_loop_result newsql_loop(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_quer
     }
     if (sql_query->client_info) {
         if (clnt->rawnodestats) {
-            release_node_stats(clnt->argv0, clnt->stack, clnt->origin);
+            release_node_stats(clnt->argv0, clnt->stack, clnt->externalAuthUser, clnt->origin);
             clnt->rawnodestats = NULL;
         }
         if (clnt->conninfo.pid && clnt->conninfo.pid != sql_query->client_info->pid) {
@@ -2441,7 +2441,7 @@ newsql_loop_result newsql_loop(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_quer
     }
     if (clnt->rawnodestats == NULL) {
         clnt->rawnodestats =
-            get_raw_node_stats(clnt->argv0, clnt->stack, clnt->origin,
+            get_raw_node_stats(clnt->argv0, clnt->stack, clnt->origin, clnt->externalAuthUser,
                                clnt->plugin.get_fileno(clnt), clnt->plugin.has_ssl(clnt));
     }
     if (process_set_commands(clnt, sql_query)) {
