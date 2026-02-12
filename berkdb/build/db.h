@@ -208,7 +208,6 @@ struct txn_properties;
 #define	DB_USE_ENVIRON	      0x0000400	/* Use the environment. */
 #define	DB_USE_ENVIRON_ROOT   0x0000800	/* Use the environment if root. */
 #define DB_RECOVERY_CKP       0x0001000 /* Do recovery checkpoint */
-#define	DB_CLR_UFID           0x0002000	/* Clear open handle in ufid-hash */
 
 /*
  * Common flags --
@@ -1730,6 +1729,7 @@ struct __db {
 	int  (*associate) __P((DB *, DB_TXN *, DB *, int (*)(DB *, const DBT *,
 		const DBT *, DBT *), u_int32_t));
 	int  (*get_fileid) __P((DB *, u_int8_t *fileid));
+	int  (*clear_ufid_hash) __P((DB *, DB_TXN *, u_int32_t));
 	int  (*close) __P((DB *, u_int32_t));
 	int  (*closetxn) __P((DB *, DB_TXN *, u_int32_t));
 	int  (*cursor) __P((DB *, DB_TXN *, DBC **, u_int32_t));

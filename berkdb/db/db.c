@@ -957,6 +957,45 @@ __db_dbenv_mpool(dbp, fname, flags)
 	return (0);
 }
 
+/*
+ * __db_clear_ufid_hash --
+ *	DB->clear_ufid_hash method.
+ *
+ * PUBLIC: int __db_clear_ufid_hash __P((DB *, DB_TXN *, u_int32_t));
+ */
+	int
+__db_clear_ufid_hash(dbp, txn, flags)
+	DB *dbp;
+	DB_TXN *txn;
+	u_int32_t flags;
+{
+	DB_LSN dummy_lsn;
+	DB *ufid_dbp;
+	DB_ENV *dbenv;
+	int ret;
+	FILE *f;
+
+	dbenv = dbp->dbenv;
+	ZERO_LSN(dummy_lsn);
+	ufid_dbp = NULL;
+
+	ret = __ufid_find_db(dbenv, txn, &ufid_dbp, dbp->fileid, &dummy_lsn);
+	if (ret != 0 || ufid_dbp == NULL || !F_ISSET(ufid_dbp, DB_AM_RECOVER)) {
+		return 0;
+	}
+
+	f = io_override_get_std();
+	io_override_set_std(stdout);
+	logmsg(LOGMSG_WARN, "%s: closing ufid hash open DB handle to %s\n", __func__, dbp->fname);
+	io_override_set_std(f);
+
+	ret = __db_close(ufid_dbp, txn, flags);
+	if (ret != 0) {
+		__db_err(dbenv, "__db_close(%s)", dbp->fname);
+	}
+	return (ret);
+
+}
 extern DB_OPEN_LIST gbl_db_open_list;
 
 /*
