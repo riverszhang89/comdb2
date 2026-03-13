@@ -426,8 +426,7 @@ int recom_abort(struct sqlclntstate *clnt)
     return sorese_abort(clnt, OSQL_RECOM_REQ);
 }
 
-int snapisol_commit(struct sqlclntstate *clnt, struct sql_thread *thd,
-                    char *tzname, int is_distributed_tran)
+int snapisol_commit(struct sqlclntstate *clnt, struct sql_thread *thd, char *tzname, int is_distributed_tran)
 {
 
     return rese_commit(clnt, thd, tzname, OSQL_SNAPISOL_REQ, is_distributed_tran);
