@@ -691,9 +691,7 @@ bdb_cursor_ifn_t *bdb_cursor_open(
 
         /* Always create cur->sd for non-page order snapisol or you can lose
          * data in cursor_move_merge. */
-        if (cur->shadow_tran &&
-            (cur->shadow_tran->tranclass == TRANCLASS_SERIALIZABLE ||
-             type == BDB_OPEN_BOTH_CREATE))
+        if (cur->shadow_tran && (cur->shadow_tran->tranclass == TRANCLASS_SERIALIZABLE || type == BDB_OPEN_BOTH_CREATE))
             openhow = BERKDB_SHAD_CREATE;
 
         /* open the cursor now */
@@ -776,8 +774,7 @@ int bdb_gbl_asof_modsnap_init(bdb_state_type *bdb_state)
                             &(bdb_gbl_recoverable_lsn.offset));
         bdb_gbl_recoverable_timestamp = (int32_t)time(NULL);
         Pthread_mutex_unlock(&bdb_gbl_recoverable_lsn_mutex);
-        logmsg(LOGMSG_ERROR, "set gbl_recoverable_lsn as [%d][%d]\n",
-               bdb_gbl_recoverable_lsn.file,
+        logmsg(LOGMSG_ERROR, "set gbl_recoverable_lsn as [%d][%d]\n", bdb_gbl_recoverable_lsn.file,
                bdb_gbl_recoverable_lsn.offset);
     }
     return rc;

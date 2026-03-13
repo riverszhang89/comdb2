@@ -1925,13 +1925,11 @@ inline int replicant_is_able_to_retry(struct sqlclntstate *clnt)
     if (clnt->verifyretry_off || clnt->dbtran.trans_has_sp || clnt->is_participant)
         return 0;
 
-    if ((clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
-         clnt->dbtran.mode == TRANLEVEL_SERIAL) &&
+    if ((clnt->dbtran.mode == TRANLEVEL_SNAPISOL || clnt->dbtran.mode == TRANLEVEL_SERIAL) &&
         !get_asof_snapshot(clnt) && gbl_snapshot_serial_verify_retry)
         return !clnt->sent_data_to_client;
 
-    return clnt->dbtran.mode != TRANLEVEL_SNAPISOL &&
-           clnt->dbtran.mode != TRANLEVEL_SERIAL;
+    return clnt->dbtran.mode != TRANLEVEL_SNAPISOL && clnt->dbtran.mode != TRANLEVEL_SERIAL;
 }
 
 static inline int replicant_can_retry_rc(struct sqlclntstate *clnt, int rc)
@@ -1946,8 +1944,7 @@ static inline int replicant_can_retry_rc(struct sqlclntstate *clnt, int rc)
         return 1;
 
     /* Verify error can be retried in reccom or lower */
-    return (rc == CDB2ERR_VERIFY_ERROR) &&
-           (clnt->dbtran.mode != TRANLEVEL_SNAPISOL) &&
+    return (rc == CDB2ERR_VERIFY_ERROR) && (clnt->dbtran.mode != TRANLEVEL_SNAPISOL) &&
            (clnt->dbtran.mode != TRANLEVEL_SERIAL);
 }
 
@@ -2009,8 +2006,11 @@ void abort_dbtran(struct sqlclntstate *clnt)
         break;
 
     case TRANLEVEL_RECOM:
-    case TRANLEVEL_SNAPISOL:
         recom_abort(clnt);
+        break;
+
+    case TRANLEVEL_SNAPISOL:
+        snapisol_abort(clnt);
         break;
 
     case TRANLEVEL_SERIAL:
@@ -5910,16 +5910,14 @@ static int execute_sql_query_offload_inner_loop(struct sqlclntstate *clnt,
             computing!
             Get the LOCK!
             */
-            if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
-                clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+            if (clnt->dbtran.mode == TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_SERIAL ||
                 clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
                 Pthread_mutex_lock(&clnt->dtran_mtx);
             }
 
             ret = next_row(clnt, stmt);
 
-            if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
-                clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+            if (clnt->dbtran.mode == TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_SERIAL ||
                 clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
                 Pthread_mutex_unlock(&clnt->dtran_mtx);
             }
