@@ -391,10 +391,8 @@ int fdb_svc_trans_commit(char *tid, enum transaction_level lvl,
     }
     Pthread_mutex_unlock(&clnt->dtran_mtx);
 
-    if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
-        clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-        clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-        clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
+    if (clnt->dbtran.mode == TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+        clnt->dbtran.mode == TRANLEVEL_SOSQL || clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
         osql_shadtbl_begin_query(thedb->bdb_env, clnt);
     }
 
@@ -448,10 +446,8 @@ int fdb_svc_trans_commit(char *tid, enum transaction_level lvl,
                comdb2uuidstr(clnt->osql.uuid, us));
     }
 
-    if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
-        clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-        clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-        clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
+    if (clnt->dbtran.mode == TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+        clnt->dbtran.mode == TRANLEVEL_SOSQL || clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
         osql_shadtbl_done_query(thedb->bdb_env, clnt);
     }
 
@@ -581,10 +577,8 @@ _fdb_svc_cursor_start(BtCursor *pCur, sqlclntstate *clnt, char *tblname,
     get_copy_rootpages(thd);
 
     /* close any shadow cursors */
-    if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
-        clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-        clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-        clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
+    if (clnt->dbtran.mode == TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+        clnt->dbtran.mode == TRANLEVEL_SOSQL || clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
         osql_shadtbl_begin_query(thedb->bdb_env, clnt);
     }
 
@@ -612,14 +606,10 @@ _fdb_svc_cursor_start(BtCursor *pCur, sqlclntstate *clnt, char *tblname,
     if (need_bdbcursor) {
         assert(clnt->dbtran.mode != TRANLEVEL_SNAPISOL || clnt->modsnap_in_progress);
         pCur->bdbcur = bdb_cursor_open(
-            pCur->db->handle, clnt->dbtran.cursor_tran,
-            clnt->dbtran.shadow_tran, pCur->ixnum,
-            (clnt->dbtran.shadow_tran && clnt->dbtran.mode != TRANLEVEL_SOSQL)
-                ? BDB_OPEN_BOTH
-                : BDB_OPEN_REAL,
-            NULL /* TODO: I don't think I need this here, please double check */,
-            clnt->pageordertablescan, 0, NULL, NULL, NULL, NULL, NULL,
-            clnt->bdb_osql_trak, &bdberr, (clnt->dbtran.mode == TRANLEVEL_SNAPISOL));
+            pCur->db->handle, clnt->dbtran.cursor_tran, clnt->dbtran.shadow_tran, pCur->ixnum,
+            (clnt->dbtran.shadow_tran && clnt->dbtran.mode != TRANLEVEL_SOSQL) ? BDB_OPEN_BOTH : BDB_OPEN_REAL,
+            NULL /* TODO: I don't think I need this here, please double check */, clnt->pageordertablescan, 0, NULL,
+            NULL, NULL, NULL, NULL, clnt->bdb_osql_trak, &bdberr, (clnt->dbtran.mode == TRANLEVEL_SNAPISOL));
         if (pCur->bdbcur == NULL) {
             logmsg(LOGMSG_ERROR, "%s: bdb_cursor_open rc %d\n", __func__, bdberr);
 
@@ -655,10 +645,8 @@ static int _fdb_svc_cursor_end(BtCursor *pCur, sqlclntstate *clnt,
     }
 
     /* close any shadow cursors */
-    if (clnt->dbtran.mode == TRANLEVEL_RECOM ||
-        clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-        clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-        clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
+    if (clnt->dbtran.mode == TRANLEVEL_RECOM || clnt->dbtran.mode == TRANLEVEL_SERIAL ||
+        clnt->dbtran.mode == TRANLEVEL_SOSQL || clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
         osql_shadtbl_done_query(thedb->bdb_env, clnt);
     }
 

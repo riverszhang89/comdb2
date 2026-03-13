@@ -877,8 +877,7 @@ static int bdb_osql_trn_process_bfillhndl(bdb_state_type *bdb_state,
                 *bdberr);
     } else {
         do {
-            if (trn->shadow_tran->tranclass == TRANCLASS_SERIALIZABLE &&
-                (!gbl_rowlocks || !bkfill_active_trans))
+            if (trn->shadow_tran->tranclass == TRANCLASS_SERIALIZABLE && (!gbl_rowlocks || !bkfill_active_trans))
                 log = parse_log_for_snapisol(bdb_state, cur, &lsn,
                                              (!bkfill_active_trans) ? 2 : 1,
                                              bdberr);
@@ -1008,8 +1007,7 @@ tmpcursor_t *bdb_osql_open_backfilled_shadows(bdb_cursor_impl_t *cur,
 
     /* backfill only serializable for now */
     if (cur->shadow_tran->tranclass == TRANCLASS_SERIALIZABLE &&
-        (shadcur == NULL ||
-         bdb_osql_shadow_is_bkfilled(cur->ifn, bdberr) == 0)) {
+        (shadcur == NULL || bdb_osql_shadow_is_bkfilled(cur->ifn, bdberr) == 0)) {
         if (trn->bkfill_list.top) {
             /* retrieve a log cursor */
             rc = cur->state->dbenv->log_cursor(cur->state->dbenv, &curlog, 0);
@@ -1055,7 +1053,6 @@ tmpcursor_t *bdb_osql_open_backfilled_shadows(bdb_cursor_impl_t *cur,
         if (rc)
             return NULL;
     }
-
 
     if (dirty && !shadcur) {
         /* retrieve now a cursor for the newly created shadow */

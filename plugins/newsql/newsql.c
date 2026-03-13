@@ -1745,8 +1745,8 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                                  sqlstr);
                         rc = ii + 1;
                     } else if (clnt->dbtran.mode != TRANLEVEL_SOSQL) {
-                        int snapshot_by_default =
-                            (clnt->dbtran.mode == TRANLEVEL_SNAPISOL && gbl_sql_tranlevel_default == TRANLEVEL_SNAPISOL);
+                        int snapshot_by_default = (clnt->dbtran.mode == TRANLEVEL_SNAPISOL &&
+                                                   gbl_sql_tranlevel_default == TRANLEVEL_SNAPISOL);
                         if (snapshot_by_default) {
                             logmsg(LOGMSG_DEBUG, "snapshot is on by default, use socksql instead\n");
                             clnt->dbtran.mode = TRANLEVEL_SOSQL;
@@ -1790,8 +1790,8 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                     if (clnt->dbtran.mode == TRANLEVEL_INVALID) {
                         rc = ii + 1;
                     } else if (clnt->dbtran.mode != TRANLEVEL_SOSQL && clnt->dbtran.maxchunksize) {
-                        int snapshot_by_default =
-                            (clnt->dbtran.mode == TRANLEVEL_SNAPISOL && gbl_sql_tranlevel_default == TRANLEVEL_SNAPISOL);
+                        int snapshot_by_default = (clnt->dbtran.mode == TRANLEVEL_SNAPISOL &&
+                                                   gbl_sql_tranlevel_default == TRANLEVEL_SNAPISOL);
                         if (snapshot_by_default) {
                             logmsg(LOGMSG_DEBUG, "snapshot is on by default, use socksql instead\n");
                             clnt->dbtran.mode = TRANLEVEL_SOSQL;
@@ -1964,8 +1964,7 @@ int process_set_commands(struct sqlclntstate *clnt, CDB2SQLQUERY *sql_query)
                 sqlstr = skipws(sqlstr);
                 if (strncasecmp(sqlstr, "on", 2) == 0) {
                     clnt->hasql_on = 1;
-                    if (clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-                        clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
+                    if (clnt->dbtran.mode == TRANLEVEL_SERIAL || clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
                         newsql_set_high_availability(clnt);
                         sql_debug_logf(clnt, __func__, __LINE__,
                                        "setting "

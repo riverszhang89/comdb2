@@ -479,10 +479,8 @@ REGISTER_TUNABLE("enable_selectv_range_check",
                  "If set, SELECTV will send ranges for verification, not every "
                  "touched record. (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_selectv_rangechk, NOARG | READONLY | READEARLY, NULL, NULL, NULL, NULL);
-REGISTER_TUNABLE("disable_selectv_range_check",
-                 "Disables 'enable_selectv_range_check'", TUNABLE_BOOLEAN,
-                 &gbl_selectv_rangechk, INVERSE_VALUE | NOARG | READEARLY, NULL, NULL, NULL,
-                 NULL);
+REGISTER_TUNABLE("disable_selectv_range_check", "Disables 'enable_selectv_range_check'", TUNABLE_BOOLEAN,
+                 &gbl_selectv_rangechk, INVERSE_VALUE | NOARG | READEARLY, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("enable_snapshot_isolation",
                  "Enable to allow SNAPSHOT level transactions to run against "
                  "the database. (Default: off)",

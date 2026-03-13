@@ -1345,8 +1345,7 @@ tran_type *bdb_tran_begin_socksql(bdb_state_type *bdb_state, int trak,
 tran_type *bdb_tran_begin_modsnap(bdb_state_type *bdb_state, int trak,
                                        int *bdberr)
 {
-    return bdb_tran_begin_shadow_int(bdb_state, TRANCLASS_SNAPISOL, trak,
-                                     bdberr, 0, 0, 0, 0);
+    return bdb_tran_begin_shadow_int(bdb_state, TRANCLASS_SNAPISOL, trak, bdberr, 0, 0, 0, 0);
 }
 
 tran_type *bdb_tran_begin_serializable(bdb_state_type *bdb_state, int trak,

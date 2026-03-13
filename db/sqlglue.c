@@ -5149,13 +5149,11 @@ int sqlite3BtreeCommit(Btree *pBt)
             if (!rc) {
                 irc = trans_commit_shadow(clnt->dbtran.shadow_tran, &bdberr);
             } else {
-                irc = trans_abort_shadow((void **)&clnt->dbtran.shadow_tran,
-                        &bdberr);
+                irc = trans_abort_shadow((void **)&clnt->dbtran.shadow_tran, &bdberr);
             }
             if (irc) {
-                logmsg(LOGMSG_ERROR, "%s:%d %s shadow failed rc=%d bdberr=%d\n",
-                        __func__, __LINE__, rc ? "abort" : "commit", irc,
-                        bdberr);
+                logmsg(LOGMSG_ERROR, "%s:%d %s shadow failed rc=%d bdberr=%d\n", __func__, __LINE__,
+                       rc ? "abort" : "commit", irc, bdberr);
             }
             clnt->dbtran.shadow_tran = NULL;
         }
@@ -7921,8 +7919,7 @@ static int sqlite3LockStmtTables_int(sqlite3_stmt *pStmt, int after_recovery)
 
         /* in snapshot and stronger isolations, check cached table versions */
         if (clnt->dbtran.table_version_cache &&
-            (clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-            clnt->dbtran.mode == TRANLEVEL_SNAPISOL)) {
+            (clnt->dbtran.mode == TRANLEVEL_SERIAL || clnt->dbtran.mode == TRANLEVEL_SNAPISOL)) {
             /* make sure btrees have not changed since the transaction started
              */
             rc = bdb_osql_check_table_version(db->handle, clnt->dbtran.table_version_cache);
@@ -8383,10 +8380,8 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
     cur->keybuflen = sz;
     cur->keybuf_alloc = sz;
 
-    if (clnt->dbtran.mode == TRANLEVEL_SOSQL ||
-        clnt->dbtran.mode == TRANLEVEL_RECOM ||
-        clnt->dbtran.mode == TRANLEVEL_SERIAL ||
-        clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
+    if (clnt->dbtran.mode == TRANLEVEL_SOSQL || clnt->dbtran.mode == TRANLEVEL_RECOM ||
+        clnt->dbtran.mode == TRANLEVEL_SERIAL || clnt->dbtran.mode == TRANLEVEL_SNAPISOL) {
         shadow_tran = clnt->dbtran.shadow_tran;
     }
 
@@ -8397,16 +8392,13 @@ sqlite3BtreeCursor_cursor(Btree *pBt,      /* The btree */
         open_type = BDB_OPEN_REAL;
     }
     assert(clnt->dbtran.mode != TRANLEVEL_SNAPISOL || clnt->modsnap_in_progress);
-    cur->bdbcur = bdb_cursor_open(
-        cur->db->handle, clnt->dbtran.cursor_tran, shadow_tran, cur->ixnum,
-        open_type, (clnt->dbtran.mode == TRANLEVEL_SOSQL)
-                       ? NULL
-                       : osql_get_shadtbl_addtbl_newcursor(cur),
-        clnt->pageordertablescan, rowlocks,
-        rowlocks ? &clnt->holding_pagelocks_flag : NULL,
-        rowlocks ? pause_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
-        rowlocks ? count_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
-        clnt->bdb_osql_trak, &bdberr, (clnt->dbtran.mode == TRANLEVEL_SNAPISOL)); 
+    cur->bdbcur =
+        bdb_cursor_open(cur->db->handle, clnt->dbtran.cursor_tran, shadow_tran, cur->ixnum, open_type,
+                        (clnt->dbtran.mode == TRANLEVEL_SOSQL) ? NULL : osql_get_shadtbl_addtbl_newcursor(cur),
+                        clnt->pageordertablescan, rowlocks, rowlocks ? &clnt->holding_pagelocks_flag : NULL,
+                        rowlocks ? pause_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL,
+                        rowlocks ? count_pagelock_cursors : NULL, rowlocks ? (void *)thd : NULL, clnt->bdb_osql_trak,
+                        &bdberr, (clnt->dbtran.mode == TRANLEVEL_SNAPISOL));
     if (cur->bdbcur == NULL) {
         logmsg(LOGMSG_ERROR, "%s: bdb_cursor_open rc %d\n", __func__, bdberr);
         if (bdberr == BDBERR_DEADLOCK)
@@ -9828,9 +9820,8 @@ retry:
                (void *)pthread_self(), __func__, clnt->init_gen, curgen);
         return -1;
     }
-    
-    const int tran_is_registered_modsnap = clnt->dbtran.mode == TRANLEVEL_SNAPISOL
-        && clnt->modsnap_registration;
+
+    const int tran_is_registered_modsnap = clnt->dbtran.mode == TRANLEVEL_SNAPISOL && clnt->modsnap_registration;
     if (tran_is_registered_modsnap && !bdb_is_modsnap_txn_allowed_to_open_cursors(clnt->modsnap_registration)) {
         bdb_put_cursortran(bdb_state, curtran_out, curtran_flags, &bdberr);
         curtran_out = NULL;
@@ -10798,7 +10789,8 @@ static int is_sql_update_mode(int mode)
     case TRANLEVEL_SOSQL:
     case TRANLEVEL_RECOM:
     case TRANLEVEL_SERIAL:
-    case TRANLEVEL_SNAPISOL: return 1;
+    case TRANLEVEL_SNAPISOL:
+        return 1;
     default: return 0;
     }
 }
@@ -10994,8 +10986,10 @@ int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry)
                 break;
             }
 
-            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count, (pCur->clnt->dbtran.mode == TRANLEVEL_SNAPISOL), pCur->clnt->modsnap_start_lsn_file, pCur->clnt->modsnap_start_lsn_offset, 
-                    pCur->clnt->last_checkpoint_lsn_file, pCur->clnt->last_checkpoint_lsn_offset);
+            rc = bdb_direct_count(pCur->bdbcur, pCur->ixnum, (int64_t *)&count,
+                                  (pCur->clnt->dbtran.mode == TRANLEVEL_SNAPISOL), pCur->clnt->modsnap_start_lsn_file,
+                                  pCur->clnt->modsnap_start_lsn_offset, pCur->clnt->last_checkpoint_lsn_file,
+                                  pCur->clnt->last_checkpoint_lsn_offset);
             if (rc == BDBERR_DEADLOCK &&
                 recover_deadlock(thedb->bdb_env, clnt, NULL, 0)) {
                 break;

@@ -3421,11 +3421,10 @@ int osql_comm_init(struct dbenv *dbenv)
     net_register_handler(tmp->handle_sibling, NET_OSQL_SIGNAL, "osql_signal",
                          net_sorese_signal);
 
-    net_register_handler(tmp->handle_sibling, NET_OSQL_SNAPISOL_REQ,
-                         "osql_snapisol_req", net_snapisol_req);
-    net_register_handler(tmp->handle_sibling, NET_OSQL_SNAPISOL_RPL,
-                         "osql_snapisol_rpl",
-                         (void (*)(void*,void*,char*,struct interned_string*,int,void*,int,uint8_t))net_osql_rpl);
+    net_register_handler(tmp->handle_sibling, NET_OSQL_SNAPISOL_REQ, "osql_snapisol_req", net_snapisol_req);
+    net_register_handler(
+        tmp->handle_sibling, NET_OSQL_SNAPISOL_RPL, "osql_snapisol_rpl",
+        (void (*)(void *, void *, char *, struct interned_string *, int, void *, int, uint8_t))net_osql_rpl);
 
     net_register_handler(tmp->handle_sibling, NET_OSQL_RECOM_REQ,
                          "osql_recom_req", net_recom_req);
@@ -3467,11 +3466,10 @@ int osql_comm_init(struct dbenv *dbenv)
                          "osql_snapisol_rpl_uuid",
                          (void (*)(void*,void*,char*,struct interned_string*,int,void*,int,uint8_t))net_osql_rpl);
 
-    net_register_handler(tmp->handle_sibling, NET_OSQL_RECOM_REQ_UUID,
-                         "osql_recom_req_uuid", net_recom_req);
-    net_register_handler(tmp->handle_sibling, NET_OSQL_RECOM_RPL_UUID,
-                         "osql_recom_rpl_uuid",
-                         (void (*)(void*,void*,char*,struct interned_string*,int,void*,int,uint8_t))net_osql_rpl);
+    net_register_handler(tmp->handle_sibling, NET_OSQL_RECOM_REQ_UUID, "osql_recom_req_uuid", net_recom_req);
+    net_register_handler(
+        tmp->handle_sibling, NET_OSQL_RECOM_RPL_UUID, "osql_recom_rpl_uuid",
+        (void (*)(void *, void *, char *, struct interned_string *, int, void *, int, uint8_t))net_osql_rpl);
 
     net_register_handler(tmp->handle_sibling, NET_OSQL_SERIAL_REQ_UUID,
                          "osql_serial_req_uuid", net_serial_req);
