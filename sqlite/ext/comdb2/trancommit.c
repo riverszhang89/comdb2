@@ -26,7 +26,7 @@
 #include "ezsystables.h"
 #include "types.h"
 
-extern int get_commit_lsn_map_switch_value();
+extern int gbl_utxnid_log;
 
 sqlite3_module systblTransactionCommitModule =
 {
@@ -61,7 +61,7 @@ int add_tran_commit(void *obj, void *arg) {
 int get_tran_commits(void **data, int *npoints) {
     int ret = 0;
 
-    if (!get_commit_lsn_map_switch_value()) {
+    if (!gbl_utxnid_log) {
             *data = NULL;
             *npoints = 0;
             return ret;
