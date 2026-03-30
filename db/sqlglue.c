@@ -5112,6 +5112,7 @@ int sqlite3BtreeCommit(Btree *pBt)
         rc = SQLITE_INTERNAL;
         goto done;
 
+    case TRANLEVEL_SNAPISOL:
     case TRANLEVEL_RECOM:
         /*
          * Because we don't see begin/commit here, this is processed only
@@ -5145,6 +5146,7 @@ int sqlite3BtreeCommit(Btree *pBt)
 
         break;
 
+#if 0
     case TRANLEVEL_SNAPISOL:
         if (clnt->dbtran.shadow_tran) {
             rc = snapisol_commit(clnt, thd, clnt->tzname, 0);
@@ -5162,6 +5164,7 @@ int sqlite3BtreeCommit(Btree *pBt)
             clnt->dbtran.shadow_tran = NULL;
         }
         break;
+#endif
 
     case TRANLEVEL_SERIAL:
 
@@ -5285,6 +5288,7 @@ int rollback_tran(struct sql_thread *thd, struct sqlclntstate *clnt)
         break;
 
     case TRANLEVEL_RECOM:
+    case TRANLEVEL_SNAPISOL:
         if (clnt->dbtran.shadow_tran) {
             rc = recom_abort(clnt);
             if (rc)
@@ -5292,6 +5296,7 @@ int rollback_tran(struct sql_thread *thd, struct sqlclntstate *clnt)
         }
         break;
 
+#if 0
     case TRANLEVEL_SNAPISOL:
         if (clnt->dbtran.shadow_tran) {
             rc = snapisol_abort(clnt);
@@ -5299,6 +5304,7 @@ int rollback_tran(struct sql_thread *thd, struct sqlclntstate *clnt)
                 logmsg(LOGMSG_ERROR, "%s: snapisol abort rc=%d??\n", __func__, rc);
         }
         break;
+#endif
 
     case TRANLEVEL_SERIAL:
         if (clnt->dbtran.shadow_tran) {
