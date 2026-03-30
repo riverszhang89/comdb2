@@ -2062,6 +2062,7 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
         sql_debug_logf(clnt, __func__, __LINE__, "starting\n");
 
         switch (clnt->dbtran.mode) {
+        case TRANLEVEL_SNAPISOL:
         case TRANLEVEL_RECOM: {
             /* here we handle the communication with bp */
             if (clnt->ctrl_sqlengine == SQLENG_FNSH_STATE) {
@@ -2112,7 +2113,6 @@ static int do_commitrollback(struct sqlthdstate *thd, struct sqlclntstate *clnt,
             break;
         }
 
-        case TRANLEVEL_SNAPISOL:
         case TRANLEVEL_SERIAL: {
 
             /* here we handle the communication with bp */
