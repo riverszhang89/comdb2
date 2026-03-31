@@ -14,6 +14,7 @@
    limitations under the License.
 */
 
+#include <dlfcn.h>
 #include <errno.h>
 #include <poll.h>
 #include <stdlib.h>
@@ -23,6 +24,7 @@
 #include <event2/event.h>
 
 #include <compile_time_assert.h>
+#include <debug_switches.h>
 #include <epochlib.h>
 #include <sys_wrap.h>
 #include <logmsg.h>

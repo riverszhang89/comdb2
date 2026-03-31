@@ -55,6 +55,7 @@ static void handle_ssl_lib_errors(COMDB2BUF *sb, int sslliberr, int nwritten)
         sslio_close(sb, 1);
         break;
     case SSL_ERROR_SYSCALL:
+        puts("ssl_error_syscall");
         sb->protocolerr = 0;
         if (nwritten == 0 || errno == 0 || errno == ECONNRESET || errno == EPIPE) {
             ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln, "Unexpected EOF observed.");
@@ -65,15 +66,18 @@ static void handle_ssl_lib_errors(COMDB2BUF *sb, int sslliberr, int nwritten)
         sslio_free(sb);
         break;
     case SSL_ERROR_SSL:
+        puts("ssl_error_ssl");
         errno = EIO;
         /* OpenSSL may throw random SSL_ERROR_SSL errors (e.g., SSL_R_SSL_HANDSHAKE_FAILURE)
            during turnaround when peer is being brought down. Let API retry on those errors.
            Treat only a certificate error as a protocol error. */
         sb->protocolerr = is_certificate_error(ERR_peek_error());
         ssl_sfliberrprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln, "A failure in SSL library occured");
+        puts(sb->sslerr);
         sslio_free(sb);
         break;
     default: /* Unhandled errors */
+        puts("ssl_default");
         errno = EIO;
         sb->protocolerr = 1;
         ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
@@ -86,6 +90,7 @@ static int handle_sslio_rw_errors(COMDB2BUF *sb, int err, int nwritten, int *wan
 {
     switch (err) {
     case SSL_ERROR_WANT_READ:
+        puts("ssl_want_read");
         sb->protocolerr = 0;
         errno = EAGAIN;
         if (wantread)
@@ -94,6 +99,7 @@ static int handle_sslio_rw_errors(COMDB2BUF *sb, int err, int nwritten, int *wan
             *wantwrite = 0;
         return 0;
     case SSL_ERROR_WANT_WRITE:
+        puts("ssl_want_write");
         sb->protocolerr = 0;
         errno = EAGAIN;
         if (wantread)
@@ -130,6 +136,7 @@ static int sslio_pollin(COMDB2BUF *sb)
     if (SSL_pending(sb->ssl) > 0)
         return 1;
 
+    printf("----- huhuhuh %d\n", sb->readtimeout);
     do {
         pol.fd = sb->fd;
         pol.events = (POLLIN | POLLPRI);
@@ -137,17 +144,21 @@ static int sslio_pollin(COMDB2BUF *sb)
         rc = poll(&pol, 1, sb->nowait ? 0 : (sb->readtimeout == 0 ? -1 : sb->readtimeout));
     } while (rc == -1 && errno == EINTR);
 
+
     if (rc <= 0) { /* timedout or error. */
         ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln, "failed to poll rc %d errno %d", rc, errno);
+        printf("----- bad 1 %d error %d rc %s %d \n", sb->readtimeout, errno, strerror(errno), rc);
         return rc;
     }
     if ((pol.revents & (POLLIN | POLLPRI)) == 0) {
         ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln, "unexpected poll revents %d",
                      -100000 + pol.revents);
+        printf("----- bad 2 %d\n", sb->readtimeout);
         return -100000 + pol.revents;
     }
 
     /* Can read. */
+    printf("----- good %d\n", sb->readtimeout);
     return 1;
 }
 
@@ -383,12 +394,14 @@ re_accept_or_connect:
     } else {
         sb->protocolerr = 0;
     }
+#if 0
     /* Put blocking back. */
     if (fcntl(fd, F_SETFL, flags) < 0) {
         ssl_sfeprint(sb->sslerr, sizeof(sb->sslerr), my_ssl_eprintln,
                      "fcntl: (%d) %s", errno, strerror(errno));
         return -1;
     }
+#endif
     if (rc != 1 && close_on_verify_error) {
     error:
         if (sb->ssl != NULL) {

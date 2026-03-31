@@ -30,6 +30,7 @@
 #include "sqlquery.pb-c.h"
 #include "newsql.h"
 #include "cheapstack.h"
+#include "debug_switches.h"
 
 void free_original_normalized_sql(struct sqlclntstate *);
 
@@ -834,7 +835,14 @@ static int newsql_row(struct sqlclntstate *clnt, struct response_data *arg,
     } else if (arg->pingpong) {
         return newsql_response_int(clnt, &r, RESPONSE_HEADER__SQL_RESPONSE_PING, 1);
     }
-    return newsql_response(clnt, &r, !clnt->rowbuffer);
+    if (debug_switch_stall_ssl_write()) {
+        debug_switch_set_newsql_response_is_row(1);
+    }
+    int rc = newsql_response(clnt, &r, !clnt->rowbuffer);
+    if (debug_switch_stall_ssl_write()) {
+        debug_switch_set_newsql_response_is_row(0);
+    }
+    return rc;
 }
 
 static int newsql_row_remtran(struct sqlclntstate *clnt, const char *name,
@@ -888,7 +896,14 @@ static int newsql_row_last(struct sqlclntstate *clnt)
     _has_effects(clnt, resp);
     _has_snapshot(clnt, resp);
     _has_features(clnt, resp);
-    return newsql_response(clnt, &resp, 1);
+    if (debug_switch_stall_ssl_write()) {
+        debug_switch_set_newsql_response_is_row(1);
+    }
+    int rc = newsql_response(clnt, &resp, 1);
+    if (debug_switch_stall_ssl_write()) {
+        debug_switch_set_newsql_response_is_row(0);
+    }
+    return rc;
 }
 
 static int newsql_row_last_dummy(struct sqlclntstate *clnt)
