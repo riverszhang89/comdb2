@@ -105,10 +105,10 @@ int tran2netrpl(int dbtran)
     case TRANLEVEL_SOSQL:
         return NET_OSQL_SOCK_RPL;
 
-    case TRANLEVEL_SNAPISOL:
+    case TRANLEVEL_RECOM:
         return NET_OSQL_RECOM_RPL;
 
-    case TRANLEVEL_RECOM:
+    case TRANLEVEL_SNAPISOL:
         return NET_OSQL_SNAPISOL_RPL;
 
     case TRANLEVEL_SERIAL:
@@ -428,12 +428,31 @@ int recom_abort(struct sqlclntstate *clnt)
 
 int snapisol_commit(struct sqlclntstate *clnt, struct sql_thread *thd, char *tzname, int is_distributed_tran)
 {
+    int rc = 0;
+
+    /* temp hook for sql transactions */
+    if (clnt->dbtran.dtran) {
+        rc = fdb_trans_commit(clnt, TRANS_CLNTCOMM_NORMAL, &is_distributed_tran);
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "%s distributed failure rc=%d\n", __func__, rc);
+            return rc;
+        }
+    }
 
     return rese_commit(clnt, thd, tzname, OSQL_SNAPISOL_REQ, is_distributed_tran);
 }
 
 int snapisol_abort(struct sqlclntstate *clnt)
 {
+    int rc;
+
+    /* temp hook for sql transactions */
+    if (clnt->dbtran.dtran) {
+        rc = fdb_trans_rollback(clnt);
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "%s distributed failure rc=%d\n", __func__, rc);
+        }
+    }
 
     return sorese_abort(clnt, OSQL_SNAPISOL_REQ);
 }
@@ -558,11 +577,11 @@ int tran2req(int dbtran)
     case TRANLEVEL_RECOM:
         return OSQL_RECOM_REQ;
 
-    case TRANLEVEL_SERIAL:
-        return OSQL_SERIAL_REQ;
-
     case TRANLEVEL_SNAPISOL:
         return OSQL_SNAPISOL_REQ;
+
+    case TRANLEVEL_SERIAL:
+        return OSQL_SERIAL_REQ;
     }
 
     logmsg(LOGMSG_ERROR, "%s: unknown transaction mode %d\n", __func__, dbtran);

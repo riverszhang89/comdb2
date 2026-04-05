@@ -3255,9 +3255,8 @@ static int cursor_move_postop(BtCursor *pCur)
     extern int gbl_locks_check_waiters;
     int rc = 0;
 
-    if (gbl_locks_check_waiters && gbl_sql_release_locks_on_si_lockwait &&
-        (clnt->dbtran.mode == TRANLEVEL_SNAPISOL ||
-         clnt->dbtran.mode == TRANLEVEL_SERIAL)) {
+    /* FIXME modsnap does not handle repositioning correctly? */
+    if (gbl_locks_check_waiters && gbl_sql_release_locks_on_si_lockwait && clnt->dbtran.mode == TRANLEVEL_SERIAL) {
         extern int gbl_sql_random_release_interval;
         if (bdb_curtran_has_waiters(thedb->bdb_env, clnt->dbtran.cursor_tran)) {
             rc = release_locks("replication is waiting on si-session");
@@ -4888,8 +4887,7 @@ static int must_start_new_transaction(const struct sqlclntstate *clnt, int is_wr
 {
     if (is_writer) { return 1; }
 
-    const int tran_mode_must_open_shadows =
-        clnt->dbtran.mode > TRANLEVEL_RECOM && clnt->dbtran.mode != TRANLEVEL_SNAPISOL;
+    const int tran_mode_must_open_shadows = (clnt->dbtran.mode == TRANLEVEL_SERIAL);
     if (tran_mode_must_open_shadows) { return 1; }
 
     const int is_selectv = clnt->has_recording;
@@ -10955,7 +10953,6 @@ int sqlite3BtreeCount(BtCursor *pCur, i64 *pnEntry)
     } else if (pCur->cursor_count) {
         rc = pCur->cursor_count(pCur, &count);
     } else if (gbl_direct_count && !clnt->intrans &&
-               clnt->dbtran.mode != TRANLEVEL_SNAPISOL &&
                clnt->dbtran.mode != TRANLEVEL_SERIAL &&
                (pCur->cursor_class == CURSORCLASS_TABLE ||
                 pCur->cursor_class == CURSORCLASS_INDEX)) {
