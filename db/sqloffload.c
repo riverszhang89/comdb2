@@ -78,10 +78,14 @@ int tran2netreq(int dbtran)
         return NET_OSQL_SOCK_REQ;
 
     case TRANLEVEL_RECOM:
+    case TRANLEVEL_SNAPISOL:
         return NET_OSQL_RECOM_REQ;
 
+#if 0
+        xxx
     case TRANLEVEL_SNAPISOL:
         return NET_OSQL_SNAPISOL_REQ;
+#endif
 
     case TRANLEVEL_SERIAL:
         return NET_OSQL_SERIAL_REQ;
@@ -105,11 +109,14 @@ int tran2netrpl(int dbtran)
     case TRANLEVEL_SOSQL:
         return NET_OSQL_SOCK_RPL;
 
+    case TRANLEVEL_RECOM:
     case TRANLEVEL_SNAPISOL:
         return NET_OSQL_RECOM_RPL;
 
-    case TRANLEVEL_RECOM:
+#if 0
+    case TRANLEVEL_SNAPISOL:
         return NET_OSQL_SNAPISOL_RPL;
+#endif
 
     case TRANLEVEL_SERIAL:
         return NET_OSQL_SERIAL_RPL;
@@ -558,13 +565,17 @@ int tran2req(int dbtran)
         return OSQL_SOCK_REQ;
 
     case TRANLEVEL_RECOM:
+    case TRANLEVEL_SNAPISOL:
         return OSQL_RECOM_REQ;
+
+#if 0
+        xxx
+    case TRANLEVEL_SNAPISOL:
+        return OSQL_SNAPISOL_REQ;
+#endif
 
     case TRANLEVEL_SERIAL:
         return OSQL_SERIAL_REQ;
-
-    case TRANLEVEL_SNAPISOL:
-        return OSQL_SNAPISOL_REQ;
     }
 
     logmsg(LOGMSG_ERROR, "%s: unknown transaction mode %d\n", __func__, dbtran);
