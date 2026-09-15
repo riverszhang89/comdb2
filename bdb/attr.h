@@ -534,6 +534,9 @@ DEF_ATTR_2(PRIVATE_BLKSEQ_STRIPES, private_blkseq_stripes, QUANTITY, 8,
            "Number of stripes for the blkseq table.", 0, dtastripe_verify, 0)
 DEF_ATTR(PRIVATE_BLKSEQ_ENABLED, private_blkseq_enabled, BOOLEAN, 1,
          "Sets whether dupe detection is enabled.")
+DEF_ATTR(PRIVATE_BLKSEQ_SKIP_STANDALONE, private_blkseq_skip_standalone, QUANTITY, 1,
+         "While standalone, how much private blkseq to skip: 0=none, 1=WAL "
+         "record only, 2=WAL record + in-memory tracking.")
 DEF_ATTR(PRIVATE_BLKSEQ_CLOSE_WARN_TIME, private_blkseq_close_warn_time,
          BOOLEAN, 100,
          "Warn when it takes longer than this many MS to roll a blkseq table.")

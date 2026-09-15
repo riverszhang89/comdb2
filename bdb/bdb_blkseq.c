@@ -206,6 +206,16 @@ static uint8_t get_stripe(bdb_state_type *bdb_state, uint8_t *bytes, int len)
     return stripe % bdb_state->pvt_blkseq_stripes;
 }
 
+/* private_blkseq_skip_standalone: 0=off, 1=skip WAL, 2=skip WAL+in-memory.
+ * Only applies while standalone; returns 0 (full blkseq) otherwise. */
+static int blkseq_skip_mode(bdb_state_type *bdb_state)
+{
+    int mode = bdb_state->attr->private_blkseq_skip_standalone;
+    if (mode <= 0 || !bdb_is_standalone(bdb_state->dbenv, bdb_state))
+        return 0;
+    return mode;
+}
+
 /* recovery callback from berkeley (through bdb_apprec) */
 int bdb_blkseq_recover(DB_ENV *dbenv, u_int32_t rectype, llog_blkseq_args *args,
                        DB_LSN *lsn, db_recops op)
@@ -329,6 +339,8 @@ int bdb_blkseq_find(bdb_state_type *bdb_state, tran_type *tran, void *key,
     ddata.flags = DB_DBT_REALLOC;
     if (!bdb_state->attr->private_blkseq_enabled)
         return IX_EMPTY;
+    if (blkseq_skip_mode(bdb_state) == 2)
+        return IX_EMPTY;
     stripe = get_stripe(bdb_state, (uint8_t *)key, klen);
     Pthread_mutex_lock(&bdb_state->blkseq_lk[stripe]);
     dkey.data = key;
@@ -368,6 +380,9 @@ int bdb_blkseq_insert(bdb_state_type *bdb_state, tran_type *tran, void *key, int
     int write_ix = 0;
 
     if (!bdb_state->attr->private_blkseq_enabled)
+        return 0;
+    int skip = blkseq_skip_mode(bdb_state);
+    if (skip == 2)
         return 0;
 
     ddata.flags = DB_DBT_REALLOC;
@@ -419,9 +434,8 @@ int bdb_blkseq_insert(bdb_state_type *bdb_state, tran_type *tran, void *key, int
         return BDBERR_MISC;
     }
 
-    /* succeded in updating local table, log the update if transactional
-     * (recovery isn't) */
-    if (tran) {
+    /* skip==1 keeps the in-memory entry above but skips the WAL record */
+    if (tran && skip == 0) {
         if (!gbl_is_physical_replicant)
             rc = llog_blkseq_log(bdb_state->dbenv, tran->tid, &lsn, 0, now,
                                  &dkey, &ddata);
