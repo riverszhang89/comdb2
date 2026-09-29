@@ -19,6 +19,7 @@ int get_num_sockpool_recv(void);
 int get_num_sockpool_send(void);
 int get_num_sockpool_send_timeouts(void);
 int get_num_sockpool_recv_timeouts(void);
+int get_num_cfg_file_reads(void);
 int get_gbl_event_version(void);
 
 void set_fail_dbhosts_invalid_response(int);

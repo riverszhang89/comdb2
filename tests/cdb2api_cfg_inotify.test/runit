@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Config files are re-read only when inotify reports a change.
+# genconfig layout: opt/comdb2db.cfg -> bin/comdb2db.cfg, new file renamed over the target.
+
+bash -n "$0" || exit 1
+
+dbnm=$1
+dir=$DBDIR/inotify
+rm -rf $dir
+mkdir -p $dir/bin $dir/opt
+grep -v "portmuxport\|use_inotify" $CDB2_CONFIG > $dir/base
+echo "comdb2_config:api_call_timeout=3000" >> $dir/base
+{ cat $dir/base; echo "comdb2_config:portmuxport=${PMUXPORT:-5105}"; } > $dir/good_off
+{ cat $dir/good_off; echo "comdb2_config:use_inotify=on"; } > $dir/good
+{ cat $dir/good_off; echo "comdb2_config:use_inotify=off"; } > $dir/good_off.tmp
+mv $dir/good_off.tmp $dir/good_off
+{ cat $dir/base; echo "comdb2_config:portmuxport=1"; echo "comdb2_config:use_inotify=on"; } > $dir/bad
+cfg=$dir/bin/comdb2db.cfg
+cp $dir/good $cfg
+ln -s $cfg $dir/opt/comdb2db.cfg
+
+coproc P { ${TESTSBUILDDIR}/cdb2api_cfg_inotify $dbnm $dir/opt/comdb2db.cfg; }
+sleep 1
+pid=$(pgrep -f "cdb2api_cfg_inotify $dbnm $dir")
+
+failed=0
+
+# expect <label> <OK|FAIL> <reads: 0 or +>
+expect() {
+    local label res n
+    read -r label res n <&${P[0]}
+    echo "$label $res reads=$n"
+    if [[ $res != $2 ]] || [[ $3 == 0 && $n != 0 ]] || [[ $3 == + && $n == 0 ]]; then
+        echo "FAILED: $1, expected $2 with reads $3"
+        failed=1
+    fi
+}
+
+step() {
+    echo "$1" >&${P[1]}
+    expect "$1" $2 $3
+}
+
+replace() {
+    cp $1 $cfg.new
+    mv $cfg.new $cfg
+}
+
+# use_inotify takes effect on the pass after it is parsed
+step init OK +
+step enabled OK +
+step cached OK 0
+
+replace $dir/bad;           step rename-over FAIL +
+step cached FAIL 0
+cp $cfg $cfg.sav;           step sav-copy FAIL 0
+replace $dir/good;          step rename-over OK +
+step cached OK 0
+
+cat $dir/bad > $cfg;        step edit-in-place FAIL +
+cat $dir/good > $cfg;       step edit-in-place OK +
+
+rm $cfg;                    step deleted FAIL +
+step dangling-uncached FAIL +
+cp $dir/good $cfg;          step created OK +
+step cached OK 0
+
+ln -sfn $dir/bad $dir/opt/comdb2db.cfg.tmp
+mv -T $dir/opt/comdb2db.cfg.tmp $dir/opt/comdb2db.cfg
+                            step symlink-swap FAIL +
+ln -sfn $cfg $dir/opt/comdb2db.cfg.tmp
+mv -T $dir/opt/comdb2db.cfg.tmp $dir/opt/comdb2db.cfg
+                            step symlink-swap OK +
+
+if [[ $(id -u) != 0 ]]; then
+    chmod 000 $cfg;         step unreadable FAIL +
+    chmod 644 $cfg;         step readable OK +
+    step cached OK 0
+fi
+
+inotify_fds() {
+    local n=$(find /proc/$pid/fd -lname 'anon_inode:inotify' | wc -l)
+    echo "inotify fds: $n"
+    [[ $n == $1 ]] || { echo "FAILED: expected $1 inotify fd"; failed=1; }
+}
+
+inotify_fds 1
+replace $dir/good_off;      step turned-off OK +
+step disabled OK +
+step disabled OK +
+inotify_fds 0
+replace $dir/good;          step turned-on OK +
+step enabled OK +
+step cached OK 0
+inotify_fds 1
+
+# child must not consume the parent's events
+replace $dir/bad
+echo fork >&${P[1]}
+expect fork-child FAIL +
+expect fork-parent FAIL +
+step cached FAIL 0
+
+exec {P[1]}>&-
+wait
+
+# benchmark: ns and config files read per call, cached vs. re-read every call
+cp $dir/good $cfg
+${TESTSBUILDDIR}/cdb2api_cfg_inotify_bench $dbnm $dir/opt/comdb2db.cfg 100000 200 > $dir/bench || failed=1
+cat $dir/bench
+read -r _ _ cached_ns cached_reads <<< "$(grep '^config cached' $dir/bench)"
+read -r _ _ uncached_ns uncached_reads <<< "$(grep '^config uncached' $dir/bench)"
+if [[ $cached_reads != 0.00 ]] || (( cached_ns >= uncached_ns )); then
+    echo "FAILED: cached config pass should read nothing and be faster"
+    failed=1
+fi
+
+[[ $failed == 0 ]] && echo "Success"
+exit $failed

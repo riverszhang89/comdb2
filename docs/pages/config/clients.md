@@ -133,6 +133,17 @@ For example, for this configuration file:
 Comdb2 API will try to find the Comdb2 configuration database (called metadb) on machines returned by resolving the
 hostname prod-metadb.dyndns.example.com.
 
+#### use_inotify
+
+Linux only.  When enabled, config files are kept in memory and re-read only after inotify reports a change to
+the file or its parent directory, instead of on every `cdb2_open`.  Accepts `on`/`off`, `yes`/`no`,
+`true`/`false`, or `1`/`0`.  Default is disabled.  Takes effect on the next config read after the line is
+parsed.  Each process uses one inotify instance (see `fs.inotify.max_user_instances`); if none is available,
+config files are read on every call as before.  Can also be set via the `COMDB2_CONFIG_USE_INOTIFY`
+environment variable.
+
+    comdb2_config:use_inotify=on
+
 #### bmssuffix
 
 Sets the DNS suffix used for BMS host discovery.  See [BMS Discovery](#bms-discovery)
@@ -231,6 +242,7 @@ precedence over config file values.
 | `COMDB2_FEATURE_USE_BMSD` | `use_bmsd` | `0` or `1` | Enable/disable BMS discovery |
 | `COMDB2_CONFIG_BMSSUFFIX` | `bmssuffix` | string | DNS suffix for BMS queries |
 | `COMDB2_FEATURE_COMDB2DB_FALLBACK` | `comdb2db_fallback` | `0` or `1` | Allow comdb2db fallback on BMS failure |
+| `COMDB2_CONFIG_USE_INOTIFY` | `use_inotify` | `0` or `1` | Re-read config files only when inotify reports a change |
 
 ### Example configuration
 

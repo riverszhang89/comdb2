@@ -285,6 +285,8 @@ static int cdb2_get_hostname_from_sockpool_fd_set_from_env = 0;
 #define CDB2_ALLOW_PMUX_ROUTE_DEFAULT 0
 static int cdb2_allow_pmux_route = CDB2_ALLOW_PMUX_ROUTE_DEFAULT;
 static int cdb2_allow_pmux_route_set_from_env = 0;
+static int cdb2_use_inotify = 0;
+static int cdb2_use_inotify_set_from_env = 0;
 
 static int retry_dbinfo_on_cached_connection_failure = 1;
 static int cdb2_retry_dbinfo_on_cached_connection_failure_set_from_env = 0;
@@ -391,6 +393,7 @@ MAKE_CDB2API_TEST_COUNTER(num_sockpool_recv)
 MAKE_CDB2API_TEST_COUNTER(num_sockpool_send)
 MAKE_CDB2API_TEST_COUNTER(num_sockpool_recv_timeouts)
 MAKE_CDB2API_TEST_COUNTER(num_sockpool_send_timeouts)
+MAKE_CDB2API_TEST_COUNTER(num_cfg_file_reads)
 
 // The tunable value needs to be a string literal or have the lifetime
 // managed by the caller - I could strdup locally, but don't want to be
@@ -667,7 +670,10 @@ static void atfork_me(void) {
     pthread_mutex_unlock(&cdb2_sockpool_mutex);
 }
 
+static void cfg_cache_close(void);
+
 static void atfork_child(void) {
+    cfg_cache_close();
     local_connection_cache_clear(0);
     sockpool_close_all();
     local_connection_cache_owner_pid = _PID = getpid();
@@ -767,8 +773,7 @@ static inline int get_char(COMDB2BUF *s, const char *buf, int *chrno)
     int ch;
     if (s) {
         ch = cdb2buf_getc(s);
-    } else {
-        ch = buf[*chrno];
+    } else if ((ch = buf[*chrno]) != '\0') {
         *chrno += 1;
     }
     return ch;
@@ -1665,6 +1670,7 @@ static void read_comdb2db_environment_cfg(cdb2_hndl_tp *hndl, const char *comdb2
                             &cdb2_dnssuffix_set_from_env);
         process_env_var_str("COMDB2_CONFIG_BMSSUFFIX", (char *)&cdb2_bmssuffix, sizeof(cdb2_bmssuffix),
                             &cdb2_bmssuffix_set_from_env);
+        process_env_var_str_on_off("COMDB2_CONFIG_USE_INOTIFY", &cdb2_use_inotify, &cdb2_use_inotify_set_from_env);
         process_env_var_str_on_off("COMDB2_CONFIG_ALLOW_PMUX_ROUTE", &cdb2_allow_pmux_route,
                                    &cdb2_allow_pmux_route_set_from_env);
         process_env_var_str_on_off("COMDB2_CONFIG_RETRY_DBINFO_ON_CACHED_CONNECTION_FAILURE",
@@ -2059,6 +2065,10 @@ static void read_comdb2db_cfg(cdb2_hndl_tp *hndl, COMDB2BUF *s, const char *comd
                 if (tok) {
                     cdb2_allow_pmux_route = value_on_off(tok, &err);
                 }
+            } else if (!cdb2_use_inotify_set_from_env && strcasecmp("use_inotify", tok) == 0) {
+                tok = strtok_r(NULL, " =:,", &last);
+                if (tok)
+                    cdb2_use_inotify = value_on_off(tok, &err);
             } else if (!cdb2_install_set_from_env && (strcasecmp("uninstall_static_libs_v4", tok) == 0 ||
                                                       strcasecmp("disable_static_libs", tok) == 0)) {
                 /* Provide a way to disable statically linked libraries. */
@@ -2278,6 +2288,186 @@ static void set_cdb2_timeouts(cdb2_hndl_tp *hndl)
         set_max_call_time(hndl);
 }
 
+static char *read_whole_file(const char *path)
+{
+#ifdef CDB2API_TEST
+    ++num_cfg_file_reads;
+#endif
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0)
+        return NULL;
+    size_t len = 0, cap = 4096;
+    char *buf = malloc(cap);
+    while (buf) {
+        ssize_t n = read(fd, buf + len, cap - len - 1);
+        if (n == 0)
+            break;
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            free(buf);
+            buf = NULL;
+            break;
+        }
+        len += n;
+        if (len + 1 == cap) {
+            cap *= 2;
+            char *p = realloc(buf, cap);
+            if (p == NULL)
+                free(buf);
+            buf = p;
+        }
+    }
+    if (buf)
+        buf[len] = '\0';
+    close(fd);
+    return buf;
+}
+
+/* Config file contents, re-read only after inotify reports a change. Guarded by cdb2_cfg_lock. */
+#define CFG_CACHE_MAX 64
+struct cfg_cache_entry {
+    char *path;
+    char *name; /* basename, points into path */
+    char *buf;  /* NULL if the file can't be read */
+    int valid;
+    int wd_dir;
+    int wd_file;
+};
+static struct cfg_cache_entry cfg_cache[CFG_CACHE_MAX];
+static int cfg_cache_n;
+static char *cfg_uncached_buf;
+
+#ifdef __linux__
+#include <sys/inotify.h>
+
+static int cfg_inotify_fd = -1;
+static int cfg_inotify_inited;
+
+/* Also called in a forked child, which must not read the instance it shares with the parent. */
+static void cfg_cache_close(void)
+{
+    if (cfg_inotify_fd >= 0)
+        close(cfg_inotify_fd);
+    cfg_inotify_fd = -1;
+    cfg_inotify_inited = 0;
+}
+
+static void cfg_cache_refresh(void)
+{
+    if (cdb2_use_inotify != 1) {
+        cfg_cache_close();
+        return;
+    }
+    if (!cfg_inotify_inited) {
+        cfg_inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+        cfg_inotify_inited = 1;
+        for (int i = 0; i < cfg_cache_n; ++i)
+            cfg_cache[i].valid = 0;
+    }
+    if (cfg_inotify_fd < 0)
+        return;
+
+    char ev[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+    ssize_t n;
+    while ((n = read(cfg_inotify_fd, ev, sizeof(ev))) > 0) {
+        const struct inotify_event *ie;
+        for (char *p = ev; p < ev + n; p += sizeof(*ie) + ie->len) {
+            ie = (const struct inotify_event *)p;
+            for (int i = 0; i < cfg_cache_n; ++i) {
+                struct cfg_cache_entry *e = &cfg_cache[i];
+                if ((ie->mask & IN_Q_OVERFLOW) || ie->wd == e->wd_file ||
+                    (ie->wd == e->wd_dir && (ie->len == 0 || strcmp(ie->name, e->name) == 0)))
+                    e->valid = 0;
+            }
+        }
+    }
+}
+
+static struct cfg_cache_entry *cfg_cache_lookup(const char *path)
+{
+    if (cfg_inotify_fd < 0 || path[0] != '/')
+        return NULL;
+    for (int i = 0; i < cfg_cache_n; ++i) {
+        if (strcmp(cfg_cache[i].path, path) == 0)
+            return &cfg_cache[i];
+    }
+    if (cfg_cache_n == CFG_CACHE_MAX)
+        return NULL;
+    struct cfg_cache_entry *e = &cfg_cache[cfg_cache_n];
+    if ((e->path = strdup(path)) == NULL)
+        return NULL;
+    e->name = strrchr(e->path, '/') + 1;
+    e->wd_dir = e->wd_file = -1;
+    ++cfg_cache_n;
+    return e;
+}
+
+/* Watch the parent directory and the file. Returns 0 if any change to the file will be reported,
+   1 if the parent directory doesn't exist, -1 otherwise. */
+static int cfg_cache_watch(struct cfg_cache_entry *e)
+{
+    char *slash = e->name - 1;
+    *slash = '\0';
+    e->wd_dir = inotify_add_watch(cfg_inotify_fd, slash == e->path ? "/" : e->path,
+                                  IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB | IN_DELETE_SELF |
+                                      IN_MOVE_SELF | IN_ONLYDIR);
+    *slash = '/';
+    e->wd_file = -1;
+    if (e->wd_dir >= 0)
+        e->wd_file = inotify_add_watch(cfg_inotify_fd, e->path, IN_MODIFY | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF);
+    if ((e->wd_dir < 0 || e->wd_file < 0) && errno == ENOSPC) {
+        /* out of watches: stop caching in this process rather than retrying every call */
+        close(cfg_inotify_fd);
+        cfg_inotify_fd = -1;
+        return -1;
+    }
+    if (e->wd_dir < 0)
+        return errno == ENOENT ? 1 : -1;
+    if (e->wd_file >= 0)
+        return 0;
+    /* missing file: its creation will be reported, unless it's a dangling symlink */
+    struct stat st;
+    return errno == ENOENT && lstat(e->path, &st) != 0 ? 0 : -1;
+}
+#else
+static void cfg_cache_close(void)
+{
+}
+
+static void cfg_cache_refresh(void)
+{
+}
+
+static struct cfg_cache_entry *cfg_cache_lookup(const char *path)
+{
+    return NULL;
+}
+
+static int cfg_cache_watch(struct cfg_cache_entry *e)
+{
+    return -1;
+}
+#endif
+
+/* Returns contents of `path', or NULL if it can't be read. Valid until the next call. */
+static const char *cfg_file_get(const char *path)
+{
+    struct cfg_cache_entry *e = cfg_cache_lookup(path);
+    if (e == NULL) {
+        free(cfg_uncached_buf);
+        return cfg_uncached_buf = read_whole_file(path);
+    }
+    if (!e->valid) {
+        /* watch before reading so that a change in between isn't missed */
+        int rc = cfg_cache_watch(e);
+        free(e->buf);
+        e->buf = rc == 1 ? NULL : read_whole_file(path);
+        e->valid = rc == 0;
+    }
+    return e->buf;
+}
+
 /* Read all available comdb2 configuration files.
    The function returns -1 if the config file path is longer than PATH_MAX;
    returns 0 otherwise. */
@@ -2286,7 +2476,7 @@ static int read_available_comdb2db_configs(cdb2_hndl_tp *hndl, char comdb2db_hos
                                            const char *dbname, char db_hosts[][CDB2HOSTNAME_LEN], int *num_db_hosts,
                                            int *dbnum, char shards[][DBNAME_LEN], int *num_shards)
 {
-    COMDB2BUF *s = NULL;
+    const char *buf;
     char filename[PATH_MAX];
     int comdb2db_found = 0;
     int dbname_found = 0;
@@ -2296,6 +2486,8 @@ static int read_available_comdb2db_configs(cdb2_hndl_tp *hndl, char comdb2db_hos
         debugprint("entering\n");
 
     pthread_mutex_lock(&cdb2_cfg_lock);
+    do_init_once(0); /* registers atfork_child before any inotify fd exists */
+    cfg_cache_refresh();
 
     if (num_hosts)
         *num_hosts = 0;
@@ -2306,16 +2498,14 @@ static int read_available_comdb2db_configs(cdb2_hndl_tp *hndl, char comdb2db_hos
 
 #ifdef CDB2API_TEST
     if (cdb2cfg_override_all_config_paths) {
-        if ((s = cdb2_cdb2buf_openread(cdb2dbconfig_singleconfig)) != NULL) {
-            read_comdb2db_cfg(NULL, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname, db_hosts,
+        if ((buf = cfg_file_get(cdb2dbconfig_singleconfig)) != NULL) {
+            read_comdb2db_cfg(NULL, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname, db_hosts,
                               num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-            cdb2buf_close(s);
         }
 
-        if ((s = cdb2_cdb2buf_openread(cdb2dbconfig_singleconfig)) != NULL) {
-            read_comdb2db_cfg(hndl, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname, db_hosts,
+        if ((buf = cfg_file_get(cdb2dbconfig_singleconfig)) != NULL) {
+            read_comdb2db_cfg(hndl, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname, db_hosts,
                               num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-            cdb2buf_close(s);
         }
 
         if (cdb2_use_env_vars) {
@@ -2327,10 +2517,9 @@ static int read_available_comdb2db_configs(cdb2_hndl_tp *hndl, char comdb2db_hos
 #endif
 
 #ifdef CDB2API_TEST
-        if ((s = cdb2_cdb2buf_openread(cdb2api_test_comdb2db_cfg)) != NULL) {
-            read_comdb2db_cfg(NULL, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname, db_hosts,
+        if (cdb2api_test_comdb2db_cfg[0] != '\0' && (buf = cfg_file_get(cdb2api_test_comdb2db_cfg)) != NULL) {
+            read_comdb2db_cfg(NULL, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname, db_hosts,
                               num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-            cdb2buf_close(s);
             fallback_on_bb_bin = 0;
         } else
 #endif /* CDB2API_TEST */
@@ -2340,10 +2529,9 @@ static int read_available_comdb2db_configs(cdb2_hndl_tp *hndl, char comdb2db_hos
                                   dbname, db_hosts, num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards,
                                   num_shards);
                 fallback_on_bb_bin = 0;
-            } else if (*CDB2DBCONFIG_NOBBENV != '\0' && (s = cdb2_cdb2buf_openread(CDB2DBCONFIG_NOBBENV)) != NULL) {
-                read_comdb2db_cfg(NULL, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
+            } else if (*CDB2DBCONFIG_NOBBENV != '\0' && (buf = cfg_file_get(CDB2DBCONFIG_NOBBENV)) != NULL) {
+                read_comdb2db_cfg(NULL, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
                                   db_hosts, num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-                cdb2buf_close(s);
                 fallback_on_bb_bin = 0;
             }
 
@@ -2353,39 +2541,33 @@ static int read_available_comdb2db_configs(cdb2_hndl_tp *hndl, char comdb2db_hos
          * can't find the file in any standard location, look at /bb/bin
          * Once deployment details for comdb2db.cfg solidify, this will go away. */
         if (fallback_on_bb_bin) {
-            if ((s = cdb2_cdb2buf_openread(CDB2DBCONFIG_TEMP_BB_BIN)) != NULL) {
-                read_comdb2db_cfg(NULL, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
+            if ((buf = cfg_file_get(CDB2DBCONFIG_TEMP_BB_BIN)) != NULL) {
+                read_comdb2db_cfg(NULL, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
                                   db_hosts, num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-                cdb2buf_close(s);
             }
         }
 
 #ifdef CDB2API_TEST
-        if ((s = cdb2_cdb2buf_openread(cdb2api_test_dbname_cfg)) != NULL) {
-            read_comdb2db_cfg(hndl, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname, db_hosts,
+        if (cdb2api_test_dbname_cfg[0] != '\0' && (buf = cfg_file_get(cdb2api_test_dbname_cfg)) != NULL) {
+            read_comdb2db_cfg(hndl, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname, db_hosts,
                               num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-            cdb2buf_close(s);
         } else
 #endif /* CDB2API_TEST */
 
-            if (get_config_file(dbname, filename, sizeof(filename), 0) == 0 &&
-                (s = cdb2_cdb2buf_openread(filename)) != NULL) {
-                read_comdb2db_cfg(hndl, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
+            if (get_config_file(dbname, filename, sizeof(filename), 0) == 0 && (buf = cfg_file_get(filename)) != NULL) {
+                read_comdb2db_cfg(hndl, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
                                   db_hosts, num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-                cdb2buf_close(s);
             } else if (get_config_file(dbname, filename, sizeof(filename), 1) == 0 &&
-                       (s = cdb2_cdb2buf_openread(filename)) != NULL) {
-                read_comdb2db_cfg(hndl, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
+                       (buf = cfg_file_get(filename)) != NULL) {
+                read_comdb2db_cfg(hndl, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
                                   db_hosts, num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-                cdb2buf_close(s);
             }
 
         /* Process additional_cfg if specified */
         if (CDB2DBCONFIG_ADDL_PATH[0] != '\0') {
-            if ((s = cdb2_cdb2buf_openread(CDB2DBCONFIG_ADDL_PATH)) != NULL) {
-                read_comdb2db_cfg(hndl, s, comdb2db_name, NULL, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
+            if ((buf = cfg_file_get(CDB2DBCONFIG_ADDL_PATH)) != NULL) {
+                read_comdb2db_cfg(hndl, NULL, comdb2db_name, buf, comdb2db_hosts, num_hosts, comdb2db_num, dbname,
                                   db_hosts, num_db_hosts, dbnum, &dbname_found, &comdb2db_found, shards, num_shards);
-                cdb2buf_close(s);
             }
             CDB2DBCONFIG_ADDL_PATH[0] = '\0';
         }
