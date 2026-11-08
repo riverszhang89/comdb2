@@ -2349,7 +2349,7 @@ __lock_get_internal_int(lt, locker, in_locker, flags, obj, lock_mode, timeout,
 	uint64_t x1 = 0, x2;
 	struct __db_lock *newl, *lp, *firstlp, *wwrite;
 	DB_ENV *dbenv;
-	DB_LOCKER *sh_locker;
+	DB_LOCKER *sh_locker, *master_locker;
 	DB_LOCKOBJ *sh_obj;
 	DB_LOCKREGION *region;
 	u_int32_t holder, obj_ndx, ihold, *holdarr = NULL, holdix, holdsz;
@@ -3045,10 +3045,9 @@ upgrade:
 
 		/* set waiting status for master_locker */
 		if (sh_locker->master_locker == INVALID_ROFF)
-			sh_locker->wstatus = 1;
+			master_locker = sh_locker;
 		else
-			((DB_LOCKER *)R_ADDR(&lt->reginfo,
-				sh_locker->master_locker))->wstatus = 1;
+			master_locker = ((DB_LOCKER *)R_ADDR(&lt->reginfo, sh_locker->master_locker));
 
 		unlock_locker_partition(region, lpartition);
 
@@ -3136,6 +3135,16 @@ upgrade:
 			}
 			__os_free(dbenv, holdarr);
 			holdarr = NULL;
+		}
+
+		/* Add the locker to the waiting list before calling the deadlock detector. */
+		if (!master_locker->dd_in_wlockers) {
+			lock_detector(region);
+			if (!master_locker->dd_in_wlockers) {
+				SH_TAILQ_INSERT_HEAD(&region->wlockers, master_locker, wlinks, __db_locker);
+				master_locker->dd_in_wlockers = 1;
+			}
+			unlock_detector(region);
 		}
 
 		/*
@@ -3282,10 +3291,18 @@ expired:			obj_ndx = sh_obj->index;
 
 	/* clear waiting status for master_locker */
 	if (sh_locker->master_locker == INVALID_ROFF)
-		sh_locker->wstatus = 0;
+		master_locker = sh_locker;
 	else
-		((DB_LOCKER *)R_ADDR(&lt->reginfo,
-			sh_locker->master_locker))->wstatus = 0;
+		master_locker = ((DB_LOCKER *)R_ADDR(&lt->reginfo, sh_locker->master_locker));
+
+	if (master_locker->dd_in_wlockers) {
+		lock_detector(region);
+		if (master_locker->dd_in_wlockers) {
+			SH_TAILQ_REMOVE(&region->wlockers, master_locker, wlinks, __db_locker);
+			master_locker->dd_in_wlockers = 0;
+		}
+		unlock_detector(region);
+	}
 
 	if (is_pagelock(sh_obj))
 		sh_locker->npagelocks++;
@@ -3571,6 +3588,8 @@ __locker_set_timestamp(dbenv, locker, timestamp)
 		goto err;
 	}
 
+	if ((sh_locker->timestamp > 0) != (timestamp > 0))
+		ATOMIC_ADD32(region->ntimestamped, timestamp > 0 ? 1 : -1);
 	sh_locker->timestamp = timestamp;
 	unlock_locker_partition(region, sh_locker->partition);
 
@@ -4358,6 +4377,18 @@ __lock_freelocker(lt, region, sh_locker, indx)
 	SH_TAILQ_INSERT_HEAD(&region->free_lockers[partition], sh_locker, links,
 	    __db_locker);
 	SH_TAILQ_REMOVE(&region->lockers, sh_locker, ulinks, __db_locker);
+
+	if (sh_locker->dd_in_wlockers) {
+		lock_detector(region);
+		if (sh_locker->dd_in_wlockers) {
+			SH_TAILQ_REMOVE(&region->wlockers, sh_locker, wlinks, __db_locker);
+			sh_locker->dd_in_wlockers = 0;
+		}
+		unlock_detector(region);
+	}
+
+	if (sh_locker->timestamp > 0)
+		ATOMIC_ADD32(region->ntimestamped, -1);
 	region->stat.st_nlockers--;
 }
 
@@ -4571,7 +4602,7 @@ __lock_getlocker_int(lt, locker, indx, partition, create, prop, retp,
 			sh_locker->ntrackedlocks = 0;
 			sh_locker->maxtrackedlocks = 0;
 			sh_locker->tracked_locklist = NULL;
-			sh_locker->wstatus = 0;
+			sh_locker->dd_in_wlockers = 0;
 			for (i = 0; i < num; ++i, ++sh_locker)
 				SH_TAILQ_INSERT_HEAD(&region->
 				    free_lockers[partition], sh_locker, links,
@@ -4583,7 +4614,7 @@ __lock_getlocker_int(lt, locker, indx, partition, create, prop, retp,
 		SH_TAILQ_REMOVE(&region->free_lockers[partition],
 		    sh_locker, links, __db_locker);
 		sh_locker->id = locker;
-		sh_locker->dd_id = 0;
+		sh_locker->dd_id = -1;
 		sh_locker->master_locker = INVALID_ROFF;
 		sh_locker->parent_locker = INVALID_ROFF;
 		SH_LIST_INIT(&sh_locker->child_locker);
@@ -4592,6 +4623,8 @@ __lock_getlocker_int(lt, locker, indx, partition, create, prop, retp,
 		sh_locker->nlocks = 0;
 		sh_locker->npagelocks = 0;
 		sh_locker->timestamp = locker_timestamp();
+		if (sh_locker->timestamp > 0)
+			ATOMIC_ADD32(region->ntimestamped, 1);
 		sh_locker->nhandlelocks = 0;
 		sh_locker->nwrites = 0;
 		sh_locker->has_waiters = 0;
@@ -4607,13 +4640,14 @@ __lock_getlocker_int(lt, locker, indx, partition, create, prop, retp,
 			F_SET(sh_locker, DB_LOCKER_SQL_READER);
 		if (prop && prop->flags & DB_LOCK_ID_SQL_WRITER)
 			F_SET(sh_locker, DB_LOCKER_SQL_WRITER);
+		sh_locker->dd_gen = 0;
+		sh_locker->dd_in_wlockers = 0;
 #if TEST_DEADLOCKS
 		printf("%p %s:%d lockerid %x setting priority to %d\n",
 		    (void*)pthread_self(), __FILE__, __LINE__, sh_locker->id, sh_locker->priority);
 #endif
 		sh_locker->lk_timeout = 0;
 		sh_locker->partition = partition;
-		sh_locker->wstatus = 0;
 		LOCK_SET_TIME_INVALID(&sh_locker->tx_expire);
 		LOCK_SET_TIME_INVALID(&sh_locker->lk_expire);
 
