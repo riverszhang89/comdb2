@@ -33,7 +33,6 @@ static const char revid[] = "$Id: lock_deadlock.c,v 11.66 2003/11/19 19:59:02 ub
 #include "debug_switches.h"
 #include "logmsg.h"
 #include "sys_wrap.h"
-#include <comdb2_atomic.h>
 
 extern int verbose_deadlocks;
 extern int gbl_sparse_lockerid_map;
@@ -41,6 +40,10 @@ extern int gbl_rowlocks;
 extern int gbl_print_deadlock_cycles;
 extern int gbl_deadlock_policy_override;
 extern int gbl_already_aborted_trace;
+extern int gbl_all_waitdie;
+
+/* Walk the waiting locker list instead of all lockers. */
+int gbl_dd_waiter_list = 1;
 
 extern void stack_me(char *location);
 extern void log_snap_info_key(snap_uid_t *);
@@ -1095,6 +1098,14 @@ static inline int __resize_object(DB_ENV *dbenv, void **obj, size_t *obj_size,
 
 
 static int
+__dd_youngest_first(const void *a, const void *b)
+{
+	u_int64_t sa = (*(DB_LOCKER * const *)a)->seq;
+	u_int64_t sb = (*(DB_LOCKER * const *)b)->seq;
+	return (sa < sb) - (sa > sb);
+}
+
+static int
 __dd_build(dbenv, atype, bmp, smap, nlockers, allocp, idmap, tslst, tscnt, is_replicant)
 	DB_ENV *dbenv;
 	u_int32_t atype, **bmp, *nlockers, *allocp;
@@ -1121,13 +1132,13 @@ __dd_build(dbenv, atype, bmp, smap, nlockers, allocp, idmap, tslst, tscnt, is_re
 	   Since we do not loop over the active locker list to reset deadlock detector (DD)
 	   ID, we need a different method to determine whether a DD ID is valid.
 	   dd_gen is introduced for this purpose: lock region and locker have their own
-	   dd genenration numbers. In each dd_build invocation, the region's DD generation
+	   dd generation numbers. In each dd_build invocation, the region's DD generation
 	   number is incremented to indicate a new deadlock detection cycle, and each
 	   waiting locker is assigned a new DD ID. As the DD goes through lock waiters and
 	   holders, it skips those whose DD generation is behind the lock region's generation.
 	 */
 
-	u_int32_t dd_gen = 0;
+	u_int64_t dd_gen = 0;
 
 	static u_int32_t *dd_bitmap = NULL;
 	static size_t dd_bitmap_size = 0;
@@ -1217,24 +1228,38 @@ retry:	count = region->stat.st_nlockers;
 	id = 0;
 	timestamp_index_count = 0;
 
-	lock_detector(region);
-
 	dd_gen = ++region->dd_gen;
 
 	/* Now go through our waiting locker list which is much
 	   shorter than the active locker list, to assign a DD ID.
 	   Wait-die also needs IDs for timestamped lockers which are not
-	   waiting, so walk the active locker list while any exist. */
+	   waiting, so walk the active locker list once 2pc is seen.
+	   Deadlock search and victim selection start from the lowest
+	   DD ID, so assign them youngest locker first, the order of the
+	   active locker list. */
 	nwlockers = 0;
-	if (tscnt && ATOMIC_LOAD32(region->ntimestamped) > 0) {
+	if (!gbl_dd_waiter_list || (tscnt && (gbl_all_waitdie || region->has_timestamped))) {
 		for (DB_LOCKER *lip = SH_TAILQ_FIRST(&region->lockers, __db_locker);
 				lip != NULL; lip = SH_TAILQ_NEXT(lip, ulinks, __db_locker))
-			if (lip->dd_in_wlockers || lip->timestamp > 0)
+			if (lip->dd_in_wlockers || (tscnt && lip->timestamp > 0)) {
+				if (nwlockers >= count) {
+					logmsg(LOGMSG_FATAL, "%s: more than %u waiting lockers\n", __func__, count);
+					abort();
+				}
 				dd_wlockers[nwlockers++] = lip;
+			}
 	} else {
+		lock_detector(region);
 		for (DB_LOCKER *lip = SH_TAILQ_FIRST(&region->wlockers, __db_locker);
-				lip != NULL; lip = SH_TAILQ_NEXT(lip, wlinks, __db_locker))
+				lip != NULL; lip = SH_TAILQ_NEXT(lip, wlinks, __db_locker)) {
+			if (nwlockers >= count) {
+				logmsg(LOGMSG_FATAL, "%s: more than %u waiting lockers\n", __func__, count);
+				abort();
+			}
 			dd_wlockers[nwlockers++] = lip;
+		}
+		unlock_detector(region);
+		qsort(dd_wlockers, nwlockers, sizeof(DB_LOCKER *), __dd_youngest_first);
 	}
 
 	for (u_int32_t i = 0; i < nwlockers; i++) {
@@ -1264,8 +1289,6 @@ retry:	count = region->stat.st_nlockers;
 		if (verbose_deadlocks &&lip->id >DB_LOCK_MAXID)
 			logmsg(LOGMSG_USER, "Added lip %p id=%x dd_id=%x count=%u\n", lip, lip->id, lip->dd_id, ptr_idarr->lcount);
 	}
-
-	unlock_detector(region);
 
 	count = id;
 	nentries = ALIGN(count, 32) / 32;

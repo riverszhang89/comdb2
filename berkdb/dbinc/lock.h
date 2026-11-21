@@ -127,8 +127,9 @@ struct __db_lockerid_latch_list;
 typedef struct __db_lockregion {
 	u_int32_t	need_dd;	/* flag for deadlock detector */
 	u_int32_t	detect;		/* run dd on every conflict */
-	u_int32_t	dd_gen;		/* generation of deadlock detector ID (dd_id) */
-	u_int32_t	ntimestamped;	/* lockers with a wait-die timestamp */
+	u_int64_t	dd_gen;		/* generation of deadlock detector ID (dd_id) */
+	u_int32_t	has_timestamped;	/* a wait-die timestamp was ever set */
+	u_int64_t	locker_seq;	/* last locker creation sequence */
 	db_timeval_t	next_timeout;	/* next time to expire a lock */
 	SH_TAILQ_HEAD(__dobj, __db_lockobj) dd_objs;	/* objects with waiters */
 	SH_TAILQ_HEAD(__lkrs, __db_locker) lockers;	/* list of lockers */
@@ -269,7 +270,7 @@ typedef struct __db_locker {
 					   list. */
 	SH_TAILQ_ENTRY(__db_locker) links;		/* Links for free and hash list. */
 	SH_TAILQ_ENTRY(__db_locker) ulinks;	/* Links in-use list. */
-	SH_TAILQ_ENTRY(__db_locker) wlinks;	/* Links in-use list. */
+	SH_TAILQ_ENTRY(__db_locker) wlinks;	/* Links waiting list. */
 	SH_LIST_HEAD(_held, __db_lock) heldby;	/* Locks held by this locker. */
 	db_timeval_t	lk_expire;	/* When current lock expires. */
 	db_timeval_t	tx_expire;	/* When this txn expires. */
@@ -322,8 +323,9 @@ typedef struct __db_locker {
 	u_int32_t flags;
 	u_int8_t has_pglk_lsn;
 	int64_t timestamp;  /* wait-die timestamp */
-	u_int32_t   dd_gen;		/* generation of the locker's deadlock detector ID */
+	u_int64_t   dd_gen;		/* generation of the locker's deadlock detector ID */
 	u_int32_t   dd_in_wlockers; /* whether the locker is in wlockers list */
+	u_int64_t   seq;		/* creation sequence, for DD ID order */
 } DB_LOCKER;
 
 /*

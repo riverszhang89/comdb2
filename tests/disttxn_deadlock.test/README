@@ -1,0 +1,1 @@
+Concurrent distributed transactions on hot rows must not hang in deadlock detection.

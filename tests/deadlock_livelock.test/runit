@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+bash -n "$0" || exit 1
+
+source ${TESTSROOTDIR}/tools/runit_common.sh
+
+dbnm=$1
+
+sql() { $CDB2SQL_EXE --tabs ${CDB2_OPTIONS} $dbnm default "$@"; }
+deadlocks() { $CDB2SQL_EXE --tabs ${CDB2_OPTIONS} -M $dbnm default "select value from comdb2_metrics where name = 'deadlocks'"; }
+
+sql "create table t (a int, b int)" || failexit "create table"
+sql "create index ta on t(a)" || failexit "create index ta"
+sql "create index tb on t(b)" || failexit "create index tb"
+
+deadlocks=$(deadlocks)
+
+# The 2nd round livelocked: the txns kept killing each other.
+for round in 1 2; do
+    pids=
+    for i in $(seq 1 12); do
+        timeout 300 $CDB2SQL_EXE ${CDB2_OPTIONS} $dbnm default "insert into t select value, value from generate_series(1, 50000)" > ins.$round.$i.out 2>&1 &
+        pids="$pids $!"
+    done
+    for pid in $pids; do
+        wait $pid || failexit "round $round: insert failed or timed out"
+    done
+done
+
+assertcnt t $((2 * 12 * 50000))
+[[ $(deadlocks) -gt $deadlocks ]] || failexit "no deadlocks"
+echo "Success"

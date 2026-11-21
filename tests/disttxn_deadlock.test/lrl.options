@@ -1,0 +1,6 @@
+enable_2pc
+utxnid_log on
+ufid_log on
+machine_class prod
+# let ops apply in txn order, so txns can deadlock
+reorder_socksql_no_deadlock off

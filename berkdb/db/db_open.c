@@ -44,6 +44,7 @@ void comdb2_cheapstack_sym(FILE *f, char *fmt, ...);
 
 #define NFRAMES 64
 int gbl_db_track_open = 1;
+int gbl_tlcq_all_threaded = 0;
 DB_OPEN_LIST gbl_db_open_list;
 
 static pthread_once_t db_track_open_once = PTHREAD_ONCE_INIT;
@@ -105,8 +106,9 @@ __db_open(dbp, txn, fname, dname, type, flags, mode, meta_pgno)
 	if (F_ISSET(dbenv, DB_ENV_THREAD))
 		LF_SET(DB_THREAD);
 
-	/* Enable thread-local cursor queues for DB_THREAD. */
-	if (LF_ISSET(DB_THREAD))
+	/* Enable thread-local cursor queues for all DB_THREAD handles, not
+	   only indexes. */
+	if (gbl_tlcq_all_threaded && LF_ISSET(DB_THREAD))
 		dbp->use_tlcq = 1;
 
 	/* Convert any DB->open flags. */

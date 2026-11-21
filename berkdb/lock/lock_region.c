@@ -237,7 +237,8 @@ __lock_init(dbenv, lt)
 
 	region->need_dd = 0;
 	region->dd_gen = 0;
-	region->ntimestamped = 0;
+	region->has_timestamped = 0;
+	region->locker_seq = 0;
 
 	LOCK_SET_TIME_INVALID(&region->next_timeout);
 	region->detect = DB_LOCK_NORUN;

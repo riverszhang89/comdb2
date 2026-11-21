@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+bash -n "$0" || exit 1
+
+. ${TESTSROOTDIR}/tools/runit_common.sh
+
+dbnm=$1
+r1=$SECONDARY_DBNAME
+metadb=$TERTIARY_DBNAME
+
+sql() { $CDB2SQL_EXE --tabs $CDB2_OPTIONS $dbnm default "$@"; }
+r1sql() { $CDB2SQL_EXE --tabs $SECONDARY_CDB2_OPTIONS $r1 default "$@"; }
+metasql() { $CDB2SQL_EXE --tabs $TERTIARY_CDB2_OPTIONS $metadb default "$@"; }
+
+# comdb2db for fdb, as in disttxn.test
+metasql "create table clusters {`cat clusters.csc2`}" >/dev/null || failexit "create clusters"
+metasql "create table machines {`cat machines.csc2`}" >/dev/null || failexit "create machines"
+metasql "create table databases {`cat databases.csc2`}" >/dev/null || failexit "create databases"
+metasql "insert into machines(name, cluster, room) values ('localhost', 'KABOOM', 'NY')" >/dev/null || failexit "insert machines"
+for db in $dbnm $r1 $metadb; do
+    metasql "insert into databases(name, dbnum) values('$db', 0)" >/dev/null || failexit "insert databases $db"
+    metasql "insert into clusters(name, cluster_name, cluster_machs) values('$db', 'prod', 'KABOOM')" >/dev/null || failexit "insert clusters $db"
+done
+mkdir -p $TESTDIR/etc/cdb2/config.d
+for db in $dbnm $r1; do
+    echo "$db 0 localhost" > $TESTDIR/etc/cdb2/config.d/$db.cfg
+done
+for f in sql r1sql; do
+    $f "put tunable foreign_metadb '$metadb'" >/dev/null || failexit "$f foreign_metadb"
+    $f "put tunable foreign_metadb_class 'local'" >/dev/null || failexit "$f foreign_metadb_class"
+    $f "exec procedure sys.cmd.send('allow-coordinator $dbnm/prod')" >/dev/null || failexit "$f allow $dbnm"
+    $f "exec procedure sys.cmd.send('allow-coordinator $r1/prod')" >/dev/null || failexit "$f allow $r1"
+done
+
+# 2pc needs comdb2_distributed_transactions, created after startup
+for f in sql r1sql; do
+    found=0
+    for i in $(seq 1 30); do
+        [[ $($f "select count(*) from comdb2_tables where tablename = 'comdb2_distributed_transactions'") == 1 ]] && found=1 && break
+        sleep 1
+    done
+    [[ $found == 1 ]] || failexit "$f missing comdb2_distributed_transactions"
+done
+
+for f in sql r1sql; do
+    $f "create table t1 (k int primary key, v int)" >/dev/null || failexit "$f create t1"
+    $f "insert into t1 select value, 0 from generate_series(1, 50000)" >/dev/null || failexit "$f insert t1"
+    $f "insert into t1 select value, 0 from generate_series(50001, 100000)" >/dev/null || failexit "$f insert t1"
+done
+sql "create table log (w int)" >/dev/null || failexit "create log"
+
+# Each txn bumps 2 of 4 hot rows, on different pages, and logs itself:
+# dist workers on both dbs, local workers on $dbnm only, so local
+# deadlocks race with dist txns. More dist workers make plain main lose
+# participant writes, unrelated to this test.
+worker() {
+    for i in $(seq 1 200); do
+        a=$((RANDOM % 4 * 25000 + 1)); b=$((RANDOM % 4 * 25000 + 1))
+        echo "begin"
+        echo "update t1 set v = v + 1 where k = $a"
+        [[ $1 == 1 ]] && echo "update $r1.t1 set v = v + 1 where k = $b"
+        echo "update t1 set v = v + 1 where k = $b"
+        [[ $1 == 1 ]] && echo "update $r1.t1 set v = v + 1 where k = $a"
+        echo "insert into log values ($1)"
+        echo "commit"
+    done | $CDB2SQL_EXE $CDB2_OPTIONS $dbnm default - >/dev/null 2>&1
+}
+
+pids=
+for t in $(seq 1 4); do
+    worker 1 &
+    pids="$pids $!"
+done
+for t in $(seq 1 8); do
+    worker 0 &
+    pids="$pids $!"
+done
+deadline=$((SECONDS + 600))
+for pid in $pids; do
+    while kill -0 $pid 2>/dev/null; do
+        [[ $SECONDS -lt $deadline ]] || failexit "worker hung"
+        sleep 1
+    done
+done
+
+ndist=$(sql "select count(*) from log where w = 1")
+nlocal=$(sql "select count(*) from log where w = 0")
+[[ $ndist -gt 0 && $nlocal -gt 0 ]] || failexit "dist $ndist local $nlocal committed"
+[[ $(sql "select sum(v) from t1") == $(((ndist + nlocal) * 2)) ]] || failexit "t1 sum != $(((ndist + nlocal) * 2))"
+[[ $(r1sql "select sum(v) from t1") == $((ndist * 2)) ]] || failexit "r1 t1 sum != $((ndist * 2))"
+echo "committed dist $ndist local $nlocal"
+echo "Success"

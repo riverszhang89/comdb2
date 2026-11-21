@@ -58,6 +58,7 @@ static const char revid[] = "$Id: lock.c,v 11.134 2003/11/18 21:30:38 ubell Exp 
 
 
 extern int verbose_deadlocks;
+extern int gbl_dd_waiter_list;
 extern int gbl_rowlocks;
 extern int gbl_page_latches;
 extern int gbl_replicant_latches;
@@ -3048,6 +3049,16 @@ upgrade:
 			master_locker = sh_locker;
 		else
 			master_locker = ((DB_LOCKER *)R_ADDR(&lt->reginfo, sh_locker->master_locker));
+		if (!gbl_dd_waiter_list)
+			master_locker->dd_in_wlockers = 1;
+		else if (!master_locker->dd_in_wlockers) {
+			lock_detector(region);
+			if (!master_locker->dd_in_wlockers) {
+				SH_TAILQ_INSERT_HEAD(&region->wlockers, master_locker, wlinks, __db_locker);
+				master_locker->dd_in_wlockers = 1;
+			}
+			unlock_detector(region);
+		}
 
 		unlock_locker_partition(region, lpartition);
 
@@ -3135,16 +3146,6 @@ upgrade:
 			}
 			__os_free(dbenv, holdarr);
 			holdarr = NULL;
-		}
-
-		/* Add the locker to the waiting list before calling the deadlock detector. */
-		if (!master_locker->dd_in_wlockers) {
-			lock_detector(region);
-			if (!master_locker->dd_in_wlockers) {
-				SH_TAILQ_INSERT_HEAD(&region->wlockers, master_locker, wlinks, __db_locker);
-				master_locker->dd_in_wlockers = 1;
-			}
-			unlock_detector(region);
 		}
 
 		/*
@@ -3295,7 +3296,9 @@ expired:			obj_ndx = sh_obj->index;
 	else
 		master_locker = ((DB_LOCKER *)R_ADDR(&lt->reginfo, sh_locker->master_locker));
 
-	if (master_locker->dd_in_wlockers) {
+	if (!gbl_dd_waiter_list)
+		master_locker->dd_in_wlockers = 0;
+	else if (master_locker->dd_in_wlockers) {
 		lock_detector(region);
 		if (master_locker->dd_in_wlockers) {
 			SH_TAILQ_REMOVE(&region->wlockers, master_locker, wlinks, __db_locker);
@@ -3588,8 +3591,8 @@ __locker_set_timestamp(dbenv, locker, timestamp)
 		goto err;
 	}
 
-	if ((sh_locker->timestamp > 0) != (timestamp > 0))
-		ATOMIC_ADD32(region->ntimestamped, timestamp > 0 ? 1 : -1);
+	if (timestamp > 0)
+		region->has_timestamped = 1;
 	sh_locker->timestamp = timestamp;
 	unlock_locker_partition(region, sh_locker->partition);
 
@@ -4378,7 +4381,7 @@ __lock_freelocker(lt, region, sh_locker, indx)
 	    __db_locker);
 	SH_TAILQ_REMOVE(&region->lockers, sh_locker, ulinks, __db_locker);
 
-	if (sh_locker->dd_in_wlockers) {
+	if (gbl_dd_waiter_list && sh_locker->dd_in_wlockers) {
 		lock_detector(region);
 		if (sh_locker->dd_in_wlockers) {
 			SH_TAILQ_REMOVE(&region->wlockers, sh_locker, wlinks, __db_locker);
@@ -4387,8 +4390,6 @@ __lock_freelocker(lt, region, sh_locker, indx)
 		unlock_detector(region);
 	}
 
-	if (sh_locker->timestamp > 0)
-		ATOMIC_ADD32(region->ntimestamped, -1);
 	region->stat.st_nlockers--;
 }
 
@@ -4602,7 +4603,6 @@ __lock_getlocker_int(lt, locker, indx, partition, create, prop, retp,
 			sh_locker->ntrackedlocks = 0;
 			sh_locker->maxtrackedlocks = 0;
 			sh_locker->tracked_locklist = NULL;
-			sh_locker->dd_in_wlockers = 0;
 			for (i = 0; i < num; ++i, ++sh_locker)
 				SH_TAILQ_INSERT_HEAD(&region->
 				    free_lockers[partition], sh_locker, links,
@@ -4623,8 +4623,6 @@ __lock_getlocker_int(lt, locker, indx, partition, create, prop, retp,
 		sh_locker->nlocks = 0;
 		sh_locker->npagelocks = 0;
 		sh_locker->timestamp = locker_timestamp();
-		if (sh_locker->timestamp > 0)
-			ATOMIC_ADD32(region->ntimestamped, 1);
 		sh_locker->nhandlelocks = 0;
 		sh_locker->nwrites = 0;
 		sh_locker->has_waiters = 0;
@@ -4722,6 +4720,7 @@ __lock_getlocker_with_prop(lt, locker, indx, prop, flags, retp)
 		lock_lockers(region);
 	}
 	SH_TAILQ_INSERT_HEAD(&region->lockers, *retp, ulinks, __db_locker);
+	(*retp)->seq = ++region->locker_seq;
 	if (++region->stat.st_nlockers > region->stat.st_maxnlockers)
 		region->stat.st_maxnlockers = region->stat.st_nlockers;
 	if (get_locker_lock) {

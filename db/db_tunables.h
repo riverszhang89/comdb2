@@ -184,6 +184,11 @@ REGISTER_TUNABLE(
     "ddl_cascade_drop",
     "On DROP, also drop the dependent keys/constraints. (Default: 1)",
     TUNABLE_BOOLEAN, &gbl_ddl_cascade_drop, READONLY, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("dd_waiter_list",
+                 "Deadlock detector walks the list of waiting lockers instead "
+                 "of all lockers. (Default: on)",
+                 TUNABLE_BOOLEAN, &gbl_dd_waiter_list, READONLY | NOARG, NULL,
+                 NULL, NULL, NULL);
 REGISTER_TUNABLE("deadlock_policy_override", NULL, TUNABLE_INTEGER,
                  &gbl_deadlock_policy_override, READONLY, NULL, NULL,
                  deadlock_policy_override_update, NULL);
@@ -1283,6 +1288,11 @@ REGISTER_TUNABLE("throttlesqloverlog",
 REGISTER_TUNABLE("track_berk_locks", NULL, TUNABLE_INTEGER,
                  &gbl_berkdb_track_locks, READONLY | NOARG, NULL, NULL, NULL,
                  NULL);
+REGISTER_TUNABLE("tlcq_all_threaded",
+                 "Use thread-local cursor queues for all DB_THREAD handles, "
+                 "not only indexes. (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_tlcq_all_threaded, READONLY | NOARG,
+                 NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("typessql", "Use typessql to attempt to buffer results until all columns are non-null. (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_typessql, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE(

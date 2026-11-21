@@ -193,6 +193,8 @@ extern int gbl_track_weighted_queue_metrics_separately;
 extern int gbl_typessql;
 extern int gbl_typessql_records_max;
 extern int gbl_berkdb_track_locks;
+extern int gbl_tlcq_all_threaded;
+extern int gbl_dd_waiter_list;
 extern int gbl_db_lock_maxid_override;
 extern int gbl_udp;
 extern int gbl_update_delete_limit;

@@ -400,6 +400,7 @@ static char *legacy_options[] = {
     "berkattr elect_highest_committed_gen 0",
     "clean_exit_on_sigterm off",
     "create_default_user",
+    "dd_waiter_list off",
     "ddl_cascade_drop 0",
     "decoupled_logputs off",
     "disable_inplace_blob_optimization",
