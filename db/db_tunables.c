@@ -105,6 +105,7 @@ extern int gbl_debug_sleep_coordinator_before_commit;
 extern int gbl_debug_sleep_on_set_read_only;
 extern int gbl_debug_wait_on_verify_off;
 extern int gbl_debug_disttxn_trace;
+extern int gbl_debug_locked_internal_sql_delay_ms;
 extern int gbl_debug_fail_push_write_on_replay;
 extern int gbl_debug_fail_push_write_on_replay_rc;
 extern int gbl_debug_fail_push_write_start;
@@ -152,6 +153,8 @@ extern int gbl_osql_verify_retries_max;
 extern int gbl_dump_history_on_too_many_verify_errors;
 extern int gbl_page_latches;
 extern int gbl_pb_connectmsg;
+extern int gbl_debug_net_rd_max_kb;
+extern int gbl_debug_net_resume_read_delay_ms;
 extern int gbl_prefault_udp;
 extern int gbl_print_syntax_err;
 extern int gbl_lclpooled_buffers;
@@ -1106,20 +1109,6 @@ static int broken_max_rec_sz_update(void *context, void *value)
     logmsg(LOGMSG_INFO, "Allow db to start with max record size of %d\n",
            COMDB2_MAX_RECORD_SIZE + gbl_broken_max_rec_sz);
     return 0;
-}
-
-static int netconndumptime_update(void *context, void *value)
-{
-    int val = *(int *)value;
-    net_set_conntime_dump_period(thedb->handle_sibling, val);
-    return 0;
-}
-
-static void *netconndumptime_value(void *context)
-{
-    static char val[64];
-    sprintf(val, "%d", net_get_conntime_dump_period(thedb->handle_sibling));
-    return val;
 }
 
 const char *deadlock_policy_str(u_int32_t policy);

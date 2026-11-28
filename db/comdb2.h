@@ -71,7 +71,6 @@ typedef long long tranid_t;
 #include <comdb2_trn_intrl.h>
 #include <sqlthdpool.h>
 #include <prefault.h>
-#include <quantize.h>
 #include <dlmalloc.h>
 
 #include "sqlinterfaces.h"
@@ -1471,6 +1470,13 @@ struct ireq {
      * only then is sc_pending_mtx worth taking - see sc_pending_lock(). */
     int sc_shared;
     uuid_t scs_uuid; /* on resume, there is no sorese, but we need to know uuid for scs */
+    struct sc_list_2pc *sc_resume_2pc; /* 2pc configuration of a resumed schema change */
+    int disttxn_failed;                /* abort_disttxn already ran */
+    int disttxn_ddl_resume;            /* resume the 2pc sc_list once this request is done */
+    void *disttxn_ddl_pending;         /* disttxn_ddl_pending_begin handle */
+    int disttxn_ddl_logged;            /* 2pc coordinator commit is logged even if the request fails */
+    void *disttxn_systable_tran;       /* see sc_comdb2_tables_lock_tran */
+    void *disttxn_systable_lock;       /* see sc_lock_comdb2_tables_finalize */
     double cost;
     uint64_t sc_seed;
     uint32_t sc_host;
@@ -2780,6 +2786,7 @@ void dbgtrace(int, char *, ...);
 
 int get_sqlite_entry_size(struct sql_thread *thd, int n);
 void *get_sqlite_entry(struct sql_thread *thd, int n);
+const char *get_sqlite_entry_tblname(struct sql_thread *thd, int n);
 struct dbtable *get_sqlite_db(struct sql_thread *thd, int iTable, int *ixnum);
 /* table name for a rootpage; safe to use after the table has been dropped */
 const char *get_sqlite_tblname(struct sql_thread *thd, int iTable);
@@ -3403,20 +3410,6 @@ extern int gbl_snapshot_isolation;
 extern int gbl_update_shadows_interval;
 extern int gbl_lowpri_snapisol_sessions;
 extern int gbl_disable_legacy_queues;
-
-/* stats */
-/* non-sql request service times (last minute, last hour, since start) */
-extern struct quantize *q_min;
-extern struct quantize *q_hour;
-extern struct quantize *q_all;
-/* sql query times */
-extern struct quantize *q_sql_min;
-extern struct quantize *q_sql_hour;
-extern struct quantize *q_sql_all;
-/* sql #steps */
-extern struct quantize *q_sql_steps_min;
-extern struct quantize *q_sql_steps_hour;
-extern struct quantize *q_sql_steps_all;
 
 extern int gbl_stop_thds_time;
 extern int gbl_stop_thds_time_threshold;

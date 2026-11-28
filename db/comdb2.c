@@ -73,7 +73,6 @@ void berk_memp_sync_alarm_ms(int);
 #include <bdb_api.h>
 #include <disttxn.h>
 #include <comdb2buf.h>
-#include "quantize.h"
 #include "timers.h"
 
 #include "comdb2.h"
@@ -571,18 +570,6 @@ int gbl_disable_legacy_queues = 1;
 int64_t gbl_legacy_requests = 0;
 int64_t gbl_legacy_requests_all = 0; /* includes all auxiliary request types */
 
-struct quantize *q_min;
-struct quantize *q_hour;
-struct quantize *q_all;
-
-struct quantize *q_sql_min;
-struct quantize *q_sql_hour;
-struct quantize *q_sql_all;
-
-struct quantize *q_sql_steps_min;
-struct quantize *q_sql_steps_hour;
-struct quantize *q_sql_steps_all;
-
 extern int gbl_skip_cget_in_db_put;
 
 int gbl_argc;
@@ -1068,36 +1055,6 @@ int db_is_exiting()
 }
 
 void print_dbsize(void);
-
-static void init_q_vars()
-{
-    q_min = quantize_new(10, 2000, "ms");
-    q_hour = quantize_new(10, 2000, "ms");
-    q_all = quantize_new(10, 2000, "ms");
-
-    q_sql_min = quantize_new(100, 100000, "steps");
-    q_sql_hour = quantize_new(100, 100000, "steps");
-    q_sql_all = quantize_new(100, 100000, "steps");
-
-    q_sql_steps_min = quantize_new(100, 100000, "steps");
-    q_sql_steps_hour = quantize_new(100, 100000, "steps");
-    q_sql_steps_all = quantize_new(100, 100000, "steps");
-}
-
-static void cleanup_q_vars()
-{
-    quantize_free(q_min);
-    quantize_free(q_hour);
-    quantize_free(q_all);
-
-    quantize_free(q_sql_min);
-    quantize_free(q_sql_hour);
-    quantize_free(q_sql_all);
-
-    quantize_free(q_sql_steps_min);
-    quantize_free(q_sql_steps_hour);
-    quantize_free(q_sql_steps_all);
-}
 
 /* Send an alert about the fact that I'm incoherent */
 static int send_incoherent_message(int num_online, int duration)
@@ -1736,7 +1693,6 @@ static void begin_clean_exit(void)
     set_stop_mempsync_thread();
     flush_db();
 
-    cleanup_q_vars();
     cleanup_switches();
     free_gbl_tunables();
     destroy_plugins();
@@ -1812,7 +1768,6 @@ void clean_exit(void)
         sleep(4);
 #   endif
 
-    cleanup_q_vars();
     cleanup_switches();
     free_gbl_tunables();
     destroy_plugins();
@@ -5933,8 +5888,6 @@ int main(int argc, char **argv)
     if (debug_switch_skip_skipables_on_verify())
         gbl_berkdb_verify_skip_skipables = 1;
 
-    init_q_vars();
-
     srandom(comdb2_time_epochus());
 
     if (debug_switch_verbose_deadlocks())
@@ -6525,6 +6478,9 @@ int comdb2_reload_schemas(void *dbenv, void *inlsn)
 
     gbl_comdb2_reload_schemas = 1;
     logmsg(LOGMSG_INFO, "%s starting for [%d:%d]\n", __func__, *file, *offset);
+    /* drop rollouts queued before the reload, but don't wait for a running one:
+     * a truncate holds the bdb write lock it may be waiting for. Requeued after */
+    views_cron_clear_queues(1);
     wrlock_schema_lk();
 retry_tran:
     tran = bdb_tran_begin_flags(thedb->bdb_env, NULL, &bdberr, BDB_TRAN_NOLOG);
@@ -6659,6 +6615,8 @@ retry_tran:
 
     gbl_watcher_thread_ran = comdb2_time_epoch();
     unlock_schema_lk();
+    /* requeue partition rollouts now that the reloaded tables are open */
+    XCHANGE32(gbl_trigger_timepart, 1);
     logmsg(LOGMSG_INFO, "%s complete [%d:%d]\n", __func__, *file, *offset);
 
     gbl_comdb2_reload_schemas = 0;

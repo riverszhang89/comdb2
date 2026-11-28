@@ -54,6 +54,7 @@
 #include "osqlsqlnet.h"
 #include "sc_global.h"
 #include "logical_cron.h"
+#include "sqlinterfaces.h"
 #include "sc_logic.h"
 #include "eventlog.h"
 #include <disttxn.h>
@@ -7524,7 +7525,19 @@ static int _process_single_table_sc_partitioning(struct ireq *iq)
             sc->newpartition, start_schema_change_tran_wrapper, &arg);
 
     if (!rc && sc->partition.type == PARTITION_ADD_MANUAL) {
-        if (!get_dbtable_by_name(LOGICAL_CRON_SYSTABLE)){
+        if (get_dbtable_by_name(LOGICAL_CRON_SYSTABLE)) {
+            /* a dropped partition of the same name leaves its counter behind */
+            char *sql =
+                sqlite3_mprintf("delete from \"%w\" where name='%q'", LOGICAL_CRON_SYSTABLE, sc->timepartition_name);
+            struct sqlclntstate clnt;
+            start_internal_sql_clnt_named(&clnt, 1, "internal_logical_cron");
+            int drc = run_internal_sql_clnt(&clnt, sql);
+            if (drc)
+                logmsg(LOGMSG_ERROR, "%s: failed to reset logical cron for %s rc %d\n", __func__,
+                       sc->timepartition_name, drc);
+            end_internal_sql_clnt(&clnt);
+            sqlite3_free(sql);
+        } else {
             struct schema_change_type *lcsc = _create_logical_cron_systable(LOGICAL_CRON_SYSTABLE);
             if (!lcsc) {
                 rc = ERR_SC;
@@ -7631,7 +7644,16 @@ static int _process_partition_retention(struct ireq *iq)
     sc->nothrevent = 1;    /* serialize, mirrors create/rollout paths */
 
     rc = SC_OK;
-    for (i = 0; i < nnames; i++) {
+    if (is_increase) {
+        /* new shards inherit the partition's table version */
+        sc->timepartition_version = comdb2_table_version(sc->tablename);
+        if (sc->timepartition_version == (unsigned long long)-1) {
+            sc_errf(sc, "Failed to get the version of partition %s", sc->tablename);
+            iq->osql_flags |= OSQL_FLAGS_SCDONE;
+            rc = ERR_SC;
+        }
+    }
+    for (i = 0; rc == SC_OK && i < nnames; i++) {
         struct schema_change_type *cur;
 
         if (i == 0) {
@@ -7661,6 +7683,7 @@ static int _process_partition_retention(struct ireq *iq)
                 sc_errf(cur, "could not get schema for shard '%s'", names[i]);
                 if (cur != sc)
                     free_schema_change_type(cur);
+                iq->osql_flags |= OSQL_FLAGS_SCDONE;
                 rc = ERR_SC;
                 break;
             }
@@ -7708,7 +7731,14 @@ static int _process_partition_retention(struct ireq *iq)
         sc->unpublish = partition_unpublish;
         iq->osql_flags |= OSQL_FLAGS_SCDONE;
     } else {
-        /* nothing was published; no sc owns newview, so free it here */
+        /* nothing was published; no sc owns newview, so free it here, first
+         * clearing the scs that point at its name (sc itself may be freed) */
+        if (iq->sc == sc)
+            sc->timepartition_name = NULL;
+        for (struct schema_change_type *s = iq->sc_pending; s; s = s->sc_next) {
+            if (s->timepartition_name == partition_name)
+                s->timepartition_name = NULL;
+        }
         timepart_free_view(newview);
     }
 
@@ -10010,11 +10040,78 @@ uint8_t *osqlcomm_scl_put_key(struct sc_list *scl, uint8_t *p_buf,
     return p_buf;
 }
 
+/* 2pc config after the scs: magic, role, may_vote, voted, strings (length incl. NUL, 0 for NULL) */
+#define SCL_2PC_MAGIC 0x32504353 /* "2PCS" */
+#define SCL_STR_SIZE(str) (sizeof(int) + ((str) ? strlen(str) + 1 : 0))
+#define PUTS(str)                                                                                                      \
+    do {                                                                                                               \
+        int len = (str) ? strlen(str) + 1 : 0;                                                                         \
+        PUTI(len);                                                                                                     \
+        if (len && !(p_buf = buf_no_net_put((str), len, p_buf, p_buf_end)))                                            \
+            return NULL;                                                                                               \
+    } while (0)
+#define GETS(str)                                                                                                      \
+    do {                                                                                                               \
+        int len = 0;                                                                                                   \
+        GETI(len);                                                                                                     \
+        if (len < 0 || len > p_buf_end - p_buf || (len && !((str) = calloc(1, len))))                                  \
+            return NULL;                                                                                               \
+        if (len && !(p_buf = buf_no_net_get((str), len, p_buf, p_buf_end)))                                            \
+            return NULL;                                                                                               \
+        if (len)                                                                                                       \
+            (str)[len - 1] = '\0';                                                                                     \
+    } while (0)
+
+int osqlcomm_scl_2pc_size(struct sc_list *scl)
+{
+    sc_list_2pc_t *d = scl->dist;
+    if (!d)
+        return 0;
+    return 4 * sizeof(int) + SCL_STR_SIZE(d->dist_txnid) + SCL_STR_SIZE(d->coordinator_dbname) +
+           SCL_STR_SIZE(d->coordinator_tier);
+}
+
+static uint8_t *scl_2pc_put(sc_list_2pc_t *d, uint8_t *p_buf, const uint8_t *p_buf_end)
+{
+    int magic = SCL_2PC_MAGIC;
+    PUTI(magic);
+    PUTI(d->is_coordinator);
+    PUTI(d->may_vote);
+    PUTI(d->voted);
+    PUTS(d->dist_txnid);
+    PUTS(d->coordinator_dbname);
+    PUTS(d->coordinator_tier);
+    return p_buf;
+}
+
+/* on failure the caller frees *pd with sc_list_2pc_free() */
+static const uint8_t *scl_2pc_get(sc_list_2pc_t **pd, const uint8_t *p_buf, const uint8_t *p_buf_end)
+{
+    int magic = 0;
+    GETI(magic);
+    if (magic != SCL_2PC_MAGIC) {
+        logmsg(LOGMSG_ERROR, "%s: bad 2pc sc_list magic %x\n", __func__, magic);
+        return NULL;
+    }
+    sc_list_2pc_t *d = *pd = calloc(1, sizeof(sc_list_2pc_t));
+    if (!d)
+        return NULL;
+    GETI(d->is_coordinator);
+    GETI(d->may_vote);
+    GETI(d->voted);
+    GETS(d->dist_txnid);
+    GETS(d->coordinator_dbname);
+    GETS(d->coordinator_tier);
+    if (!d->dist_txnid)
+        return NULL;
+    return p_buf;
+}
+
 const uint8_t *osqlcomm_scl_get(struct sc_list *scl,
                                 const uint8_t *p_buf, const uint8_t *p_buf_end)
 {
     GETI(scl->version);
-    if (scl->version != SESS_SC_LIST_VER) {
+    if (scl->version != SESS_SC_LIST_VER && scl->version != SESS_SC_LIST_2PC_VER) {
         logmsg(LOGMSG_ERROR, "Found unsupported SCL version %d\n", scl->version);
         return NULL;
     }
@@ -10030,7 +10127,11 @@ const uint8_t *osqlcomm_scl_get(struct sc_list *scl,
     scl->ser_scs = malloc(scl->ser_scs_len);
     if (!scl->ser_scs)
         return NULL;
-    return  buf_no_net_get(scl->ser_scs, scl->ser_scs_len, p_buf, p_buf_end);
+    p_buf = buf_no_net_get(scl->ser_scs, scl->ser_scs_len, p_buf, p_buf_end);
+    /* a 2pc sc_list has its configuration after the schema changes */
+    if (p_buf && scl->version == SESS_SC_LIST_2PC_VER)
+        p_buf = scl_2pc_get(&scl->dist, p_buf, p_buf_end);
+    return p_buf;
 }
 
 uint8_t *osqlcomm_scl_put(struct sc_list *scl,
@@ -10043,7 +10144,10 @@ uint8_t *osqlcomm_scl_put(struct sc_list *scl,
     for(i = 0; i < scl->count; i++) {
         PUTI(scl->offsets[i]);
     }
-    return  buf_no_net_put(scl->ser_scs, scl->ser_scs_len, p_buf, p_buf_end);
+    p_buf = buf_no_net_put(scl->ser_scs, scl->ser_scs_len, p_buf, p_buf_end);
+    if (p_buf && scl->dist)
+        p_buf = scl_2pc_put(scl->dist, p_buf, p_buf_end);
+    return p_buf;
 }
 
 int osql_scl_print(uint8_t *p_buf_key, const uint8_t *p_buf_key_end,
@@ -10055,7 +10159,8 @@ int osql_scl_print(uint8_t *p_buf_key, const uint8_t *p_buf_key_end,
         return -1;
 
     if (!osqlcomm_scl_get(&scl, p_buf, p_buf_end)) {
-            return -1;
+        sc_list_free(&scl);
+        return -1;
     }
 
     uuidstr_t us;
@@ -10067,7 +10172,10 @@ int osql_scl_print(uint8_t *p_buf_key, const uint8_t *p_buf_key_end,
     int sizes[scl.count];
     for(i = 0; i < scl.count-1; i++)
         sizes[i] = scl.offsets[i+1]-scl.offsets[i];
-    sizes[scl.count-1] = p_buf_end - p_buf - scl.offsets[scl.count-1];
+    sizes[scl.count - 1] = scl.ser_scs_len - (scl.offsets[scl.count - 1] - scl.offsets[0]);
+    if (scl.dist)
+        logmsg(LOGMSG_USER, "    2pc %s : %s\n", scl.dist->is_coordinator ? "coordinator" : "participant",
+               scl.dist->dist_txnid);
 
     for(i = 0; i < scl.count; i++) {
         logmsg(LOGMSG_USER, "    Sc %d size %d\n", i, sizes[i]);
@@ -10085,8 +10193,7 @@ int osql_scl_print(uint8_t *p_buf_key, const uint8_t *p_buf_key_end,
             logmsg(LOGMSG_USER, "      schema \"%s\"\n", sc->newcsc2);
         free_schema_change_type(sc);
     }
-    free(scl.offsets);
-    free(scl.ser_scs);
+    sc_list_free(&scl);
     return 0;
 }
 

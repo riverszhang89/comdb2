@@ -274,6 +274,15 @@ REGISTER_TUNABLE("logmsg.epochms", "Show epochms in log-messages.  (Default: off
 /* User-level 2pc tunables */
 REGISTER_TUNABLE("enable_2pc", "Enable 2pc fdb transactions.  (Default: off)", TUNABLE_BOOLEAN, &gbl_2pc,
                  READONLY | NOARG, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("enable_2pc_ddl",
+                 "Make schema changes on generic-shard partitions 2pc distributed transactions; requires "
+                 "enable_2pc.  (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_2pc_ddl, READONLY | NOARG, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("disttxn_ddl_timeout_ms",
+                 "A 2pc schema change waits at most this many ms for the schema lock, then aborts, so that schema "
+                 "changes cannot wait on each other's schema locks forever; a prepared participant waits twice as "
+                 "long for its coordinator; 0 waits forever.  (Default: 120000)",
+                 TUNABLE_INTEGER, &gbl_disttxn_ddl_timeout_ms, 0, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("allow_coordinator",
                  "Set of dbname/tiers which can act as coordinator for this participant.  (Default: none)",
                  TUNABLE_STRING, &gbl_allowed_coordinators, READONLY, NULL, NULL, disttxn_allow_coordinator_set, NULL);
@@ -309,6 +318,9 @@ REGISTER_TUNABLE("wait_for_prepare_seqnum", "Wait-for-seqnum for prepare records
                  &gbl_wait_for_prepare_seqnum, 0, NULL, NULL, NULL, NULL);
 
 /* 2pc debug & test tunables */
+REGISTER_TUNABLE("debug_locked_internal_sql_delay_ms",
+                 "Sleep in a schema-locked internal read before it runs.  (Default: 0)", TUNABLE_INTEGER,
+                 &gbl_debug_locked_internal_sql_delay_ms, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("debug_disttxn_trace", "Print disttxn debug information.  (Default: off)", TUNABLE_BOOLEAN,
                  &gbl_debug_disttxn_trace, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("debug_fail_push_write_on_replay", "Fail pushed writes on the first N verify replays.  (Default: 0)",
@@ -324,6 +336,13 @@ REGISTER_TUNABLE("all_waitdie", "Enable waitdie for all transactions.  (Default:
 REGISTER_TUNABLE("debug_disable_waitdie_deadlock_detection", "Disable waitdie deadlock detection.  (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_debug_disable_waitdie_deadlock_detection, EXPERIMENTAL | INTERNAL, NULL, NULL,
                  NULL, NULL);
+REGISTER_TUNABLE(
+    "debug_remote_2pc_fault",
+    "Remote 2pc schema change faults, comma-separated: fail_prepare, fail_commit, fail_commit_wait, "
+    "fail_coordinator_commit, fail_finalize, exit_before_prepare, exit_before_voted, commit_during_upgrade, "
+    "sleep_before_lock:MS, fail_redo_finalize[:N], resumed_lock_desired[:N]; off clears them.  (Default: off)",
+    TUNABLE_STRING, &gbl_debug_remote_2pc_fault, EXPERIMENTAL | INTERNAL, NULL, NULL, debug_remote_2pc_fault_update,
+    NULL);
 REGISTER_TUNABLE("debug_exit_participant_after_prepare", "Participant exits after successful prepare.  (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_debug_exit_participant_after_prepare, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL,
                  NULL);
@@ -1817,11 +1836,6 @@ REGISTER_TUNABLE("abort_on_reconstruct_failure",
                  TUNABLE_BOOLEAN, &gbl_abort_on_reconstruct_failure,
                  EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
-REGISTER_TUNABLE("netconndumptime",
-                 "Dump connection statistics to ctrace this often.",
-                 TUNABLE_INTEGER, NULL, 0, netconndumptime_value, NULL, 
-                 netconndumptime_update, NULL);
-
 REGISTER_TUNABLE("timeseries_metrics_maxpoints",
                  "Maximum data points to keep in memory for various metrics",
                  TUNABLE_INTEGER, &gbl_metric_maxpoints, 0, NULL, NULL, NULL, NULL);
@@ -2290,6 +2304,12 @@ REGISTER_TUNABLE("protobuf_connectmsg", "Use protobuf in net library for the con
 
 REGISTER_TUNABLE("libevent_rte_only", "Prevent listening on TCP socket. (Default: off)",
                  TUNABLE_BOOLEAN, &gbl_libevent_rte_only, READONLY, 0, 0, 0, 0);
+REGISTER_TUNABLE("debug_net_rd_max_kb",
+                 "Testing: read-buffer limit in KB before a connection stops reading (0 = default)", TUNABLE_INTEGER,
+                 &gbl_debug_net_rd_max_kb, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("debug_net_resume_read_delay_ms",
+                 "Testing: delay resuming a paused read by this many ms, and trace it", TUNABLE_INTEGER,
+                 &gbl_debug_net_resume_read_delay_ms, EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
 
 REGISTER_TUNABLE("online_recovery",
                  "Don't get the bdb-writelock for recovery.  (Default: on)",

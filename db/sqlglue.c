@@ -109,8 +109,11 @@
 #include <sqlwriter.h>
 
 #include "views.h"
+#include <disttxn.h>
 
 int gbl_delay_sql_lock_release_sec = 5;
+/* Test hook: sleep in a schema-locked internal read before it runs */
+int gbl_debug_locked_internal_sql_delay_ms = 0;
 
 unsigned long long get_id(bdb_state_type *);
 static void unlock_bdb_cursors(struct sql_thread *thd, bdb_cursor_ifn_t *bdbcur, int *bdberr);
@@ -3381,7 +3384,34 @@ static int cursor_move_compressed(BtCursor *pCur, int *pRes, int how)
     return rc;
 }
 
+/* sqlite_master hides the tables of undecided 2pc schema changes */
+static int master_entry_pending(struct sql_thread *thd, int pos)
+{
+    const char *tblname = (pos >= 0 && pos < thd->rootpage_nentries) ? get_sqlite_entry_tblname(thd, pos) : NULL;
+    return tblname && disttxn_ddl_table_pending(tblname);
+}
+
+static int cursor_move_master_int(BtCursor *pCur, int *pRes, int how);
+
 static int cursor_move_master(BtCursor *pCur, int *pRes, int how)
+{
+    struct sql_thread *thd = pCur->thd;
+    int rc = cursor_move_master_int(pCur, pRes, how);
+    /* CLAST sets eof on the last entry it positions on: check that one too */
+    if (rc || *pRes || (pCur->eof && how != CLAST))
+        return rc;
+    while (rc == SQLITE_OK && !*pRes && (!pCur->eof || how == CLAST) && master_entry_pending(thd, pCur->tblpos)) {
+        rc = cursor_move_master_int(pCur, pRes, (how == CPREV || how == CLAST) ? CPREV : CNEXT);
+    }
+    /* stepped back off the first entry */
+    if (rc == SQLITE_OK && !*pRes && pCur->tblpos < 0) {
+        *pRes = 1;
+        pCur->eof = 1;
+    }
+    return rc;
+}
+
+static int cursor_move_master_int(BtCursor *pCur, int *pRes, int how)
 {
     /* skip preprop. if we're called from sqlite3_open_serial
      * and if peer_dropped_connection is true, we'll get NO SQL ENGINE and
@@ -8810,8 +8840,12 @@ static int sqlite3LockStmtTables_int(sqlite3_stmt *pStmt, int after_recovery)
         }
     }
 
-    if (nTables == 0)
+    if (nTables == 0) {
+        /* vtable-only statements still need pStmt for a failed recover_deadlock */
+        if (!after_recovery)
+            clnt->dbtran.pStmt = pStmt;
         return 0;
+    }
 
     /* sort and dedup */
     qsort(tbls, nTables, sizeof(Table *), tablenamecompare);
@@ -14372,14 +14406,14 @@ long long run_sql_return_ll(const char *sql, struct errstat *err)
     int rc;
 
     thd = start_sql_thread();
-    rc = run_sql_thd_return_ll(sql, thd, err);
+    rc = run_sql_thd_return_ll(sql, thd, NULL, err);
     done_sql_thread();
 
     return rc;
 }
 
-long long run_sql_thd_return_ll(const char *query, struct sql_thread *thd,
-                                struct errstat *err)
+/* if locktbl is set, read it under the schema lock with fresh rootpages */
+long long run_sql_thd_return_ll(const char *query, struct sql_thread *thd, const char *locktbl, struct errstat *err)
 {
     sqlite3 *sqldb;
     int rc;
@@ -14403,11 +14437,32 @@ long long run_sql_thd_return_ll(const char *query, struct sql_thread *thd,
         goto done;
     }
 
+    if (locktbl) {
+        /* bdb lock, then try-lock the schema lock like other sql: the deadlock
+         * detector can't see it */
+        for (int tries = 0; tryrdlock_schema_lk() != 0; tries++) {
+            if (tries >= 100 || db_is_exiting()) {
+                errstat_set_rcstrf(err, -1, "%s: schema lock busy", __func__);
+                goto cleanup;
+            }
+            poll(NULL, 0, 10);
+        }
+        /* Under the schema lock: sql_tick must not recover_deadlock */
+        clnt.in_sqlite_init = 1;
+        if ((rc = get_copy_rootpages_selectfire(thd, 1, &locktbl, NULL, NULL, 0)) != 0) {
+            errstat_set_rcstrf(err, -1, "%s: failed to get rootpages rc %d", __func__, rc);
+            goto cleanup;
+        }
+    }
+
     if ((rc = sqlite3_open_serial("db", &sqldb, NULL)) != 0) {
         errstat_set_rcstrf(err, -1, "%s:sqlite3_open_serial rc %d", __func__,
                            rc);
         goto cleanup;
     }
+
+    if (locktbl && gbl_debug_locked_internal_sql_delay_ms)
+        poll(NULL, 0, gbl_debug_locked_internal_sql_delay_ms);
 
     if ((rc = sqlite3_exec(sqldb, query, _some_callback, &ret, &msg)) != 0) {
         errstat_set_rcstrf(err, -1, "q:\"%.100s\" failed rc %d: \"%.50s\"",
@@ -14419,6 +14474,10 @@ long long run_sql_thd_return_ll(const char *query, struct sql_thread *thd,
         errstat_set_rcstrf(err, -1, "close rc %d\n", crc);
 
 cleanup:
+    if (clnt.in_sqlite_init) {
+        clnt.in_sqlite_init = 0;
+        unlock_schema_lk();
+    }
     crc = put_curtran(thedb->bdb_env, &clnt);
     if (crc && !rc)
         errstat_set_rcstrf(err, -1, "%s: failed to close curtran", __func__);
